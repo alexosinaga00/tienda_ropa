@@ -1,0 +1,807 @@
+[
+  {
+    "id": "CU-03", "nombre": "Gestionar usuarios, roles y permisos", "nombreEA": "Gestionar usuarios, roles y permisos",
+    "paquete": "seguridad", "actorEA": "Administrador", "actores": "Administrador", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Medio",
+    "descripcion": "Mantener las cuentas del personal, los roles y los permisos que cada rol concede.",
+    "proposito": "Permite al administrador crear y mantener las cuentas de usuario del sistema, definir roles y asignar a cada rol los permisos que habilitan las funciones del back office y de la aplicación.",
+    "pre": "Sesión de administrador con los permisos usuarios.gestionar y roles.gestionar.",
+    "flujo": [
+      "El administrador abre la gestión de usuarios y consulta el listado paginado.",
+      "Crea o edita un usuario (nombre, apellido, correo, teléfono y contraseña inicial).",
+      "El sistema valida que el correo no esté registrado y guarda la contraseña protegida con hash bcrypt.",
+      "El administrador asigna uno o más roles al usuario.",
+      "En la gestión de roles, crea o edita un rol y marca los permisos (por código) que concede.",
+      "Si corresponde, desactiva un usuario o un rol (borrado lógico)."
+    ],
+    "post": "El usuario y sus roles quedan registrados; los cambios de roles y permisos se aplican de inmediato, porque cada petición verifica los permisos leyéndolos desde la base de datos.",
+    "excepcion": [
+      "El correo ya está registrado: el sistema rechaza el guardado.",
+      "Se asigna un rol o un permiso inexistente: el sistema rechaza la asignación."
+    ],
+    "pantalla": "Web back office: /usuarios y /roles",
+    "include": ["Validar Correo No Registrado"], "extend": ["Rechazar Correo Duplicado de Usuario"],
+    "iu": {"nombre": "Pantalla Gestion de Usuarios y Roles",
+      "attrs": [["nombre","string"],["apellido","string"],["email","string"],["telefono","string"],["roles","list"],["permisos","list"]],
+      "ops": [["crearUsuario()","void"],["asignarRoles()","void"],["asignarPermisos()","void"],["desactivar()","void"]]},
+    "ctrl": {"nombre": "SeguridadService",
+      "ops": [["crearUsuario(UsuarioCrear)","Usuario"],["asignarRolesUsuario(int, list)","Usuario"],["asignarPermisosRol(int, list)","Rol"],["desactivarUsuario(int)","Usuario"]]},
+    "ents": [
+      {"nombre": "Usuario", "attrs": [["id","int"],["nombre","string"],["apellido","string"],["email","string"],["telefono","string"],["passwordHash","string"],["activo","boolean"],["creadoEn","datetime"]], "ops": [["crear(UsuarioCrear)","Usuario"]]},
+      {"nombre": "Rol", "attrs": [["id","int"],["nombre","string"],["descripcion","string"],["activo","boolean"]], "ops": [["asignarPermisos(list)","Rol"]]},
+      {"nombre": "Permiso", "attrs": [["id","int"],["codigo","string"],["modulo","string"],["descripcion","string"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: gestionarUsuarios(datos)"],
+      ["IU","C","2: crearUsuario(datos) / 4: asignarRolesUsuario(id, roles) / 6: asignarPermisosRol(id, codigos) / 8: usuarioActualizado()"],
+      ["C","E0","3: crear()"],
+      ["C","E1","5: obtenerRoles(nombres)"],
+      ["C","E2","7: obtenerPermisos(codigos)"]
+    ],
+    "seq": [
+      ["A","IU","gestionarUsuarios()",0],
+      ["IU","C","crearUsuario(datos)",0],
+      ["C","E0","crear()",0],
+      ["E0","C","usuario",1],
+      ["IU","C","asignarRolesUsuario(id, roles)",0],
+      ["C","E1","obtenerRoles(nombres)",0],
+      ["E1","C","roles",1],
+      ["IU","C","asignarPermisosRol(idRol, codigos)",0],
+      ["C","E2","obtenerPermisos(codigos)",0],
+      ["E2","C","permisos",1],
+      ["C","IU","usuario y rol actualizados",1]
+    ]
+  },
+  {
+    "id": "CU-04", "nombre": "Gestionar ciudades", "nombreEA": "Gestionar ciudades",
+    "paquete": "organizacion", "actorEA": "Administrador", "actores": "Administrador", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Mantener las ciudades donde opera la cadena de tiendas.",
+    "proposito": "Permite al administrador mantener el catálogo de ciudades en las que la cadena tiene o tendrá sucursales.",
+    "pre": "Sesión de administrador con el permiso organizacion.gestionar.",
+    "flujo": [
+      "El administrador abre la gestión de ciudades y consulta el listado.",
+      "Crea o edita una ciudad indicando nombre y departamento.",
+      "El sistema valida que no exista otra ciudad con el mismo nombre en el mismo departamento.",
+      "El sistema guarda el cambio.",
+      "Si corresponde, el administrador desactiva la ciudad (borrado lógico)."
+    ],
+    "post": "La ciudad queda disponible para asociarle sucursales.",
+    "excepcion": [
+      "Ya existe una ciudad con el mismo nombre y departamento: el sistema rechaza el guardado."
+    ],
+    "pantalla": "Web back office: /ciudades",
+    "include": ["Validar Ciudad No Repetida"], "extend": ["Rechazar Ciudad Duplicada"],
+    "iu": {"nombre": "Pantalla Gestion de Ciudades",
+      "attrs": [["nombre","string"],["departamento","string"]],
+      "ops": [["crearCiudad()","void"],["editarCiudad()","void"],["desactivarCiudad()","void"]]},
+    "ctrl": {"nombre": "OrganizacionService",
+      "ops": [["listarCiudades(Paginacion)","list"],["crearCiudad(CiudadCrear)","Ciudad"],["actualizarCiudad(int, CiudadActualizar)","Ciudad"],["desactivarCiudad(int)","Ciudad"]]},
+    "ents": [
+      {"nombre": "Ciudad", "attrs": [["id","int"],["nombre","string"],["departamento","string"],["activo","boolean"]], "ops": [["crear(CiudadCrear)","Ciudad"]]}
+    ],
+    "com": [
+      ["A","IU","1: gestionarCiudades(datos)"],
+      ["IU","C","2: crearCiudad(nombre, departamento) / 4: ciudadGuardada()"],
+      ["C","E0","3: crear()"]
+    ],
+    "seq": [
+      ["A","IU","gestionarCiudades()",0],
+      ["IU","C","crearCiudad(nombre, departamento)",0],
+      ["C","E0","crear()",0],
+      ["E0","C","ciudad",1],
+      ["C","IU","ciudad creada",1]
+    ]
+  },
+  {
+    "id": "CU-06", "nombre": "Gestionar empleados y asignarlos a sucursal", "nombreEA": "Gestionar empleados y asignarlos a sucursal",
+    "paquete": "organizacion", "actorEA": "Administrador", "actores": "Administrador", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Registrar al personal, vincularlo con su usuario y asignarlo a una sucursal.",
+    "proposito": "Permite al administrador registrar al personal de la cadena (encargados y cajeros), vincular cada empleado con su cuenta de usuario y asignarlo a la sucursal donde trabaja.",
+    "pre": "Sesión de administrador; existen el usuario del empleado (CU-03) y la sucursal (CU-05).",
+    "flujo": [
+      "El administrador abre la gestión de empleados y consulta el listado.",
+      "Crea o edita un empleado: selecciona el usuario, la sucursal, el cargo y el CI.",
+      "El sistema valida que el usuario no esté ya registrado como empleado.",
+      "El sistema guarda el empleado asignado a la sucursal.",
+      "Si corresponde, el administrador desactiva al empleado (borrado lógico)."
+    ],
+    "post": "El empleado queda asignado a su sucursal; las reservas, ventas y recepciones que registre se asocian a esa sucursal.",
+    "excepcion": [
+      "El usuario ya es empleado: el sistema rechaza el registro.",
+      "La sucursal indicada no existe o está inactiva: el sistema rechaza el guardado."
+    ],
+    "pantalla": "Web back office: /empleados",
+    "include": ["Validar Usuario No Asignado"], "extend": ["Rechazar Usuario Ya Empleado"],
+    "iu": {"nombre": "Pantalla Gestion de Empleados",
+      "attrs": [["usuarioId","int"],["sucursalId","int"],["cargo","string"],["ci","string"]],
+      "ops": [["crearEmpleado()","void"],["reasignarSucursal()","void"],["desactivarEmpleado()","void"]]},
+    "ctrl": {"nombre": "OrganizacionService",
+      "ops": [["crearEmpleado(EmpleadoCrear)","Empleado"],["actualizarEmpleado(int, EmpleadoActualizar)","Empleado"],["desactivarEmpleado(int)","Empleado"]]},
+    "ents": [
+      {"nombre": "Empleado", "attrs": [["id","int"],["usuarioId","int"],["sucursalId","int"],["ci","string"],["cargo","string"],["activo","boolean"]], "ops": [["crear(EmpleadoCrear)","Empleado"]]},
+      {"nombre": "Usuario", "attrs": [["id","int"],["nombre","string"],["email","string"],["activo","boolean"]], "ops": []},
+      {"nombre": "Sucursal", "attrs": [["id","int"],["nombre","string"],["activo","boolean"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: gestionarEmpleados(datos)"],
+      ["IU","C","2: crearEmpleado(usuario, sucursal, cargo) / 6: empleadoAsignado()"],
+      ["C","E1","3: obtenerUsuario(id)"],
+      ["C","E2","4: obtenerSucursal(id)"],
+      ["C","E0","5: crear()"]
+    ],
+    "seq": [
+      ["A","IU","gestionarEmpleados()",0],
+      ["IU","C","crearEmpleado(usuarioId, sucursalId, cargo)",0],
+      ["C","E1","obtenerUsuario(usuarioId)",0],
+      ["E1","C","usuario",1],
+      ["C","E2","obtenerSucursal(sucursalId)",0],
+      ["E2","C","sucursal",1],
+      ["C","E0","crear()",0],
+      ["E0","C","empleado",1],
+      ["C","IU","empleado asignado",1]
+    ]
+  },
+  {
+    "id": "CU-10", "nombre": "Buscar y filtrar prendas", "nombreEA": "Buscar y filtrar prendas",
+    "paquete": "catalogo", "actorEA": "Cliente", "actores": "Cliente", "iniciador": "Cliente",
+    "plataforma": "Web y App móvil", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Encontrar prendas por texto y por atributos (categoría, talla, color, material, temporada, género, precio).",
+    "proposito": "Permite al cliente encontrar prendas escribiendo un texto y combinando filtros por categoría, talla, color, material, temporada, género y rango de precio, con o sin sesión iniciada.",
+    "pre": "Ninguna (accesible sin sesión).",
+    "flujo": [
+      "El cliente escribe un texto de búsqueda o abre el panel de filtros desde el catálogo.",
+      "Selecciona uno o más filtros (categoría, talla, color, material, temporada, género, precio mínimo y máximo).",
+      "El sistema busca productos activos que coincidan con el texto y con todos los filtros elegidos.",
+      "El sistema devuelve los resultados paginados con su imagen principal y precio.",
+      "El cliente abre el detalle de una prenda (CU-09) o ajusta los filtros."
+    ],
+    "post": "El cliente visualiza las prendas que cumplen su búsqueda.",
+    "excepcion": [
+      "Ninguna prenda coincide con la búsqueda: el sistema muestra un estado vacío y sugiere quitar filtros.",
+      "Se superan las consultas permitidas por minuto: el sistema pide reintentar en unos segundos."
+    ],
+    "pantalla": "App móvil: catálogo y panel de filtros; Web: /catalogo (búsqueda por texto y categoría)",
+    "include": ["Aplicar Filtros de Busqueda"], "extend": ["Mostrar Busqueda Sin Resultados"],
+    "iu": {"nombre": "Pantalla Busqueda y Filtros",
+      "attrs": [["texto","string"],["categoriaId","int"],["tallaId","int"],["colorId","int"],["materialId","int"],["temporadaId","int"],["genero","string"],["precioMin","decimal"],["precioMax","decimal"]],
+      "ops": [["buscar()","void"],["aplicarFiltros()","void"],["limpiarFiltros()","void"]]},
+    "ctrl": {"nombre": "CatalogoService",
+      "ops": [["buscarCatalogo(filtros, Paginacion)","list"],["listarValoresReferencia()","dict"]]},
+    "ents": [
+      {"nombre": "Producto", "attrs": [["id","int"],["nombre","string"],["genero","string"],["precioBase","decimal"],["activo","boolean"]], "ops": [["buscar(filtros)","list"]]},
+      {"nombre": "ProductoVariante", "attrs": [["id","int"],["tallaId","int"],["colorId","int"],["precio","decimal"],["activo","boolean"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: buscarPrendas(texto, filtros)"],
+      ["IU","C","2: buscarCatalogo(filtros) / 5: resultados()"],
+      ["C","E0","3: buscar(filtros)"],
+      ["E0","E1","4: filtrarVariantes(talla, color)"]
+    ],
+    "seq": [
+      ["A","IU","buscarPrendas(texto, filtros)",0],
+      ["IU","C","buscarCatalogo(filtros, pagina)",0],
+      ["C","E0","buscar(texto, categoria, temporada, genero, precio)",0],
+      ["E0","E1","filtrarVariantes(talla, color, material)",0],
+      ["E1","E0","variantes",1],
+      ["E0","C","productos",1],
+      ["C","IU","resultados paginados",1]
+    ]
+  },
+  {
+    "id": "CU-11", "nombre": "Gestionar proveedores", "nombreEA": "Gestionar proveedores",
+    "paquete": "abastecimiento", "actorEA": "Administrador", "actores": "Administrador (Proveedor como actor pasivo)", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Mantener proveedores y los productos que abastece cada uno.",
+    "proposito": "Permite al administrador registrar a los proveedores de ropa y asociar a cada uno los productos que provee, con su costo referencial y días de entrega.",
+    "pre": "Sesión con el permiso abastecimiento.gestionar; los productos a asociar existen (CU-08).",
+    "flujo": [
+      "El administrador abre la gestión de proveedores y consulta el listado.",
+      "Crea o edita un proveedor (nombre, NIT, contacto, teléfono, correo, dirección).",
+      "El sistema valida que el NIT no esté registrado y guarda el proveedor.",
+      "El administrador asocia productos al proveedor indicando costo referencial y días de entrega.",
+      "Si corresponde, quita un producto asociado o desactiva al proveedor (borrado lógico)."
+    ],
+    "post": "El proveedor queda activo con sus productos asociados, disponible para registrar recepciones de mercadería.",
+    "excepcion": [
+      "El NIT ya pertenece a otro proveedor: el sistema rechaza el guardado.",
+      "El producto ya está asociado al proveedor: el sistema rechaza la asociación duplicada."
+    ],
+    "pantalla": "Web back office: /proveedores",
+    "include": ["Validar NIT No Registrado"], "extend": ["Asociar Productos al Proveedor"],
+    "iu": {"nombre": "Pantalla Gestion de Proveedores",
+      "attrs": [["nombre","string"],["nit","string"],["contacto","string"],["telefono","string"],["email","string"],["direccion","string"]],
+      "ops": [["crearProveedor()","void"],["asociarProducto()","void"],["desactivarProveedor()","void"]]},
+    "ctrl": {"nombre": "AbastecimientoService",
+      "ops": [["crearProveedor(ProveedorCrear)","Proveedor"],["actualizarProveedor(int, ProveedorActualizar)","Proveedor"],["agregarProductoProveedor(int, int, costo, dias)","ProductoProveedor"],["desactivarProveedor(int)","Proveedor"]]},
+    "ents": [
+      {"nombre": "Proveedor", "attrs": [["id","int"],["nombre","string"],["nit","string"],["contacto","string"],["telefono","string"],["email","string"],["direccion","string"],["activo","boolean"],["creadoEn","datetime"]], "ops": [["crear(ProveedorCrear)","Proveedor"]]},
+      {"nombre": "ProductoProveedor", "attrs": [["proveedorId","int"],["productoId","int"],["costoReferencial","decimal"],["diasEntrega","int"]], "ops": [["crear()","ProductoProveedor"]]}
+    ],
+    "com": [
+      ["A","IU","1: gestionarProveedores(datos)"],
+      ["IU","C","2: crearProveedor(datos) / 4: agregarProductoProveedor(producto, costo) / 6: proveedorActualizado()"],
+      ["C","E0","3: crear()"],
+      ["C","E1","5: crear()"]
+    ],
+    "seq": [
+      ["A","IU","gestionarProveedores()",0],
+      ["IU","C","crearProveedor(datos)",0],
+      ["C","E0","crear()",0],
+      ["E0","C","proveedor",1],
+      ["IU","C","agregarProductoProveedor(proveedorId, productoId, costo, dias)",0],
+      ["C","E1","crear()",0],
+      ["E1","C","asociacion",1],
+      ["C","IU","proveedor actualizado",1]
+    ]
+  },
+  {
+    "id": "CU-12", "nombre": "Registrar recepción de mercadería", "nombreEA": "Registrar recepcion de mercaderia",
+    "paquete": "abastecimiento", "actorEA": "Administrador", "actores": "Administrador", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Alto",
+    "descripcion": "Ingresar al stock de una sucursal la mercadería recibida de un proveedor, con su costo.",
+    "proposito": "Permite registrar la mercadería que llega de un proveedor a una sucursal, ingresándola al inventario con su costo unitario y recalculando el costo promedio ponderado.",
+    "pre": "Sesión con el permiso abastecimiento.gestionar; el proveedor (CU-11), la sucursal y las variantes existen.",
+    "flujo": [
+      "El administrador abre la recepción de mercadería en el inventario.",
+      "Selecciona proveedor y sucursal y, opcionalmente, la orden de compra que se recibe.",
+      "Agrega las variantes recibidas con su cantidad y costo unitario.",
+      "El sistema registra la recepción y, por cada línea, un movimiento de inventario de tipo «recepción» («include» Registrar Movimiento de Ingreso).",
+      "El sistema recalcula el costo promedio ponderado del stock y, si había orden de compra, actualiza su estado.",
+      "Todo se confirma en una sola transacción."
+    ],
+    "post": "El stock físico de la sucursal aumenta, el costo promedio queda actualizado y la recepción queda trazada en el kardex.",
+    "excepcion": [
+      "La orden de compra no está en estado «enviada» o «parcial»: el sistema rechaza la recepción.",
+      "Alguna línea es inválida (variante inexistente o cantidad no positiva): el sistema no aplica ninguna línea."
+    ],
+    "pantalla": "Web back office: /inventario, pestaña Recepción",
+    "include": ["Registrar Movimiento de Ingreso"], "extend": ["Actualizar Estado de Orden de Compra"],
+    "iu": {"nombre": "Pantalla Recepcion de Mercaderia",
+      "attrs": [["proveedorId","int"],["sucursalId","int"],["ordenCompraId","int"],["lineas","list"]],
+      "ops": [["agregarLinea()","void"],["registrarRecepcion()","void"]]},
+    "ctrl": {"nombre": "AbastecimientoService",
+      "ops": [["crearRecepcion(RecepcionCrear)","Recepcion"],["actualizarEstadoOrden(OrdenCompra)","void"]]},
+    "ctrl2": {"nombre": "InventarioService",
+      "ops": [["registrarMovimiento(variante, sucursal, tipo, cantidad, costo)","MovimientoInventario"]]},
+    "ents": [
+      {"nombre": "Recepcion", "attrs": [["id","int"],["codigo","string"],["ordenCompraId","int"],["proveedorId","int"],["sucursalId","int"],["empleadoId","int"],["fecha","datetime"],["observacion","string"]], "ops": [["crear()","Recepcion"]]},
+      {"nombre": "RecepcionDetalle", "attrs": [["id","int"],["recepcionId","int"],["varianteId","int"],["cantidad","int"],["costoUnitario","decimal"]], "ops": []},
+      {"nombre": "Stock", "attrs": [["id","int"],["varianteId","int"],["sucursalId","int"],["cantidadFisica","int"],["cantidadReservada","int"],["costoPromedio","decimal"]], "ops": [["aplicarMovimiento()","Stock"]]}
+    ],
+    "com": [
+      ["A","IU","1: registrarRecepcion(proveedor, sucursal, lineas)"],
+      ["IU","C","2: crearRecepcion(datos) / 7: recepcionRegistrada()"],
+      ["C","E0","3: crear()"],
+      ["C","E1","4: agregarLinea()"],
+      ["C","C2","5: registrarMovimiento(recepcion)"],
+      ["C2","E2","6: bloquearYActualizarCostoPromedio()"]
+    ],
+    "seq": [
+      ["A","IU","registrarRecepcion()",0],
+      ["IU","C","crearRecepcion(proveedor, sucursal, lineas)",0],
+      ["C","E0","crear()",0],
+      ["E0","C","recepcion",1],
+      ["C","E1","crear(variante, cantidad, costo)",0],
+      ["C","C2","registrarMovimiento(tipo=recepcion, commit=False)",0],
+      ["C2","E2","obtenerOCrearBloqueado()",0],
+      ["E2","C2","stock",1],
+      ["C2","E2","actualizar(fisica, costoPromedio)",0],
+      ["C2","C","movimiento",1],
+      ["C","IU","recepcion registrada",1]
+    ]
+  },
+  {
+    "id": "CU-14", "nombre": "Consultar inventario global", "nombreEA": "Consultar inventario global",
+    "paquete": "inventario", "actorEA": "Administrador", "actores": "Administrador, Encargado de sucursal", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Medio",
+    "descripcion": "Ver las existencias consolidadas de todas las sucursales: física, reservada y disponible.",
+    "proposito": "Permite consultar la información consolidada de existencias de todas las sucursales: cantidad física, reservada y disponible por variante, con alertas de stock mínimo y valuación a costo promedio.",
+    "pre": "Sesión con el permiso inventario.ver.",
+    "flujo": [
+      "El usuario abre el inventario en la pestaña Consolidado.",
+      "Opcionalmente filtra por sucursal o por producto.",
+      "El sistema consulta la vista consolidada (vw_inventario_consolidado) y muestra, por variante y sucursal, las cantidades física, reservada y disponible.",
+      "El usuario puede pasar a las pestañas Alertas (variantes bajo el mínimo) y Valuación (stock por costo promedio)."
+    ],
+    "post": "El usuario conoce qué prendas están disponibles, reservadas o agotadas en cada sucursal.",
+    "excepcion": [
+      "No hay stock registrado para el filtro elegido: el sistema muestra la tabla vacía."
+    ],
+    "pantalla": "Web back office: /inventario, pestañas Consolidado, Alertas y Valuación",
+    "include": ["Consultar Vista Consolidada"], "extend": ["Consultar Alertas de Reposicion"],
+    "iu": {"nombre": "Pantalla Inventario Consolidado",
+      "attrs": [["sucursalId","int"],["productoId","int"],["filas","list"]],
+      "ops": [["consultarConsolidado()","void"],["verAlertas()","void"],["verValuacion()","void"]]},
+    "ctrl": {"nombre": "InventarioService",
+      "ops": [["listarConsolidado(sucursalId, productoId)","list"],["listarAlertas(sucursalId)","list"],["listarValuacion(sucursalId)","list"]]},
+    "ents": [
+      {"nombre": "Stock", "attrs": [["varianteId","int"],["sucursalId","int"],["cantidadFisica","int"],["cantidadReservada","int"],["cantidadDisponible","int"],["stockMinimo","int"],["stockMaximo","int"],["costoPromedio","decimal"]], "ops": [["consultarConsolidado()","list"]]}
+    ],
+    "com": [
+      ["A","IU","1: consultarInventario(filtros)"],
+      ["IU","C","2: listarConsolidado(sucursal, producto) / 4: listarAlertas() / 5: existencias()"],
+      ["C","E0","3: consultarConsolidado()"]
+    ],
+    "seq": [
+      ["A","IU","consultarInventario(filtros)",0],
+      ["IU","C","listarConsolidado(sucursalId, productoId)",0],
+      ["C","E0","consultarConsolidado()",0],
+      ["E0","C","filas",1],
+      ["C","IU","existencias por sucursal",1],
+      ["A","IU","verAlertas()",0],
+      ["IU","C","listarAlertas(sucursalId)",0],
+      ["C","E0","filtrarBajoMinimo()",0],
+      ["E0","C","alertas",1],
+      ["C","IU","alertas de reposicion",1]
+    ]
+  },
+  {
+    "id": "CU-15", "nombre": "Registrar movimiento de inventario", "nombreEA": "Registrar movimiento de inventario",
+    "paquete": "inventario", "actorEA": "Encargado de sucursal", "actores": "Encargado de sucursal, Administrador", "iniciador": "Encargado de sucursal",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Alto",
+    "descripcion": "Registrar ajustes y transferencias de stock entre sucursales, con trazabilidad en el kardex.",
+    "proposito": "Permite al encargado registrar los movimientos de inventario que no provienen de una venta o recepción: ajustes por diferencia física y transferencias entre sucursales, dejando trazabilidad en el kardex.",
+    "pre": "Sesión con el permiso inventario.gestionar; la variante y la sucursal existen.",
+    "flujo": [
+      "El encargado abre el inventario y elige registrar un ajuste o una transferencia.",
+      "Ajuste: indica variante, sucursal, cantidad (positiva = sobrante, negativa = faltante) y observación.",
+      "Transferencia: indica sucursal de origen, sucursal de destino y las variantes con sus cantidades; luego la envía y la sucursal destino la recibe.",
+      "El sistema bloquea la fila de stock (SELECT FOR UPDATE), valida las invariantes y registra el movimiento con su saldo posterior.",
+      "El sistema muestra el movimiento en el kardex de la variante."
+    ],
+    "post": "El stock de la sucursal queda actualizado y el movimiento queda registrado en el kardex con usuario, fecha y saldo resultante.",
+    "excepcion": [
+      "El movimiento dejaría el stock físico en negativo o reservado sin respaldo físico: el sistema lo rechaza.",
+      "La transferencia tiene la misma sucursal de origen y destino, o no está en el estado adecuado para enviarse o recibirse: el sistema la rechaza."
+    ],
+    "pantalla": "Web back office: /inventario, pestañas Kardex y Transferencias, diálogo Ajustar stock",
+    "include": ["Validar Stock No Negativo"], "extend": ["Transferir Stock entre Sucursales"],
+    "iu": {"nombre": "Pantalla Movimientos de Inventario",
+      "attrs": [["varianteId","int"],["sucursalId","int"],["cantidad","int"],["observacion","string"],["sucursalDestinoId","int"]],
+      "ops": [["registrarAjuste()","void"],["crearTransferencia()","void"],["verKardex()","void"]]},
+    "ctrl": {"nombre": "InventarioService",
+      "ops": [["registrarAjuste(variante, sucursal, cantidad)","MovimientoInventario"],["registrarMovimiento(...)","MovimientoInventario"],["crearTransferencia(TransferenciaCrear)","Transferencia"],["listarKardex(variante, sucursal)","list"]]},
+    "ents": [
+      {"nombre": "MovimientoInventario", "attrs": [["id","int"],["varianteId","int"],["sucursalId","int"],["tipoMovimientoId","int"],["cantidad","int"],["costoUnitario","decimal"],["saldoPost","int"],["usuarioId","int"],["observacion","string"],["creadoEn","datetime"]], "ops": [["crear()","MovimientoInventario"]]},
+      {"nombre": "Stock", "attrs": [["id","int"],["cantidadFisica","int"],["cantidadReservada","int"],["cantidadDisponible","int"]], "ops": [["obtenerBloqueado()","Stock"]]},
+      {"nombre": "TipoMovimiento", "attrs": [["id","int"],["codigo","string"],["nombre","string"],["signo","int"],["afectaCosto","boolean"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: registrarAjuste(variante, cantidad)"],
+      ["IU","C","2: registrarAjuste(datos) / 7: movimientoRegistrado()"],
+      ["C","E2","3: obtenerTipo(ajuste_positivo | ajuste_negativo)"],
+      ["C","E1","4: obtenerBloqueado() / 5: actualizarSaldo()"],
+      ["C","E0","6: crear()"]
+    ],
+    "seq": [
+      ["A","IU","registrarAjuste(variante, sucursal, cantidad)",0],
+      ["IU","C","registrarAjuste(datos)",0],
+      ["C","E2","obtenerPorCodigo(ajuste)",0],
+      ["E2","C","tipo",1],
+      ["C","E1","obtenerOCrearBloqueado()",0],
+      ["E1","C","stock",1],
+      ["C","E1","actualizar(cantidadFisica)",0],
+      ["C","E0","crear(saldoPost)",0],
+      ["E0","C","movimiento",1],
+      ["C","IU","movimiento registrado",1]
+    ]
+  },
+  {
+    "id": "CU-17", "nombre": "Consultar estado de reserva", "nombreEA": "Consultar estado de reserva",
+    "paquete": "reservas", "actorEA": "Cliente", "actores": "Cliente", "iniciador": "Cliente",
+    "plataforma": "Web y App móvil", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Ver las reservas propias, su estado y el detalle de las prendas reservadas.",
+    "proposito": "Permite al cliente consultar sus reservas, el estado en que se encuentra cada una y el detalle de las prendas reservadas.",
+    "pre": "El cliente tiene sesión iniciada.",
+    "flujo": [
+      "El cliente abre «Mis reservas».",
+      "El sistema lista las reservas del cliente con código, sucursal, fecha de visita y estado.",
+      "El cliente abre una reserva.",
+      "El sistema verifica que la reserva le pertenezca y muestra su detalle: sucursal, fecha y franja de visita, prendas reservadas y estado actual."
+    ],
+    "post": "El cliente conoce el estado de su reserva (pendiente, preparada, en prueba, completada, cancelada o expirada).",
+    "excepcion": [
+      "La reserva no pertenece al cliente: el sistema deniega el acceso.",
+      "El cliente no tiene reservas: el sistema muestra un estado vacío."
+    ],
+    "pantalla": "App móvil: /reservas y /reserva/:id; Web: /mis-reservas",
+    "include": ["Validar Propietario de la Reserva"], "extend": ["Mostrar Estado Vacio sin Reservas"],
+    "iu": {"nombre": "Pantalla Mis Reservas",
+      "attrs": [["reservas","list"],["reservaSeleccionada","Reserva"]],
+      "ops": [["listarMisReservas()","void"],["verDetalle()","void"]]},
+    "ctrl": {"nombre": "ReservasService",
+      "ops": [["listarMisReservas(usuarioId)","list"],["obtenerReserva(reservaId, usuarioId)","Reserva"]]},
+    "ents": [
+      {"nombre": "Reserva", "attrs": [["id","int"],["codigo","string"],["clienteId","int"],["sucursalId","int"],["estadoId","int"],["fechaVisita","date"],["horaVisitaDesde","time"],["horaVisitaHasta","time"],["fechaExpiracion","datetime"]], "ops": [["listarPorCliente(int)","list"]]},
+      {"nombre": "ReservaDetalle", "attrs": [["id","int"],["varianteId","int"],["cantidad","int"],["seleccionada","boolean"],["preparada","boolean"]], "ops": []},
+      {"nombre": "EstadoReserva", "attrs": [["id","int"],["codigo","string"],["nombre","string"],["esFinal","boolean"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: consultarMisReservas()"],
+      ["IU","C","2: listarMisReservas(usuario) / 4: obtenerReserva(id) / 7: detalleReserva()"],
+      ["C","E0","3: listarPorCliente() / 5: obtener(id)"],
+      ["E0","E1","6: obtenerDetalle()"],
+      ["E0","E2","estado()"]
+    ],
+    "seq": [
+      ["A","IU","consultarMisReservas()",0],
+      ["IU","C","listarMisReservas(usuarioId)",0],
+      ["C","E0","listarPorCliente(clienteId)",0],
+      ["E0","C","reservas",1],
+      ["C","IU","lista de reservas",1],
+      ["A","IU","verDetalle(reservaId)",0],
+      ["IU","C","obtenerReserva(reservaId, usuarioId)",0],
+      ["C","E0","obtener(reservaId)",0],
+      ["E0","E1","obtenerDetalle()",0],
+      ["E1","E0","prendas",1],
+      ["E0","C","reserva",1],
+      ["C","IU","detalle y estado",1]
+    ]
+  },
+  {
+    "id": "CU-18", "nombre": "Cancelar reserva", "nombreEA": "Cancelar reserva",
+    "paquete": "reservas", "actorEA": "Cliente", "actores": "Cliente (también el personal de la sucursal)", "iniciador": "Cliente",
+    "plataforma": "Web y App móvil", "prioridad": "Alta", "riesgo": "Medio",
+    "descripcion": "Anular una reserva todavía no atendida y liberar el stock reservado.",
+    "proposito": "Permite al cliente anular una reserva que todavía no fue atendida, devolviendo al stock disponible las unidades que tenía bloqueadas.",
+    "pre": "El cliente tiene sesión y existe una reserva propia en estado pendiente o preparada.",
+    "flujo": [
+      "El cliente abre el detalle de la reserva y elige «Cancelar».",
+      "El sistema verifica que la reserva pertenezca al cliente (o que quien cancela sea personal).",
+      "El sistema verifica que el estado permita la cancelación (pendiente o preparada).",
+      "Por cada prenda, el sistema libera la cantidad reservada en el stock de la sucursal.",
+      "El sistema cambia la reserva a «cancelada» y registra el cambio en su historial."
+    ],
+    "post": "La reserva queda cancelada y las unidades vuelven a estar disponibles para otros clientes.",
+    "excepcion": [
+      "La reserva está en prueba, completada, expirada o ya cancelada: el sistema rechaza la cancelación.",
+      "La reserva no pertenece al cliente: el sistema deniega la operación."
+    ],
+    "pantalla": "App móvil: /reserva/:id; Web: /mis-reservas/:id (botón Cancelar)",
+    "include": ["Liberar Stock Reservado"], "extend": ["Rechazar Cancelacion por Estado"],
+    "iu": {"nombre": "Pantalla Detalle de Reserva",
+      "attrs": [["reservaId","int"],["estado","string"]],
+      "ops": [["cancelarReserva()","void"]]},
+    "ctrl": {"nombre": "ReservasService",
+      "ops": [["cancelarReserva(reservaId, usuarioId)","Reserva"],["transicionar(reserva, codigo)","void"]]},
+    "ctrl2": {"nombre": "InventarioService",
+      "ops": [["liberarStock(variante, sucursal, cantidad)","Stock"]]},
+    "ents": [
+      {"nombre": "Reserva", "attrs": [["id","int"],["codigo","string"],["estadoId","int"],["sucursalId","int"]], "ops": [["cambiarEstado(codigo)","Reserva"]]},
+      {"nombre": "ReservaHistorial", "attrs": [["id","int"],["reservaId","int"],["estadoId","int"],["usuarioId","int"],["comentario","string"],["creadoEn","datetime"]], "ops": [["crear()","ReservaHistorial"]]},
+      {"nombre": "Stock", "attrs": [["id","int"],["cantidadFisica","int"],["cantidadReservada","int"],["cantidadDisponible","int"]], "ops": [["liberar(cantidad)","Stock"]]}
+    ],
+    "com": [
+      ["A","IU","1: cancelarReserva(id)"],
+      ["IU","C","2: cancelarReserva(id, usuario) / 7: reservaCancelada()"],
+      ["C","E0","3: obtener(id) / 5: cambiarEstado(cancelada)"],
+      ["C","C2","4: liberarStock(variante, sucursal, cantidad)"],
+      ["C2","E2","liberar(cantidad)"],
+      ["C","E1","6: registrarHistorial()"]
+    ],
+    "seq": [
+      ["A","IU","cancelarReserva(reservaId)",0],
+      ["IU","C","cancelarReserva(reservaId, usuarioId)",0],
+      ["C","E0","obtener(reservaId)",0],
+      ["E0","C","reserva (pendiente | preparada)",1],
+      ["C","C2","liberarStock(variante, sucursal, cantidad)",0],
+      ["C2","E2","liberar(cantidad)",0],
+      ["E2","C2","stock",1],
+      ["C2","C","ok",1],
+      ["C","E0","cambiarEstado(cancelada)",0],
+      ["C","E1","crear(estado=cancelada)",0],
+      ["C","IU","reserva cancelada",1]
+    ]
+  },
+  {
+    "id": "CU-19", "nombre": "Consultar reservas de la sucursal", "nombreEA": "Consultar reservas de la sucursal",
+    "paquete": "reservas", "actorEA": "Encargado de sucursal", "actores": "Encargado de sucursal", "iniciador": "Encargado de sucursal",
+    "plataforma": "Web (back office)", "prioridad": "Alta", "riesgo": "Bajo",
+    "descripcion": "Ver las reservas recibidas por la sucursal para organizar su preparación y atención.",
+    "proposito": "Permite al encargado ver las reservas recibidas por su sucursal, ordenadas por fecha de visita, para organizar su preparación y atención (CU-20).",
+    "pre": "Sesión con el permiso reservas.gestionar_sucursal.",
+    "flujo": [
+      "El encargado abre el panel de reservas.",
+      "El sistema carga la lista de sucursales y el encargado elige la suya.",
+      "El sistema lista las reservas de esa sucursal con su código, fecha y franja de visita, y estado.",
+      "El encargado filtra por fecha o estado y abre una reserva para ver su detalle.",
+      "Desde el detalle, puede iniciar la atención de la reserva (CU-20)."
+    ],
+    "post": "El encargado conoce las reservas pendientes, preparadas y en prueba de su sucursal.",
+    "excepcion": [
+      "La sucursal no tiene reservas para el filtro elegido: el sistema muestra un estado vacío.",
+      "El usuario no tiene el permiso de gestión de la sucursal: el sistema deniega el acceso."
+    ],
+    "pantalla": "Web back office: /reservas",
+    "include": ["Seleccionar Sucursal"], "extend": ["Atender Reserva Seleccionada"],
+    "iu": {"nombre": "Pantalla Panel de Reservas de Sucursal",
+      "attrs": [["sucursalId","int"],["filtroFecha","date"],["filtroEstado","string"],["reservas","list"]],
+      "ops": [["elegirSucursal()","void"],["filtrar()","void"],["abrirReserva()","void"]]},
+    "ctrl": {"nombre": "ReservasService",
+      "ops": [["listarReservasSucursal(sucursalId)","list"],["obtenerReserva(reservaId, usuarioId)","Reserva"]]},
+    "ctrl2": {"nombre": "OrganizacionService",
+      "ops": [["listarSucursales(Paginacion)","list"]]},
+    "ents": [
+      {"nombre": "Reserva", "attrs": [["id","int"],["codigo","string"],["clienteId","int"],["sucursalId","int"],["estadoId","int"],["fechaVisita","date"],["horaVisitaDesde","time"],["horaVisitaHasta","time"]], "ops": [["listarPorSucursal(int)","list"]]},
+      {"nombre": "Sucursal", "attrs": [["id","int"],["codigo","string"],["nombre","string"],["activo","boolean"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: consultarReservasSucursal()"],
+      ["IU","C2","2: listarSucursales()"],
+      ["C2","E1","3: listar()"],
+      ["IU","C","4: listarReservasSucursal(sucursal) / 6: reservas()"],
+      ["C","E0","5: listarPorSucursal(sucursal)"]
+    ],
+    "seq": [
+      ["A","IU","consultarReservasSucursal()",0],
+      ["IU","C2","listarSucursales()",0],
+      ["C2","E1","listar()",0],
+      ["E1","C2","sucursales",1],
+      ["C2","IU","sucursales",1],
+      ["A","IU","elegirSucursal(sucursalId)",0],
+      ["IU","C","listarReservasSucursal(sucursalId)",0],
+      ["C","E0","listarPorSucursal(sucursalId)",0],
+      ["E0","C","reservas",1],
+      ["C","IU","reservas de la sucursal",1]
+    ]
+  },
+  {
+    "id": "CU-23", "nombre": "Gestionar carrito", "nombreEA": "Gestionar carrito",
+    "paquete": "ventas", "actorEA": "Cliente", "actores": "Cliente", "iniciador": "Cliente",
+    "plataforma": "Web y App móvil", "prioridad": "Crítica", "riesgo": "Medio",
+    "descripcion": "Agregar, modificar y quitar prendas del carrito y ver el total con las promociones vigentes.",
+    "proposito": "Permite al cliente reunir las prendas que desea comprar en un carrito persistente, modificar cantidades y ver el total con las promociones vigentes ya aplicadas, antes de iniciar la compra digital (CU-24).",
+    "pre": "El cliente tiene sesión iniciada; la variante a agregar existe.",
+    "flujo": [
+      "Desde el detalle de una prenda, el cliente elige talla y color y la agrega al carrito.",
+      "El sistema obtiene o crea el carrito del cliente y agrega la línea (o suma la cantidad si la variante ya estaba).",
+      "El cliente abre el carrito y modifica cantidades o quita líneas.",
+      "El sistema recalcula cada línea con el precio vigente y las promociones aplicables por producto, categoría o temporada.",
+      "El sistema muestra subtotal, descuento y total; el cliente puede iniciar el checkout (CU-24)."
+    ],
+    "post": "El carrito del cliente queda guardado con sus líneas y el total calculado.",
+    "excepcion": [
+      "Se modifica o quita una variante que no está en el carrito: el sistema informa el error.",
+      "El carrito está vacío al iniciar el checkout: el sistema no permite continuar."
+    ],
+    "pantalla": "App móvil: /carrito; Web: /carrito",
+    "include": ["Calcular Promociones Vigentes"], "extend": ["Iniciar Compra Digital"],
+    "iu": {"nombre": "Pantalla Carrito",
+      "attrs": [["lineas","list"],["subtotal","decimal"],["descuento","decimal"],["total","decimal"]],
+      "ops": [["agregarPrenda()","void"],["cambiarCantidad()","void"],["quitarPrenda()","void"],["verResumen()","void"]]},
+    "ctrl": {"nombre": "VentasService",
+      "ops": [["agregarAlCarrito(usuarioId, CarritoDetalleCrear)","Carrito"],["actualizarLineaCarrito(usuarioId, variante, cantidad)","Carrito"],["quitarDelCarrito(usuarioId, variante)","Carrito"],["previsualizarCarrito(usuarioId)","CarritoResumen"]]},
+    "ents": [
+      {"nombre": "Carrito", "attrs": [["id","int"],["clienteId","int"],["sucursalId","int"],["actualizadoEn","datetime"]], "ops": [["obtenerOCrear(clienteId)","Carrito"]]},
+      {"nombre": "CarritoDetalle", "attrs": [["id","int"],["carritoId","int"],["varianteId","int"],["cantidad","int"]], "ops": [["crear()","CarritoDetalle"]]},
+      {"nombre": "Promocion", "attrs": [["id","int"],["nombre","string"],["tipo","string"],["valor","decimal"],["fechaInicio","date"],["fechaFin","date"],["activo","boolean"]], "ops": [["vigentePara(variante)","Promocion"]]}
+    ],
+    "com": [
+      ["A","IU","1: agregarAlCarrito(variante, cantidad)"],
+      ["IU","C","2: agregarAlCarrito(datos) / 5: previsualizarCarrito() / 7: resumen()"],
+      ["C","E0","3: obtenerOCrear(cliente)"],
+      ["C","E1","4: crearOSumarLinea()"],
+      ["C","E2","6: calcularDescuentoVigente()"]
+    ],
+    "seq": [
+      ["A","IU","agregarAlCarrito(variante, cantidad)",0],
+      ["IU","C","agregarAlCarrito(usuarioId, datos)",0],
+      ["C","E0","obtenerOCrear(clienteId)",0],
+      ["E0","C","carrito",1],
+      ["C","E1","crearOSumarLinea(variante, cantidad)",0],
+      ["C","IU","carrito actualizado",1],
+      ["A","IU","verResumen()",0],
+      ["IU","C","previsualizarCarrito(usuarioId)",0],
+      ["C","E2","promocionesVigentes(variante)",0],
+      ["E2","C","descuentos",1],
+      ["C","IU","subtotal, descuento y total",1]
+    ]
+  },
+  {
+    "id": "CU-26", "nombre": "Consultar historial de compras", "nombreEA": "Consultar historial de compras",
+    "paquete": "ventas", "actorEA": "Cliente", "actores": "Cliente", "iniciador": "Cliente",
+    "plataforma": "Web y App móvil", "prioridad": "Media", "riesgo": "Bajo",
+    "descripcion": "Ver las compras realizadas y su comprobante.",
+    "proposito": "Permite al cliente consultar las compras que realizó (digitales y presenciales asociadas a su cuenta) y ver el comprobante de cada una.",
+    "pre": "El cliente tiene sesión iniciada.",
+    "flujo": [
+      "El cliente abre «Mis compras».",
+      "El sistema lista sus ventas con código, fecha, canal, estado y total.",
+      "El cliente abre una compra.",
+      "El sistema verifica que la venta le pertenezca y muestra el comprobante: detalle de prendas, precios, descuentos, costo de envío y total."
+    ],
+    "post": "El cliente visualiza su historial de compras y el comprobante de la compra elegida.",
+    "excepcion": [
+      "La venta no pertenece al cliente: el sistema deniega el acceso al comprobante.",
+      "El cliente no tiene compras: el sistema muestra un estado vacío."
+    ],
+    "pantalla": "App móvil: /compras y /compras/:id; Web: /mis-compras",
+    "include": ["Validar Acceso a la Venta"], "extend": ["Ver Comprobante de Venta"],
+    "iu": {"nombre": "Pantalla Mis Compras",
+      "attrs": [["compras","list"],["ventaSeleccionada","Venta"]],
+      "ops": [["listarMisCompras()","void"],["verComprobante()","void"]]},
+    "ctrl": {"nombre": "VentasService",
+      "ops": [["listarMisCompras(usuarioId)","list"],["obtenerComprobante(ventaId, usuarioId)","Venta"]]},
+    "ents": [
+      {"nombre": "Venta", "attrs": [["id","int"],["codigo","string"],["canal","string"],["clienteId","int"],["estadoId","int"],["fecha","datetime"],["subtotal","decimal"],["descuento","decimal"],["costoEnvio","decimal"],["total","decimal"]], "ops": [["listarPorCliente(int)","list"]]},
+      {"nombre": "VentaDetalle", "attrs": [["id","int"],["varianteId","int"],["cantidad","int"],["precioUnitario","decimal"],["descuentoUnitario","decimal"],["subtotal","decimal"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: consultarMisCompras()"],
+      ["IU","C","2: listarMisCompras(usuario) / 4: obtenerComprobante(id) / 6: comprobante()"],
+      ["C","E0","3: listarPorCliente() / 5: obtener(id)"],
+      ["E0","E1","detalle()"]
+    ],
+    "seq": [
+      ["A","IU","consultarMisCompras()",0],
+      ["IU","C","listarMisCompras(usuarioId)",0],
+      ["C","E0","listarPorCliente(clienteId)",0],
+      ["E0","C","ventas",1],
+      ["C","IU","historial",1],
+      ["A","IU","verComprobante(ventaId)",0],
+      ["IU","C","obtenerComprobante(ventaId, usuarioId)",0],
+      ["C","E0","obtener(ventaId)",0],
+      ["E0","E1","obtenerDetalle()",0],
+      ["E1","E0","lineas",1],
+      ["E0","C","venta",1],
+      ["C","IU","comprobante",1]
+    ]
+  },
+  {
+    "id": "CU-27", "nombre": "Gestionar promociones", "nombreEA": "Gestionar promociones",
+    "paquete": "ventas", "actorEA": "Administrador", "actores": "Administrador", "iniciador": "Administrador",
+    "plataforma": "Web (back office)", "prioridad": "Media", "riesgo": "Medio",
+    "descripcion": "Definir descuentos por porcentaje o monto, con vigencia y alcance por producto, categoría o temporada.",
+    "proposito": "Permite al administrador definir promociones con descuento por porcentaje o por monto fijo, vigentes en un rango de fechas y aplicables a productos, categorías o temporadas.",
+    "pre": "Sesión de administrador con el permiso ventas.gestionar.",
+    "flujo": [
+      "El administrador abre la gestión de promociones y consulta el listado.",
+      "Crea o edita una promoción: nombre, tipo (porcentaje o monto), valor, fecha de inicio y fecha de fin.",
+      "Define el alcance: uno o más productos, categorías o temporadas.",
+      "El sistema valida el valor positivo, que la fecha de fin no sea anterior a la de inicio y que cada alcance indique exactamente un destino.",
+      "El sistema guarda la promoción; mientras esté vigente se aplica sola al calcular el carrito y las ventas.",
+      "Si corresponde, el administrador desactiva la promoción."
+    ],
+    "post": "La promoción queda registrada y se aplica automáticamente a las prendas de su alcance durante su vigencia.",
+    "excepcion": [
+      "La fecha de fin es anterior a la de inicio o el valor no es positivo: el sistema rechaza el guardado.",
+      "Un alcance no indica exactamente un producto, categoría o temporada: el sistema rechaza el guardado."
+    ],
+    "pantalla": "Web back office: /promociones",
+    "include": ["Validar Vigencia y Alcance"], "extend": ["Rechazar Promocion Invalida"],
+    "iu": {"nombre": "Pantalla Gestion de Promociones",
+      "attrs": [["nombre","string"],["tipo","string"],["valor","decimal"],["fechaInicio","date"],["fechaFin","date"],["alcances","list"]],
+      "ops": [["crearPromocion()","void"],["editarPromocion()","void"],["desactivarPromocion()","void"]]},
+    "ctrl": {"nombre": "VentasService",
+      "ops": [["crearPromocion(PromocionCrear)","Promocion"],["actualizarPromocion(int, PromocionActualizar)","Promocion"],["validarAlcance(PromocionAlcanceCrear)","void"],["desactivarPromocion(int)","Promocion"]]},
+    "ents": [
+      {"nombre": "Promocion", "attrs": [["id","int"],["nombre","string"],["tipo","string"],["valor","decimal"],["fechaInicio","date"],["fechaFin","date"],["activo","boolean"]], "ops": [["crear(PromocionCrear)","Promocion"]]},
+      {"nombre": "PromocionAlcance", "attrs": [["id","int"],["promocionId","int"],["productoId","int"],["categoriaId","int"],["temporadaId","int"]], "ops": [["crear()","PromocionAlcance"]]}
+    ],
+    "com": [
+      ["A","IU","1: gestionarPromociones(datos)"],
+      ["IU","C","2: crearPromocion(datos) / 6: promocionGuardada()"],
+      ["C","C","3: validarAlcance(alcances)"],
+      ["C","E0","4: crear()"],
+      ["C","E1","5: crear(alcance)"]
+    ],
+    "seq": [
+      ["A","IU","gestionarPromociones()",0],
+      ["IU","C","crearPromocion(nombre, tipo, valor, fechas, alcances)",0],
+      ["C","C","validarAlcance(alcances)",0],
+      ["C","E0","crear()",0],
+      ["E0","C","promocion",1],
+      ["C","E1","crear(producto | categoria | temporada)",0],
+      ["C","IU","promocion creada",1]
+    ]
+  },
+  {
+    "id": "CU-28", "nombre": "Consultar ventas de la sucursal", "nombreEA": "Consultar ventas de la sucursal",
+    "paquete": "ventas", "actorEA": "Encargado de sucursal", "actores": "Encargado de sucursal, Cajero", "iniciador": "Encargado de sucursal",
+    "plataforma": "Web (back office)", "prioridad": "Media", "riesgo": "Bajo",
+    "descripcion": "Ver las ventas digitales y presenciales registradas en la sucursal.",
+    "proposito": "Permite al encargado (y al cajero) consultar las ventas registradas en su sucursal, tanto presenciales como digitales, con su estado y total.",
+    "pre": "Sesión con el permiso ventas.gestionar_sucursal; el usuario está asignado a una sucursal.",
+    "flujo": [
+      "El usuario abre las ventas de la sucursal (pestaña «Ventas de hoy» en caja o el resumen del dashboard).",
+      "El sistema identifica la sucursal del empleado.",
+      "El sistema lista las ventas de la sucursal con código, fecha, canal, cajero, estado y total.",
+      "El usuario abre una venta para ver su comprobante."
+    ],
+    "post": "El usuario conoce las ventas y los ingresos de su sucursal.",
+    "excepcion": [
+      "La sucursal no tiene ventas registradas: el sistema muestra un estado vacío.",
+      "La sucursal indicada no existe: el sistema rechaza la consulta."
+    ],
+    "pantalla": "Web back office: /caja (Ventas de hoy) y /dashboard",
+    "include": ["Identificar Sucursal del Empleado"], "extend": ["Ver Comprobante de Venta"],
+    "iu": {"nombre": "Pantalla Ventas de Sucursal",
+      "attrs": [["sucursalId","int"],["ventas","list"],["totalDia","decimal"]],
+      "ops": [["listarVentas()","void"],["verComprobante()","void"]]},
+    "ctrl": {"nombre": "VentasService",
+      "ops": [["listarVentasSucursal(sucursalId)","list"],["obtenerComprobante(ventaId, usuarioId)","Venta"]]},
+    "ctrl2": {"nombre": "OrganizacionService",
+      "ops": [["obtenerMiEmpleado(usuarioId)","Empleado"]]},
+    "ents": [
+      {"nombre": "Venta", "attrs": [["id","int"],["codigo","string"],["canal","string"],["sucursalId","int"],["cajeroId","int"],["estadoId","int"],["fecha","datetime"],["total","decimal"]], "ops": [["listarPorSucursal(int)","list"]]},
+      {"nombre": "Empleado", "attrs": [["id","int"],["usuarioId","int"],["sucursalId","int"]], "ops": []}
+    ],
+    "com": [
+      ["A","IU","1: consultarVentasSucursal()"],
+      ["IU","C2","2: obtenerMiEmpleado(usuario)"],
+      ["C2","E1","3: obtenerPorUsuario()"],
+      ["IU","C","4: listarVentasSucursal(sucursal) / 6: ventas()"],
+      ["C","E0","5: listarPorSucursal(sucursal)"]
+    ],
+    "seq": [
+      ["A","IU","consultarVentasSucursal()",0],
+      ["IU","C2","obtenerMiEmpleado(usuarioId)",0],
+      ["C2","E1","obtenerPorUsuario(usuarioId)",0],
+      ["E1","C2","empleado",1],
+      ["C2","IU","sucursalId",1],
+      ["IU","C","listarVentasSucursal(sucursalId)",0],
+      ["C","E0","listarPorSucursal(sucursalId)",0],
+      ["E0","C","ventas",1],
+      ["C","IU","ventas de la sucursal",1]
+    ]
+  },
+  {
+    "id": "CU-30", "nombre": "Procesar pago en caja", "nombreEA": "Procesar pago en caja",
+    "paquete": "pagos", "actorEA": "Cajero", "actores": "Cajero", "iniciador": "Cajero",
+    "plataforma": "Web (back office)", "prioridad": "Crítica", "riesgo": "Alto",
+    "descripcion": "Cobrar una venta presencial en efectivo, QR, tarjeta o transferencia y confirmarla.",
+    "proposito": "Permite al cajero cobrar en el punto de caja una venta presencial pendiente de pago, en efectivo, QR, tarjeta o transferencia, calculando el cambio cuando corresponde y confirmando la venta.",
+    "pre": "Sesión de cajero registrado como empleado; existe una venta en estado pendiente de pago (CU-25).",
+    "flujo": [
+      "El cajero elige el método de pago disponible en caja.",
+      "Si el pago es en efectivo, ingresa el monto recibido.",
+      "El sistema valida que el método esté habilitado en caja y que el monto recibido cubra el total.",
+      "El sistema registra el pago aprobado y calcula el cambio.",
+      "El sistema confirma la venta: la marca «pagada» y descuenta el stock en la misma transacción.",
+      "El sistema muestra el cambio y el comprobante."
+    ],
+    "post": "El pago queda aprobado, la venta pagada y el inventario de la sucursal actualizado.",
+    "excepcion": [
+      "El monto recibido en efectivo no cubre el total: el sistema rechaza el cobro.",
+      "El método no está disponible en caja o el usuario no es empleado: el sistema rechaza la operación.",
+      "La venta no está pendiente de pago: el sistema no la confirma."
+    ],
+    "pantalla": "Web back office: /caja (diálogo Cobrar)",
+    "include": ["Confirmar Venta y Descontar Stock"], "extend": ["Calcular Cambio en Efectivo"],
+    "iu": {"nombre": "Pantalla Punto de Caja",
+      "attrs": [["ventaId","int"],["metodoPago","string"],["montoRecibido","decimal"],["cambio","decimal"]],
+      "ops": [["seleccionarMetodo()","void"],["cobrar()","void"]]},
+    "ctrl": {"nombre": "PagosService",
+      "ops": [["pagarEnCaja(usuarioId, PagoCajaRequest)","Pago"]]},
+    "ctrl2": {"nombre": "VentasService",
+      "ops": [["obtenerVenta(ventaId)","Venta"],["confirmarVenta(ventaId)","Venta"]]},
+    "ents": [
+      {"nombre": "Pago", "attrs": [["id","int"],["ventaId","int"],["metodoPagoId","int"],["estadoId","int"],["monto","decimal"],["referenciaExterna","string"],["fecha","datetime"]], "ops": [["crear(aprobado)","Pago"]]},
+      {"nombre": "MetodoPago", "attrs": [["id","int"],["codigo","string"],["nombre","string"],["disponibleCaja","boolean"],["disponibleOnline","boolean"]], "ops": []},
+      {"nombre": "Venta", "attrs": [["id","int"],["codigo","string"],["canal","string"],["estadoId","int"],["total","decimal"]], "ops": [["marcarPagada()","Venta"]]}
+    ],
+    "com": [
+      ["A","IU","1: cobrar(metodo, montoRecibido)"],
+      ["IU","C","2: pagarEnCaja(venta, metodo, monto) / 8: pagoAprobado(cambio)"],
+      ["C","E1","3: obtenerPorCodigo(metodo)"],
+      ["C","C2","4: obtenerVenta(id) / 6: confirmarVenta(id)"],
+      ["C","E0","5: crear(aprobado)"],
+      ["C2","E2","7: marcarPagada() y descontarStock()"]
+    ],
+    "seq": [
+      ["A","IU","cobrar(metodo, montoRecibido)",0],
+      ["IU","C","pagarEnCaja(ventaId, metodo, montoRecibido)",0],
+      ["C","C2","obtenerVenta(ventaId)",0],
+      ["C2","C","venta",1],
+      ["C","E1","obtenerPorCodigo(metodo)",0],
+      ["E1","C","metodo (disponibleCaja)",1],
+      ["C","E0","crear(estado=aprobado, monto)",0],
+      ["C","C2","confirmarVenta(ventaId, commit=False)",0],
+      ["C2","E2","marcarPagada()",0],
+      ["C2","C","venta pagada",1],
+      ["C","IU","pago aprobado y cambio",1]
+    ]
+  }
+]

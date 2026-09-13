@@ -1,0 +1,3554 @@
+[
+ {
+  "nombre": "cliente",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → usuario, Única",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "ci_nit",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Ci nit."
+   },
+   {
+    "nombre": "razon_social",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Razon social."
+   },
+   {
+    "nombre": "fecha_nacimiento",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha nacimiento."
+   },
+   {
+    "nombre": "estatura_cm",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Estatura cm."
+   },
+   {
+    "nombre": "preferencia_ajuste",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Preferencia ajuste."
+   },
+   {
+    "nombre": "acepta_datos_foto",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Acepta datos foto."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "permiso",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "modulo",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Modulo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "rol",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "rol_permiso",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "rol_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → rol",
+    "descripcion": "Referencia a rol."
+   },
+   {
+    "nombre": "permiso_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → permiso",
+    "descripcion": "Referencia a permiso."
+   }
+  ]
+ },
+ {
+  "nombre": "usuario",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "apellido",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Apellido."
+   },
+   {
+    "nombre": "email",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Correo electrónico, usado como identificador de acceso."
+   },
+   {
+    "nombre": "telefono",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Número de teléfono de contacto."
+   },
+   {
+    "nombre": "password_hash",
+    "tipo": "varchar(255)",
+    "tamano": "255 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hash bcrypt de la contraseña (nunca texto plano)."
+   },
+   {
+    "nombre": "ultimo_acceso",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Ultimo acceso."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   },
+   {
+    "nombre": "actualizado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha y hora de la última modificación."
+   }
+  ]
+ },
+ {
+  "nombre": "usuario_rol",
+  "paquete": "seguridad",
+  "columnas": [
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → usuario",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "rol_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → rol",
+    "descripcion": "Referencia a rol."
+   }
+  ]
+ },
+ {
+  "nombre": "ciudad",
+  "paquete": "organizacion",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "Única compuesta",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "departamento",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "Sí",
+    "llave": "Única compuesta",
+    "descripcion": "Departamento."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "empleado",
+  "paquete": "organizacion",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → usuario, Única",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "ci",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Ci."
+   },
+   {
+    "nombre": "cargo",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Cargo."
+   },
+   {
+    "nombre": "fecha_ingreso",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha ingreso."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "horario_sucursal",
+  "paquete": "organizacion",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal, Única compuesta",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "dia_semana",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "No",
+    "llave": "Única compuesta",
+    "descripcion": "Dia semana."
+   },
+   {
+    "nombre": "hora_apertura",
+    "tipo": "time without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hora apertura."
+   },
+   {
+    "nombre": "hora_cierre",
+    "tipo": "time without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hora cierre."
+   }
+  ]
+ },
+ {
+  "nombre": "sucursal",
+  "paquete": "organizacion",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "ciudad_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → ciudad",
+    "descripcion": "Referencia a ciudad."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(80)",
+    "tamano": "80 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "direccion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Dirección física."
+   },
+   {
+    "nombre": "telefono",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Número de teléfono de contacto."
+   },
+   {
+    "nombre": "latitud",
+    "tipo": "numeric(10, 7)",
+    "tamano": "10,7 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Latitud."
+   },
+   {
+    "nombre": "longitud",
+    "tipo": "numeric(10, 7)",
+    "tamano": "10,7 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Longitud."
+   },
+   {
+    "nombre": "es_deposito",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Es deposito."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "categoria",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "categoria_padre_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → categoria",
+    "descripcion": "Referencia a categoria."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "coleccion",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "temporada_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → temporada",
+    "descripcion": "Referencia a temporada."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(80)",
+    "tamano": "80 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "color",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "codigo_hex",
+    "tipo": "varchar(7)",
+    "tamano": "7 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Codigo hex."
+   }
+  ]
+ },
+ {
+  "nombre": "favorito",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "material",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "producto",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(30)",
+    "tamano": "30 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "text",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   },
+   {
+    "nombre": "categoria_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → categoria",
+    "descripcion": "Referencia a categoria."
+   },
+   {
+    "nombre": "material_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → material",
+    "descripcion": "Referencia a material."
+   },
+   {
+    "nombre": "temporada_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → temporada",
+    "descripcion": "Referencia a temporada."
+   },
+   {
+    "nombre": "coleccion_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → coleccion",
+    "descripcion": "Referencia a coleccion."
+   },
+   {
+    "nombre": "genero",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Genero."
+   },
+   {
+    "nombre": "precio_base",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Precio base."
+   },
+   {
+    "nombre": "admite_probador",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Admite probador."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   },
+   {
+    "nombre": "creado_por",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Usuario que creó el registro."
+   }
+  ]
+ },
+ {
+  "nombre": "producto_imagen",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "color_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → color",
+    "descripcion": "Referencia a color."
+   },
+   {
+    "nombre": "url",
+    "tipo": "text",
+    "tamano": "variable",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Url."
+   },
+   {
+    "nombre": "orden",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Orden."
+   },
+   {
+    "nombre": "es_principal",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Es principal."
+   }
+  ]
+ },
+ {
+  "nombre": "producto_variante",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto, Única compuesta",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "talla_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → talla, Única compuesta",
+    "descripcion": "Referencia a talla."
+   },
+   {
+    "nombre": "color_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → color, Única compuesta",
+    "descripcion": "Referencia a color."
+   },
+   {
+    "nombre": "sku",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código de inventario de la variante."
+   },
+   {
+    "nombre": "codigo_barras",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "Sí",
+    "llave": "Única",
+    "descripcion": "Codigo barras."
+   },
+   {
+    "nombre": "precio",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Precio de venta."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "tabla_medida",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → producto",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "categoria_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → categoria",
+    "descripcion": "Referencia a categoria."
+   },
+   {
+    "nombre": "talla_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → talla",
+    "descripcion": "Referencia a talla."
+   },
+   {
+    "nombre": "pecho_min_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Pecho min cm."
+   },
+   {
+    "nombre": "pecho_max_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Pecho max cm."
+   },
+   {
+    "nombre": "cintura_min_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Cintura min cm."
+   },
+   {
+    "nombre": "cintura_max_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Cintura max cm."
+   },
+   {
+    "nombre": "hombros_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Hombros cm."
+   },
+   {
+    "nombre": "largo_cm",
+    "tipo": "numeric(5, 1)",
+    "tamano": "5,1 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Largo cm."
+   }
+  ]
+ },
+ {
+  "nombre": "talla",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(10)",
+    "tamano": "10 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "descripcion",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Descripción del registro."
+   },
+   {
+    "nombre": "orden",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Orden."
+   }
+  ]
+ },
+ {
+  "nombre": "temporada",
+  "paquete": "catalogo",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "Única compuesta",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "anio",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "No",
+    "llave": "Única compuesta",
+    "descripcion": "Anio."
+   },
+   {
+    "nombre": "fecha_inicio",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha inicio."
+   },
+   {
+    "nombre": "fecha_fin",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha fin."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "orden_compra",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "proveedor_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → proveedor",
+    "descripcion": "Referencia a proveedor."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "fecha_emision",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha emision."
+   },
+   {
+    "nombre": "fecha_esperada",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha esperada."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "total",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Importe total."
+   },
+   {
+    "nombre": "creado_por",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Usuario que creó el registro."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "orden_compra_detalle",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "orden_compra_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → orden_compra, Única compuesta",
+    "descripcion": "Referencia a orden_compra."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante, Única compuesta",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   },
+   {
+    "nombre": "costo_unitario",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Costo por unidad de la operación."
+   }
+  ]
+ },
+ {
+  "nombre": "producto_proveedor",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "proveedor_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → proveedor",
+    "descripcion": "Referencia a proveedor."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK, FK → producto",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "costo_referencial",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Costo referencial."
+   },
+   {
+    "nombre": "dias_entrega",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Dias entrega."
+   }
+  ]
+ },
+ {
+  "nombre": "proveedor",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "nit",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "Única",
+    "descripcion": "Nit."
+   },
+   {
+    "nombre": "contacto",
+    "tipo": "varchar(80)",
+    "tamano": "80 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Contacto."
+   },
+   {
+    "nombre": "telefono",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Número de teléfono de contacto."
+   },
+   {
+    "nombre": "email",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Correo electrónico, usado como identificador de acceso."
+   },
+   {
+    "nombre": "direccion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Dirección física."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "recepcion",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "orden_compra_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → orden_compra",
+    "descripcion": "Referencia a orden_compra."
+   },
+   {
+    "nombre": "proveedor_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → proveedor",
+    "descripcion": "Referencia a proveedor."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "empleado_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → empleado",
+    "descripcion": "Referencia a empleado."
+   },
+   {
+    "nombre": "fecha",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la operación."
+   },
+   {
+    "nombre": "observacion",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Observación libre."
+   }
+  ]
+ },
+ {
+  "nombre": "recepcion_detalle",
+  "paquete": "abastecimiento",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "recepcion_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → recepcion",
+    "descripcion": "Referencia a recepcion."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   },
+   {
+    "nombre": "costo_unitario",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Costo por unidad de la operación."
+   }
+  ]
+ },
+ {
+  "nombre": "movimiento_inventario",
+  "paquete": "inventario",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "bigint",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "tipo_movimiento_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → tipo_movimiento",
+    "descripcion": "Referencia a tipo_movimiento."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   },
+   {
+    "nombre": "costo_unitario",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Costo por unidad de la operación."
+   },
+   {
+    "nombre": "costo_promedio_post",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Costo promedio post."
+   },
+   {
+    "nombre": "saldo_post",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Saldo post."
+   },
+   {
+    "nombre": "referencia_tipo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Referencia tipo."
+   },
+   {
+    "nombre": "referencia_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Referencia id."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "observacion",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Observación libre."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "stock",
+  "paquete": "inventario",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante, Única compuesta",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal, Única compuesta",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "cantidad_fisica",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Unidades físicamente presentes en la sucursal."
+   },
+   {
+    "nombre": "cantidad_reservada",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Unidades bloqueadas por reservas o ventas pendientes."
+   },
+   {
+    "nombre": "cantidad_disponible",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Columna generada: física menos reservada."
+   },
+   {
+    "nombre": "stock_minimo",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Stock minimo."
+   },
+   {
+    "nombre": "stock_maximo",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Stock maximo."
+   },
+   {
+    "nombre": "costo_promedio",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Costo promedio ponderado vigente."
+   },
+   {
+    "nombre": "actualizado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la última modificación."
+   }
+  ]
+ },
+ {
+  "nombre": "tipo_movimiento",
+  "paquete": "inventario",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "signo",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Signo."
+   },
+   {
+    "nombre": "afecta_costo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Afecta costo."
+   }
+  ]
+ },
+ {
+  "nombre": "transferencia",
+  "paquete": "inventario",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "sucursal_origen_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "sucursal_destino_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "fecha_envio",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha envio."
+   },
+   {
+    "nombre": "fecha_recepcion",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha recepcion."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   }
+  ]
+ },
+ {
+  "nombre": "transferencia_detalle",
+  "paquete": "inventario",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "transferencia_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → transferencia",
+    "descripcion": "Referencia a transferencia."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   }
+  ]
+ },
+ {
+  "nombre": "estado_reserva",
+  "paquete": "reservas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "es_final",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Es final."
+   }
+  ]
+ },
+ {
+  "nombre": "reserva",
+  "paquete": "reservas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "estado_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → estado_reserva",
+    "descripcion": "Referencia a estado_reserva."
+   },
+   {
+    "nombre": "fecha_visita",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha visita."
+   },
+   {
+    "nombre": "hora_visita_desde",
+    "tipo": "time without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hora visita desde."
+   },
+   {
+    "nombre": "hora_visita_hasta",
+    "tipo": "time without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hora visita hasta."
+   },
+   {
+    "nombre": "fecha_expiracion",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha expiracion."
+   },
+   {
+    "nombre": "observacion",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Observación libre."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "reserva_detalle",
+  "paquete": "reservas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "reserva_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → reserva, Única compuesta",
+    "descripcion": "Referencia a reserva."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante, Única compuesta",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   },
+   {
+    "nombre": "seleccionada",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Seleccionada."
+   },
+   {
+    "nombre": "preparada",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Preparada."
+   }
+  ]
+ },
+ {
+  "nombre": "reserva_historial",
+  "paquete": "reservas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "reserva_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → reserva",
+    "descripcion": "Referencia a reserva."
+   },
+   {
+    "nombre": "estado_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → estado_reserva",
+    "descripcion": "Referencia a estado_reserva."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "comentario",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Comentario."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "carrito",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → cliente, Única",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "actualizado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la última modificación."
+   }
+  ]
+ },
+ {
+  "nombre": "carrito_detalle",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "carrito_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → carrito, Única compuesta",
+    "descripcion": "Referencia a carrito."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante, Única compuesta",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   }
+  ]
+ },
+ {
+  "nombre": "devolucion",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "venta_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → venta",
+    "descripcion": "Referencia a venta."
+   },
+   {
+    "nombre": "fecha",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la operación."
+   },
+   {
+    "nombre": "motivo",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Motivo."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   }
+  ]
+ },
+ {
+  "nombre": "devolucion_detalle",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "devolucion_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → devolucion",
+    "descripcion": "Referencia a devolucion."
+   },
+   {
+    "nombre": "venta_detalle_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → venta_detalle",
+    "descripcion": "Referencia a venta_detalle."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   }
+  ]
+ },
+ {
+  "nombre": "estado_venta",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "es_final",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Es final."
+   }
+  ]
+ },
+ {
+  "nombre": "promocion",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(80)",
+    "tamano": "80 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "tipo",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Tipo."
+   },
+   {
+    "nombre": "valor",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Valor."
+   },
+   {
+    "nombre": "fecha_inicio",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha inicio."
+   },
+   {
+    "nombre": "fecha_fin",
+    "tipo": "date",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha fin."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "promocion_alcance",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "promocion_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → promocion",
+    "descripcion": "Referencia a promocion."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → producto",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "categoria_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → categoria",
+    "descripcion": "Referencia a categoria."
+   },
+   {
+    "nombre": "temporada_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → temporada",
+    "descripcion": "Referencia a temporada."
+   }
+  ]
+ },
+ {
+  "nombre": "venta",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "canal",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Canal."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "sucursal_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → sucursal",
+    "descripcion": "Referencia a sucursal."
+   },
+   {
+    "nombre": "cajero_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → empleado",
+    "descripcion": "Referencia a empleado."
+   },
+   {
+    "nombre": "reserva_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → reserva",
+    "descripcion": "Referencia a reserva."
+   },
+   {
+    "nombre": "estado_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → estado_venta",
+    "descripcion": "Referencia a estado_venta."
+   },
+   {
+    "nombre": "fecha",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la operación."
+   },
+   {
+    "nombre": "subtotal",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Importe antes de descuentos."
+   },
+   {
+    "nombre": "descuento",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Descuento."
+   },
+   {
+    "nombre": "costo_envio",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Costo envio."
+   },
+   {
+    "nombre": "total",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Importe total."
+   }
+  ]
+ },
+ {
+  "nombre": "venta_detalle",
+  "paquete": "ventas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "venta_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → venta",
+    "descripcion": "Referencia a venta."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "cantidad",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Cantidad de unidades."
+   },
+   {
+    "nombre": "precio_unitario",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Precio unitario."
+   },
+   {
+    "nombre": "descuento_unitario",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Descuento unitario."
+   },
+   {
+    "nombre": "costo_unitario",
+    "tipo": "numeric(12, 4)",
+    "tamano": "12,4 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Costo por unidad de la operación."
+   },
+   {
+    "nombre": "subtotal",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Importe antes de descuentos."
+   }
+  ]
+ },
+ {
+  "nombre": "estado_pago",
+  "paquete": "pagos",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   }
+  ]
+ },
+ {
+  "nombre": "metodo_pago",
+  "paquete": "pagos",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "codigo",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "Única",
+    "descripcion": "Código único de negocio."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "requiere_pasarela",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Requiere pasarela."
+   },
+   {
+    "nombre": "disponible_caja",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Disponible caja."
+   },
+   {
+    "nombre": "disponible_online",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Disponible online."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "pago",
+  "paquete": "pagos",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "venta_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → venta",
+    "descripcion": "Referencia a venta."
+   },
+   {
+    "nombre": "metodo_pago_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → metodo_pago",
+    "descripcion": "Referencia a metodo_pago."
+   },
+   {
+    "nombre": "estado_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → estado_pago",
+    "descripcion": "Referencia a estado_pago."
+   },
+   {
+    "nombre": "monto",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Monto."
+   },
+   {
+    "nombre": "referencia_externa",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Referencia externa."
+   },
+   {
+    "nombre": "fecha",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de la operación."
+   }
+  ]
+ },
+ {
+  "nombre": "transaccion_pasarela",
+  "paquete": "pagos",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "pago_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → pago",
+    "descripcion": "Referencia a pago."
+   },
+   {
+    "nombre": "pasarela",
+    "tipo": "varchar(30)",
+    "tamano": "30 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Pasarela."
+   },
+   {
+    "nombre": "id_transaccion",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Id transaccion."
+   },
+   {
+    "nombre": "payload_envio",
+    "tipo": "jsonb",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Payload envio."
+   },
+   {
+    "nombre": "payload_respuesta",
+    "tipo": "jsonb",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Payload respuesta."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "direccion_cliente",
+  "paquete": "entregas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "zona_envio_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → zona_envio",
+    "descripcion": "Referencia a zona_envio."
+   },
+   {
+    "nombre": "alias",
+    "tipo": "varchar(40)",
+    "tamano": "40 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Alias."
+   },
+   {
+    "nombre": "direccion",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Dirección física."
+   },
+   {
+    "nombre": "referencia",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Referencia."
+   },
+   {
+    "nombre": "latitud",
+    "tipo": "numeric(10, 7)",
+    "tamano": "10,7 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Latitud."
+   },
+   {
+    "nombre": "longitud",
+    "tipo": "numeric(10, 7)",
+    "tamano": "10,7 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Longitud."
+   },
+   {
+    "nombre": "es_principal",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Es principal."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "envio",
+  "paquete": "entregas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "venta_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → venta, Única",
+    "descripcion": "Referencia a venta."
+   },
+   {
+    "nombre": "direccion_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → direccion_cliente",
+    "descripcion": "Referencia a direccion_cliente."
+   },
+   {
+    "nombre": "zona_envio_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → zona_envio",
+    "descripcion": "Referencia a zona_envio."
+   },
+   {
+    "nombre": "costo",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Costo."
+   },
+   {
+    "nombre": "peso_kg",
+    "tipo": "numeric(6, 2)",
+    "tamano": "6,2 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Peso kg."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "fecha_programada",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha programada."
+   },
+   {
+    "nombre": "fecha_entrega",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Fecha entrega."
+   },
+   {
+    "nombre": "repartidor",
+    "tipo": "varchar(80)",
+    "tamano": "80 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Repartidor."
+   }
+  ]
+ },
+ {
+  "nombre": "regla_tarifa_envio",
+  "paquete": "entregas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "zona_envio_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → zona_envio",
+    "descripcion": "Referencia a zona_envio."
+   },
+   {
+    "nombre": "peso_desde_kg",
+    "tipo": "numeric(6, 2)",
+    "tamano": "6,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Peso desde kg."
+   },
+   {
+    "nombre": "peso_hasta_kg",
+    "tipo": "numeric(6, 2)",
+    "tamano": "6,2 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Peso hasta kg."
+   },
+   {
+    "nombre": "recargo",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Recargo."
+   }
+  ]
+ },
+ {
+  "nombre": "zona_envio",
+  "paquete": "entregas",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "ciudad_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → ciudad",
+    "descripcion": "Referencia a ciudad."
+   },
+   {
+    "nombre": "nombre",
+    "tipo": "varchar(60)",
+    "tamano": "60 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Nombre descriptivo."
+   },
+   {
+    "nombre": "anillo_desde",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Anillo desde."
+   },
+   {
+    "nombre": "anillo_hasta",
+    "tipo": "smallint",
+    "tamano": "2 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Anillo hasta."
+   },
+   {
+    "nombre": "tarifa_base",
+    "tipo": "numeric(12, 2)",
+    "tamano": "12,2 dígitos",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Tarifa base."
+   },
+   {
+    "nombre": "activo",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Indica si el registro está vigente (borrado lógico)."
+   }
+  ]
+ },
+ {
+  "nombre": "activo_probador",
+  "paquete": "probador",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "tipo",
+    "tipo": "varchar(20)",
+    "tamano": "20 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Tipo."
+   },
+   {
+    "nombre": "url",
+    "tipo": "text",
+    "tamano": "variable",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Url."
+   },
+   {
+    "nombre": "anclajes",
+    "tipo": "jsonb",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Anclajes."
+   },
+   {
+    "nombre": "ancho_px",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Ancho px."
+   },
+   {
+    "nombre": "alto_px",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Alto px."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "creado_por",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → usuario",
+    "descripcion": "Usuario que creó el registro."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "probador_generacion",
+  "paquete": "probador",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "hash_foto",
+    "tipo": "varchar(64)",
+    "tamano": "64 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Hash foto."
+   },
+   {
+    "nombre": "url_resultado",
+    "tipo": "text",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Url resultado."
+   },
+   {
+    "nombre": "proveedor",
+    "tipo": "varchar(30)",
+    "tamano": "30 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Proveedor."
+   },
+   {
+    "nombre": "estado",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Estado actual dentro de su ciclo de vida."
+   },
+   {
+    "nombre": "mensaje_error",
+    "tipo": "varchar(300)",
+    "tamano": "300 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Mensaje error."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "sesion_probador",
+  "paquete": "probador",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "modo",
+    "tipo": "varchar(15)",
+    "tamano": "15 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Modo."
+   },
+   {
+    "nombre": "duracion_seg",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Duracion seg."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "consulta_voz",
+  "paquete": "inteligencia",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "texto_transcrito",
+    "tipo": "text",
+    "tamano": "variable",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Texto transcrito."
+   },
+   {
+    "nombre": "filtros_json",
+    "tipo": "jsonb",
+    "tamano": "variable",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Filtros json."
+   },
+   {
+    "nombre": "cantidad_resultados",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Cantidad resultados."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "historial_navegacion",
+  "paquete": "inteligencia",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "bigint",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "sesion_anonima",
+    "tipo": "varchar(64)",
+    "tamano": "64 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Sesion anonima."
+   },
+   {
+    "nombre": "producto_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → producto",
+    "descripcion": "Referencia a producto."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "tipo_evento",
+    "tipo": "varchar(25)",
+    "tamano": "25 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Tipo evento."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ },
+ {
+  "nombre": "recomendacion",
+  "paquete": "inteligencia",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "cliente_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → cliente",
+    "descripcion": "Referencia a cliente."
+   },
+   {
+    "nombre": "variante_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → producto_variante",
+    "descripcion": "Referencia a producto_variante."
+   },
+   {
+    "nombre": "puntaje",
+    "tipo": "numeric(6, 4)",
+    "tamano": "6,4 dígitos",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Puntaje."
+   },
+   {
+    "nombre": "motivo",
+    "tipo": "varchar(200)",
+    "tamano": "200 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Motivo."
+   },
+   {
+    "nombre": "generado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Generado en."
+   }
+  ]
+ },
+ {
+  "nombre": "notificacion",
+  "paquete": "core",
+  "columnas": [
+   {
+    "nombre": "id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "PK",
+    "descripcion": "Identificador único del registro."
+   },
+   {
+    "nombre": "usuario_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "No",
+    "llave": "FK → usuario",
+    "descripcion": "Referencia a usuario."
+   },
+   {
+    "nombre": "titulo",
+    "tipo": "varchar(120)",
+    "tamano": "120 caracteres",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Titulo."
+   },
+   {
+    "nombre": "mensaje",
+    "tipo": "varchar(400)",
+    "tamano": "400 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Mensaje."
+   },
+   {
+    "nombre": "tipo",
+    "tipo": "varchar(30)",
+    "tamano": "30 caracteres",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Tipo."
+   },
+   {
+    "nombre": "referencia_id",
+    "tipo": "integer",
+    "tamano": "4 bytes",
+    "nulo": "Sí",
+    "llave": "",
+    "descripcion": "Referencia id."
+   },
+   {
+    "nombre": "leida",
+    "tipo": "boolean",
+    "tamano": "1 byte",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Leida."
+   },
+   {
+    "nombre": "creado_en",
+    "tipo": "timestamp without time zone",
+    "tamano": "8 bytes",
+    "nulo": "No",
+    "llave": "",
+    "descripcion": "Fecha y hora de creación del registro."
+   }
+  ]
+ }
+]
