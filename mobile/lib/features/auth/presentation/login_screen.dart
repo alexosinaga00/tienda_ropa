@@ -4,6 +4,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../state/auth_controller.dart';
 
+/// Solo rutas internas y que no sean de auth (evita volver a /login o
+/// saltar a una URL externa armada a mano en el query param).
+String _destinoTrasLogin(String? returnTo) {
+  if (returnTo == null || !returnTo.startsWith('/') || returnTo.startsWith('//')) return '/home';
+  final ruta = Uri.parse(returnTo).path;
+  if (ruta == '/login' || ruta == '/registro' || ruta == '/splash') return '/home';
+  return returnTo;
+}
+
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -27,13 +36,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _enviar() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Se lee antes del await: después, `context` puede ya no ser válido.
+    final destino = _destinoTrasLogin(GoRouterState.of(context).uri.queryParameters['returnTo']);
+
     setState(() => _cargando = true);
     try {
       await ref
           .read(authControllerProvider.notifier)
           .login(email: _emailController.text.trim(), password: _passwordController.text);
-      // La navegación a /home la resuelve el redirect del router al
-      // cambiar el estado a autenticado.
+      // Navegación explícita: el catálogo y el detalle abren esta pantalla
+      // con context.push(), y el redirect del router se evalúa contra la
+      // ruta base de la pila (/home), no contra /login apilada encima --
+      // así que por sí solo nunca la saca y el login "no hace nada".
+      if (mounted) context.go(destino);
     } catch (_) {
       if (!mounted) return;
       final mensaje = ref.read(authControllerProvider).error ?? 'No se pudo iniciar sesión.';
