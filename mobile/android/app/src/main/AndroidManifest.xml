@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Sin esto el build release no tiene red (debug lo agrega solo). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <!-- Búsqueda por voz (paquete `voz`, P6.1), vía speech_to_text. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
