@@ -105,6 +105,26 @@ def validar_asset(db: Session, activo_id: int) -> tuple[ActivoProbador, str]:
     return activo, storage.url_probador(activo.url)
 
 
+def clonar_asset_a_variante(
+    db: Session, activo_id: int, variante_id: int, creado_por: int | None = None
+) -> ActivoProbador:
+    """Asigna un asset ya subido (mismo public_id, anclajes y estado) a otra
+    variante del mismo producto. El overlay no cambia entre tallas del mismo
+    color, así que no hace falta volver a subir el archivo a Cloudinary."""
+    origen = activo_repo.obtener(db, activo_id)
+    variante_origen = catalogo_service.obtener_variante(db, origen.variante_id)
+    variante_destino = catalogo_service.obtener_variante(db, variante_id)
+    if variante_origen.producto_id != variante_destino.producto_id:
+        raise DomainError("Solo se puede reutilizar un asset entre variantes del mismo producto")
+
+    copia = activo_repo.crear(db, variante_id, origen.tipo, origen.url, origen.ancho_px, origen.alto_px, creado_por)
+    if origen.anclajes:
+        copia = activo_repo.guardar_anclajes(db, copia, dict(origen.anclajes))
+    if origen.estado == "validado":
+        copia = activo_repo.marcar_validado(db, copia)
+    return copia
+
+
 def listar_assets(db: Session, variante_id: int) -> list[tuple[ActivoProbador, str]]:
     catalogo_service.obtener_variante(db, variante_id)  # 404 si no existe
     activos = activo_repo.listar_por_variante(db, variante_id)

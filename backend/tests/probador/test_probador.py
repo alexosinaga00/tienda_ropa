@@ -300,3 +300,69 @@ def test_listar_por_variante(client, admin_headers, storage_falso, categoria_y_v
     ).json()
     assert len(listado) == 2
     assert {a["tipo"] for a in listado} == {"overlay_2d", "thumb"}
+
+
+# ---- Reutilizar un asset entre variantes ---------------------------------------
+
+
+def test_clonar_asset_a_otra_talla_del_mismo_producto(client, admin_headers, db_session, storage_falso):
+    cat = client.post("/api/v1/categorias", json={"nombre": "Poleras"}, headers=admin_headers).json()
+    talla_l = client.post("/api/v1/tallas", json={"codigo": "L", "orden": 1}, headers=admin_headers).json()
+    talla_xl = client.post("/api/v1/tallas", json={"codigo": "XL", "orden": 2}, headers=admin_headers).json()
+    color = client.post("/api/v1/colores", json={"nombre": "Negro"}, headers=admin_headers).json()
+    producto = client.post(
+        "/api/v1/productos",
+        json={
+            "codigo": "CLON-1",
+            "nombre": "Polera clonada",
+            "categoria_id": cat["id"],
+            "precio_base": "149.00",
+            "admite_probador": True,
+            "tallas_ids": [talla_l["id"], talla_xl["id"]],
+            "colores_ids": [color["id"]],
+        },
+        headers=admin_headers,
+    ).json()
+    variantes = client.get(f"/api/v1/productos/{producto['id']}/variantes", headers=admin_headers).json()
+    origen_id, destino_id = variantes[0]["id"], variantes[1]["id"]
+
+    activo = _subir(client, admin_headers, origen_id)
+    anclajes = {"hombro_izq": {"x": 0.3, "y": 0.15}, "hombro_der": {"x": 0.7, "y": 0.15}, "cadera": {"x": 0.5, "y": 0.65}}
+    client.put(f"/api/v1/probador/assets/{activo['id']}/anclajes", json=anclajes, headers=admin_headers)
+    client.put(f"/api/v1/probador/assets/{activo['id']}/validar", headers=admin_headers)
+
+    copia = service.clonar_asset_a_variante(db_session, activo["id"], destino_id)
+
+    assert copia.variante_id == destino_id
+    assert copia.url == activo["public_id"]  # mismo archivo, sin volver a subir
+    assert copia.anclajes == anclajes
+    assert copia.estado == "validado"
+    assert len(storage_falso) == 1
+
+    usados = client.get(f"/api/v1/probador/variante/{destino_id}/assets", headers=admin_headers)
+    assert usados.status_code == 200
+    assert usados.json()["overlay"]["estado"] == "validado"
+
+
+def test_clonar_asset_a_otro_producto_rechazado(client, admin_headers, db_session, storage_falso, categoria_y_variante):
+    from app.core.exceptions import DomainError
+
+    activo = _subir(client, admin_headers, categoria_y_variante["id"])
+    talla = client.post("/api/v1/tallas", json={"codigo": "XL", "orden": 2}, headers=admin_headers).json()
+    color = client.get("/api/v1/colores", headers=admin_headers).json()[0]
+    otro = client.post(
+        "/api/v1/productos",
+        json={
+            "codigo": "OTRO-1",
+            "nombre": "Otra camisa",
+            "categoria_id": client.get("/api/v1/categorias", headers=admin_headers).json()[0]["id"],
+            "precio_base": "100.00",
+            "tallas_ids": [talla["id"]],
+            "colores_ids": [color["id"]],
+        },
+        headers=admin_headers,
+    ).json()
+    variante_otro = client.get(f"/api/v1/productos/{otro['id']}/variantes", headers=admin_headers).json()[0]
+
+    with pytest.raises(DomainError):
+        service.clonar_asset_a_variante(db_session, activo["id"], variante_otro["id"])
