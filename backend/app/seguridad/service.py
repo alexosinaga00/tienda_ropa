@@ -84,8 +84,15 @@ def registrar_cliente(db: Session, datos: RegistroRequest) -> Usuario:
     )
     usuario_repo.asignar_roles(db, usuario, [ROL_CLIENTE])
 
-    cliente = Cliente(usuario_id=usuario.id, ci_nit=datos.ci_nit)
-    db.add(cliente)
+    # Si el usuario venía reactivado (estaba dado de baja con este mismo
+    # email), puede ya tener un perfil de Cliente de antes -- cliente.usuario_id
+    # es único, así que insertar uno nuevo rompería con IntegrityError.
+    cliente = cliente_repo.buscar_por_usuario(db, usuario.id)
+    if cliente is not None:
+        cliente.ci_nit = datos.ci_nit
+    else:
+        cliente = Cliente(usuario_id=usuario.id, ci_nit=datos.ci_nit)
+        db.add(cliente)
     db.commit()
     db.refresh(usuario)
     return usuario

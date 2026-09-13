@@ -103,6 +103,19 @@ class EmpleadoRepository(CRUDBase[Empleado, EmpleadoCrear, EmpleadoActualizar]):
     def obtener_por_usuario(self, db: Session, usuario_id: int) -> Empleado | None:
         return db.scalar(select(Empleado).where(Empleado.usuario_id == usuario_id))
 
+    def reactivar(self, db: Session, empleado: Empleado, datos: EmpleadoCrear) -> Empleado:
+        """Reusa la fila de un empleado dado de baja en vez de dejar un
+        duplicado: `obtener_por_usuario` no filtra por `activo`, así que un
+        usuario solo puede tener una fila de empleado en toda su historia."""
+        empleado.activo = True
+        empleado.sucursal_id = datos.sucursal_id
+        empleado.cargo = datos.cargo
+        empleado.ci = datos.ci
+        empleado.fecha_ingreso = datos.fecha_ingreso
+        db.commit()
+        db.refresh(empleado)
+        return empleado
+
     def listar_por_sucursal(self, db: Session, sucursal_id: int) -> list[Empleado]:
         return list(
             db.scalars(

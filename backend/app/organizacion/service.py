@@ -158,11 +158,14 @@ def desactivar_empleado(db: Session, empleado_id: int) -> Empleado:
 def crear_empleado(db: Session, datos: EmpleadoCrear):
     seguridad_service.obtener_usuario(db, datos.usuario_id)  # valida que el usuario exista
 
-    if empleado_repo.obtener_por_usuario(db, datos.usuario_id) is not None:
-        raise ConflictoError("Ese usuario ya es empleado")
-
     if datos.sucursal_id is not None:
         sucursal_repo.obtener(db, datos.sucursal_id)  # 404 si no existe / está inactiva
+
+    existente = empleado_repo.obtener_por_usuario(db, datos.usuario_id)
+    if existente is not None:
+        if existente.activo:
+            raise ConflictoError("Ese usuario ya es empleado")
+        return empleado_repo.reactivar(db, existente, datos)
 
     return empleado_repo.crear(db, datos)
 

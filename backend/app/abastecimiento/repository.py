@@ -24,8 +24,16 @@ class ProveedorRepository(CRUDBase[Proveedor, ProveedorCrear, ProveedorActualiza
         return db.scalar(select(Proveedor).where(Proveedor.nit == nit))
 
     def crear(self, db: Session, datos: ProveedorCrear) -> Proveedor:
-        if datos.nit is not None and self.obtener_por_nit(db, datos.nit) is not None:
-            raise ConflictoError("Ya existe un proveedor con ese NIT")
+        existente = self.obtener_por_nit(db, datos.nit) if datos.nit is not None else None
+        if existente is not None:
+            if existente.activo:
+                raise ConflictoError("Ya existe un proveedor con ese NIT")
+            for campo, valor in datos.model_dump().items():
+                setattr(existente, campo, valor)
+            existente.activo = True
+            db.commit()
+            db.refresh(existente)
+            return existente
         return super().crear(db, datos)
 
     def actualizar(self, db: Session, id_: int, datos: ProveedorActualizar) -> Proveedor:

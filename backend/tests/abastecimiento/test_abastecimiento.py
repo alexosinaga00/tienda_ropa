@@ -85,6 +85,26 @@ def test_desactivar_proveedor(client, admin_headers, proveedor):
     assert obtenido.status_code == 404  # CRUDBase.obtener oculta los inactivos
 
 
+def test_proveedor_dado_de_baja_se_puede_recrear_con_el_mismo_nit(client, admin_headers):
+    creado = client.post(
+        "/api/v1/proveedores", json={"nombre": "Insumos SA", "nit": "REINGRESO-1"}, headers=admin_headers
+    ).json()
+
+    baja = client.delete(f"/api/v1/proveedores/{creado['id']}", headers=admin_headers)
+    assert baja.status_code == 204
+
+    reingreso = client.post(
+        "/api/v1/proveedores",
+        json={"nombre": "Insumos SA Renovado", "nit": "REINGRESO-1"},
+        headers=admin_headers,
+    )
+    assert reingreso.status_code == 201
+    cuerpo = reingreso.json()
+    assert cuerpo["id"] == creado["id"]
+    assert cuerpo["activo"] is True
+    assert cuerpo["nombre"] == "Insumos SA Renovado"
+
+
 # ---- producto_proveedor -----------------------------------------------------------
 
 
