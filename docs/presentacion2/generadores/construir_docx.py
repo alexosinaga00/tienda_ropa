@@ -1351,11 +1351,7 @@ reemplazar_en_textos("producto_proveedor, producto_coleccion)", "producto_provee
 poner_texto(buscar_parrafo("PKG-02 – Relacionar paquetes y casos de uso"),
             "PKG-02 – Relacionar paquetes y casos de uso: el diagrama corresponde al Ciclo 1 y la tabla incluye los casos de uso de los Ciclos 1 y 2")
 
-# DCD: vista general nueva (sin marca de agua, Cliente en seguridad, sin Envio)
-if (DIAG / "DCD-00.png").exists():
-    cap = buscar_parrafo("Diagrama de clases de diseño (DCD)")
-    reemplazar_imagen(cap.getprevious(), DIAG / "DCD-00.png")
-    poner_texto(cap, "DCD-00 — Diagrama de clases de diseño: vista general de las entidades clave de la base de datos")
+# DCD: se conserva la imagen original del documento (no se reemplaza)
 
 # deliverys: ejemplo del enunciado y bibliografía
 reemplazar_en_textos("plataformas como Yango y Yummy", "plataformas como Yaigo y Yummy")
