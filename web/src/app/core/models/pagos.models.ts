@@ -22,7 +22,7 @@ export interface PagoCajaRespuesta {
   cambio: number | null;
 }
 
-export type MetodoPagoPasarela = 'libelula' | 'paypal';
+export type MetodoPagoPasarela = 'libelula' | 'paypal' | 'qr_online';
 
 export interface PagoIniciarRequest {
   venta_id: number;

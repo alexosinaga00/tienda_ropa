@@ -15,16 +15,21 @@ duplicado.
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 from decimal import Decimal
+from html import escape
 
+import qrcode
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.exceptions import ConflictoError, DomainError, NoEncontradoError, PermisoDenegadoError
 from app.organizacion import service as organizacion_service
 from app.pagos.models import MetodoPago, Pago, TransaccionPasarela
-from app.pagos.pasarela import obtener_pasarela
+from app.pagos.pasarela import QrOnlineGateway, obtener_pasarela
 from app.pagos.repository import EstadoPagoRepository, MetodoPagoRepository, PagoRepository, TransaccionPasarelaRepository
 from app.pagos.schemas import PagoCajaRequest, PagoIniciarRequest, PagoRespuesta
 from app.ventas import service as ventas_service
@@ -298,3 +303,114 @@ def anular_pago(db: Session, pago_id: int) -> Pago:
     db.commit()
     db.refresh(pago)
     return pago
+
+
+# ---- QR online: pantalla pública de "pago" -----------------------------------
+# Sin autenticación JWT en ninguna de las dos funciones de acá: el
+# id_transaccion (128 bits, ver QrOnlineGateway.iniciar_pago) es el único
+# requisito para verlas/usarlas, igual modelo de confianza que un link de
+# pago o que el propio webhook de las otras pasarelas.
+
+_URL_RETORNO_SANDBOX = "https://fashionstore.example.com/pago/retorno"
+
+
+def _generar_qr_base64(contenido: str) -> str:
+    imagen = qrcode.make(contenido)
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _plantilla_pantalla_qr(*, id_transaccion: str, monto: Decimal, imagen_qr_base64: str, ya_resuelto: bool, estado_codigo: str) -> str:
+    if ya_resuelto:
+        cuerpo_accion = (
+            f'<p class="estado">Este pago ya quedó registrado como <strong>{escape(estado_codigo)}</strong>. '
+            "Podés cerrar esta pantalla.</p>"
+        )
+    else:
+        cuerpo_accion = f"""
+        <button id="btn-confirmar" onclick="confirmar()">Confirmar pago</button>
+        <p id="mensaje" class="estado"></p>
+        <script>
+          function confirmar() {{
+            const boton = document.getElementById('btn-confirmar');
+            const mensaje = document.getElementById('mensaje');
+            boton.disabled = true;
+            boton.textContent = 'Confirmando...';
+            fetch(window.location.pathname + '/confirmar', {{ method: 'POST' }})
+              .then((resp) => {{
+                if (!resp.ok) throw new Error('fallo');
+                mensaje.textContent = '¡Pago confirmado! Ya podés volver a la aplicación.';
+                setTimeout(() => {{ window.location.href = '{_URL_RETORNO_SANDBOX}'; }}, 1200);
+              }})
+              .catch(() => {{
+                boton.disabled = false;
+                boton.textContent = 'Confirmar pago';
+                mensaje.textContent = 'No se pudo confirmar. Probá de nuevo.';
+              }});
+          }}
+        </script>
+        """
+    return f"""<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pagar con QR - FashionStore</title>
+<style>
+  body {{ background: #EAE4DA; color: #1C1713; font-family: system-ui, sans-serif;
+         display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }}
+  .tarjeta {{ background: #FFFFFF; border: 1px solid #DBD0C1; border-radius: 18px;
+             padding: 32px; max-width: 360px; width: 100%; text-align: center; }}
+  h1 {{ font-size: 20px; margin: 0 0 4px; }}
+  .monto {{ font-size: 28px; font-weight: 700; margin: 4px 0 20px; }}
+  img {{ width: 220px; height: 220px; margin-bottom: 20px; }}
+  button {{ background: #9A3E1F; color: #fff; border: none; border-radius: 6px;
+           padding: 12px 24px; font-size: 16px; cursor: pointer; width: 100%; }}
+  button:disabled {{ opacity: .6; cursor: default; }}
+  .estado {{ color: #6E6156; font-size: 14px; margin-top: 12px; }}
+  .transaccion {{ color: #C7BCAC; font-size: 11px; margin-top: 20px; }}
+</style>
+</head>
+<body>
+  <div class="tarjeta">
+    <h1>Pagar con QR</h1>
+    <div class="monto">Bs {escape(str(monto))}</div>
+    <img src="data:image/png;base64,{imagen_qr_base64}" alt="Código QR de pago">
+    {cuerpo_accion}
+    <div class="transaccion">{escape(id_transaccion)}</div>
+  </div>
+</body>
+</html>"""
+
+
+def renderizar_pantalla_qr(db: Session, id_transaccion: str) -> str:
+    """GET /pagos/qr/{id}: pantalla pública (sin login) con el QR y el
+    botón de confirmar. El QR codifica esta misma URL -- se puede abrir
+    directo (mismo dispositivo del checkout) o escanear con otro celular."""
+    transaccion = transaccion_repo.obtener_por_id_transaccion(db, "qr_online", id_transaccion)
+    if transaccion is None:
+        raise NoEncontradoError("Transacción QR no encontrada")
+    pago = pago_repo.obtener(db, transaccion.pago_id)
+    estado = estado_repo.obtener(db, pago.estado_id)
+
+    base_url = get_settings().backend_public_url.rstrip("/")
+    url_pantalla = f"{base_url}/api/v1/pagos/qr/{id_transaccion}"
+
+    return _plantilla_pantalla_qr(
+        id_transaccion=id_transaccion,
+        monto=pago.monto,
+        imagen_qr_base64=_generar_qr_base64(url_pantalla),
+        ya_resuelto=estado.codigo != "iniciado",
+        estado_codigo=estado.codigo,
+    )
+
+
+def confirmar_pago_qr(db: Session, id_transaccion: str) -> Pago:
+    """POST /pagos/qr/{id}/confirmar: lo llama el botón de la pantalla de
+    arriba. Arma el mismo payload+firma que mandaría un webhook real y lo
+    procesa por procesar_webhook(): reusa toda la idempotencia/auditoría
+    ya probada para Libélula/PayPal en vez de duplicar la resolución acá."""
+    payload = json.dumps({"id_transaccion": id_transaccion, "estado": "aprobado"}).encode("utf-8")
+    firma = QrOnlineGateway().firmar_confirmacion(payload)
+    return procesar_webhook(db, "qr_online", payload, firma)

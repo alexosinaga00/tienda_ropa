@@ -13,6 +13,7 @@ import { CheckoutService } from '../state/checkout.service';
 const METODOS: { codigo: MetodoPagoPasarela; etiqueta: string }[] = [
   { codigo: 'libelula', etiqueta: 'Libélula' },
   { codigo: 'paypal', etiqueta: 'PayPal' },
+  { codigo: 'qr_online', etiqueta: 'QR' },
 ];
 
 @Component({

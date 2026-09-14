@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # variable de entorno como cualquier otro secreto (regla 9).
     libelula_webhook_secret: str = "sandbox-secret-libelula"
     paypal_webhook_secret: str = "sandbox-secret-paypal"
+    qr_online_webhook_secret: str = "sandbox-secret-qr"
+
+    # Base para construir URLs absolutas hacia esta misma API (p. ej. la
+    # pantalla pública de pago con QR, ver app/pagos/pasarela.py) desde
+    # código que no tiene acceso a un `Request` (arma la URL antes de que
+    # exista ningún request entrante). En producción se sobreescribe por
+    # variable de entorno con el dominio real de Railway, igual que
+    # `cors_origins`.
+    backend_public_url: str = "http://localhost:8000"
 
     # PayPal sí tiene credenciales reales de sandbox configuradas (Client
     # ID/Secret de una app de PayPal Developer en modo prueba): con esto,

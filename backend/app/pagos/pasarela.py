@@ -12,6 +12,11 @@ El webhook (verificar_firma/interpretar_webhook) sigue siendo el HMAC de
 sandbox para las dos: verificarlo de verdad con la API de PayPal
 (verify-webhook-signature) necesita un PAYPAL_WEBHOOK_ID configurado en
 su dashboard contra una URL pública, que este entorno local no tiene.
+
+QrOnlineGateway es una tercera pasarela, también simulada (sin ningún
+banco real detrás), pero con una pantalla de pago propia y funcional:
+genera un QR de verdad que apunta a `GET /pagos/qr/{id}`, servido por
+este mismo backend, en vez del link externo muerto de Libélula.
 """
 
 from __future__ import annotations
@@ -215,9 +220,55 @@ class PayPalGateway(PasarelaBase):
         return ResultadoWebhook(id_transaccion=payload["id_transaccion"], estado=payload["estado"])
 
 
+class QrOnlineGateway(PasarelaBase):
+    """Pasarela simulada de pago por QR: a diferencia de LibelulaGateway
+    (que redirige a una URL externa que nunca existió), acá
+    `url_redireccion` apunta a una pantalla que sirve nuestro propio
+    backend (`GET /pagos/qr/{id_transaccion}`, ver `pagos/router.py` y
+    `pagos/service.py`) con un QR de verdad y un botón "Confirmar pago".
+    El QR y la pantalla son reales; lo simulado es solo que no hay ningún
+    banco detrás verificando ni moviendo dinero -- mismo espíritu de
+    sandbox que las otras dos pasarelas."""
+
+    nombre = "qr_online"
+
+    def __init__(self) -> None:
+        self._secreto = get_settings().qr_online_webhook_secret
+
+    def iniciar_pago(self, *, monto: Decimal, referencia: str) -> ResultadoIniciar:
+        id_transaccion = f"QR-{secrets.token_hex(12).upper()}"
+        base_url = get_settings().backend_public_url.rstrip("/")
+        return ResultadoIniciar(
+            id_transaccion=id_transaccion,
+            url_redireccion=f"{base_url}/api/v1/pagos/qr/{id_transaccion}",
+        )
+
+    def consultar_estado(self, id_transaccion: str) -> str:
+        # Igual que Libélula: sin servidor externo real, el único cambio
+        # de estado posible llega por la confirmación manual del botón
+        # (service.confirmar_pago_qr), no por polling activo acá.
+        return "iniciado"
+
+    def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
+        if not firma:
+            return False
+        return hmac.compare_digest(_firmar(self._secreto, payload_crudo), firma)
+
+    def interpretar_webhook(self, payload: dict) -> ResultadoWebhook:
+        return ResultadoWebhook(id_transaccion=payload["id_transaccion"], estado=payload["estado"])
+
+    def firmar_confirmacion(self, payload_crudo: bytes) -> str:
+        """No es parte de PasarelaBase: la usa únicamente
+        service.confirmar_pago_qr() para firmar, del lado del servidor,
+        la confirmación que dispara el botón de la pantalla QR -- así el
+        secreto nunca se expone al navegador/WebView que la muestra."""
+        return _firmar(self._secreto, payload_crudo)
+
+
 _PASARELAS: dict[str, type[PasarelaBase]] = {
     "libelula": LibelulaGateway,
     "paypal": PayPalGateway,
+    "qr_online": QrOnlineGateway,
 }
 
 

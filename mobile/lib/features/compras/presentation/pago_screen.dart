@@ -8,7 +8,7 @@ import '../state/carrito_controller.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
 
-const _metodos = {'libelula': 'Libélula', 'paypal': 'PayPal'};
+const _metodos = {'libelula': 'Libélula', 'paypal': 'PayPal', 'qr_online': 'QR'};
 
 class PagoScreen extends ConsumerStatefulWidget {
   const PagoScreen({super.key});
