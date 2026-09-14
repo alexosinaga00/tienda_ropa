@@ -36,6 +36,11 @@ class SucursalRepository(CRUDBase[Sucursal, SucursalCrear, SucursalActualizar]):
     def obtener_por_codigo(self, db: Session, codigo: str) -> Sucursal | None:
         return db.scalar(select(Sucursal).where(Sucursal.codigo == codigo))
 
+    def listar_por_ids(self, db: Session, ids: list[int]) -> list[Sucursal]:
+        if not ids:
+            return []
+        return list(db.scalars(select(Sucursal).where(Sucursal.id.in_(ids))))
+
     def crear(self, db: Session, datos: SucursalCrear) -> Sucursal:
         if self.obtener_por_codigo(db, datos.codigo) is not None:
             raise ConflictoError("Ya existe una sucursal con ese código")

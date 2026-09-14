@@ -50,7 +50,10 @@ export interface HorarioSucursal {
 export interface Empleado {
   id: number;
   usuario_id: number;
+  usuario_nombre?: string | null;
+  usuario_apellido?: string | null;
   sucursal_id: number | null;
+  sucursal_nombre?: string | null;
   ci: string | null;
   cargo: string | null;
   fecha_ingreso: string | null;

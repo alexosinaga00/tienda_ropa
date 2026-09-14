@@ -175,6 +175,13 @@ def obtener_usuario(db: Session, usuario_id: int) -> Usuario:
     return usuario_repo.obtener(db, usuario_id)
 
 
+def obtener_usuarios_por_ids(db: Session, ids: list[int]) -> dict[int, Usuario]:
+    """Para que otros paquetes (p. ej. organizacion, al listar empleados)
+    resuelvan nombres de usuario en lote sin consultar la tabla
+    directamente."""
+    return {u.id: u for u in usuario_repo.listar_por_ids(db, ids)}
+
+
 # ---- Roles ------------------------------------------------------------------
 
 

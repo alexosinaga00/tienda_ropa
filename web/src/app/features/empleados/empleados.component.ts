@@ -12,8 +12,9 @@ import { Usuario } from '../../core/models/seguridad.models';
 import { ColumnaTabla, TablaGenericaComponent } from '../../shared/tabla-generica/tabla-generica.component';
 
 const COLUMNAS: ColumnaTabla<Empleado>[] = [
-  { campo: 'usuario_id', encabezado: 'Usuario (id)' },
-  { campo: 'sucursal_id', encabezado: 'Sucursal (id)' },
+  { campo: 'usuario_nombre', encabezado: 'Nombre' },
+  { campo: 'usuario_apellido', encabezado: 'Apellido' },
+  { campo: 'sucursal_nombre', encabezado: 'Sucursal' },
   { campo: 'cargo', encabezado: 'Cargo' },
   { campo: 'ci', encabezado: 'CI' },
   { campo: 'fecha_ingreso', encabezado: 'Ingreso', tipo: 'fecha' },

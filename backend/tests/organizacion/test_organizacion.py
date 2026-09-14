@@ -292,3 +292,35 @@ def test_empleados_yo_no_requiere_permiso_admin(client, admin_headers, db_sessio
 
     con_yo = client.get("/api/v1/empleados/yo", headers=cajero_headers)
     assert con_yo.status_code == 200
+
+
+def test_empleado_expone_nombre_de_usuario_y_sucursal(client, admin_headers, db_session):
+    """La tabla de empleados en Angular mostraba usuario_id/sucursal_id
+    crudos porque EmpleadoRespuesta no traía nombres resueltos."""
+    from app.seguridad.repository import UsuarioRepository
+    from app.seguridad.schemas import UsuarioCrear
+
+    usuario_repo = UsuarioRepository()
+    usuario = usuario_repo.crear(
+        db_session,
+        UsuarioCrear(nombre="Ana", apellido="Perez", email="ana.perez@example.com", password="claveSegura123"),
+    )
+
+    ciudad = crear_ciudad(client, admin_headers).json()
+    sucursal = crear_sucursal(client, admin_headers, ciudad["id"], codigo="S-NOM").json()
+
+    creado = client.post(
+        "/api/v1/empleados",
+        json={"usuario_id": usuario.id, "sucursal_id": sucursal["id"], "cargo": "Cajera"},
+        headers=admin_headers,
+    ).json()
+
+    listado = client.get("/api/v1/empleados", headers=admin_headers).json()
+    fila = next(e for e in listado if e["id"] == creado["id"])
+    assert fila["usuario_nombre"] == "Ana"
+    assert fila["usuario_apellido"] == "Perez"
+    assert fila["sucursal_nombre"] == "Sucursal Centro"
+
+    detalle = client.get(f"/api/v1/empleados/{creado['id']}", headers=admin_headers).json()
+    assert detalle["usuario_nombre"] == "Ana"
+    assert detalle["sucursal_nombre"] == "Sucursal Centro"

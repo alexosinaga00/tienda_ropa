@@ -39,6 +39,11 @@ class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
     def obtener_por_email(self, db: Session, email: str) -> Usuario | None:
         return db.scalar(select(Usuario).where(Usuario.email == email))
 
+    def listar_por_ids(self, db: Session, ids: list[int]) -> list[Usuario]:
+        if not ids:
+            return []
+        return list(db.scalars(select(Usuario).where(Usuario.id.in_(ids))))
+
     def crear(self, db: Session, datos: UsuarioCrear) -> Usuario:
         existente = self.obtener_por_email(db, datos.email)
         if existente is not None:

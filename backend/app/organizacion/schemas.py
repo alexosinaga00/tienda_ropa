@@ -136,7 +136,10 @@ class EmpleadoRespuesta(BaseModel):
 
     id: int
     usuario_id: int
+    usuario_nombre: str | None = None
+    usuario_apellido: str | None = None
     sucursal_id: int | None = None
+    sucursal_nombre: str | None = None
     ci: str | None = None
     cargo: str | None = None
     fecha_ingreso: dt.date | None = None
