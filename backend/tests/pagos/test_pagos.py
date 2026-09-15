@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from app.pagos.pasarela import LibelulaGateway
 from tests.conftest import crear_cajero
 
 SECRETO_LIBELULA = "sandbox-secret-libelula"
@@ -180,6 +181,53 @@ def test_webhook_duplicado_no_duplica_venta(client, admin_headers, cliente_heade
     # No hay una venta duplicada: sigue existiendo solo esta.
     mis_compras = client.get("/api/v1/ventas/mis-compras", headers=cliente_headers).json()
     assert len(mis_compras) == 1
+
+
+# ---- reintentar con un pago iniciado que nunca se completó -----------------------------
+
+
+def _venta_con_pago_iniciado(client, cliente_headers, contexto):
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
+    venta = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+    ).json()
+    inicio = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "libelula"}, headers=cliente_headers
+    )
+    assert inicio.status_code == 201
+    return venta, inicio.json()["pago"]
+
+
+def test_reintentar_reemplaza_pago_iniciado_sin_anular_la_venta(client, admin_headers, cliente_headers, contexto):
+    venta, pago_viejo = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+
+    reintento = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "libelula"}, headers=cliente_headers
+    )
+    assert reintento.status_code == 201
+    assert reintento.json()["pago"]["id"] != pago_viejo["id"]
+
+    viejo = client.get(f"/api/v1/pagos/{pago_viejo['id']}/estado", headers=cliente_headers).json()
+    assert viejo["estado"] == "rechazado"
+    venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
+    assert venta_final["estado"] == "pendiente_pago"
+
+
+def test_reintentar_si_la_pasarela_ya_cobro_no_inicia_otro_pago(
+    client, admin_headers, cliente_headers, contexto, monkeypatch
+):
+    venta, pago_viejo = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+    monkeypatch.setattr(LibelulaGateway, "consultar_estado", lambda self, id_transaccion: "aprobado")
+
+    reintento = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "libelula"}, headers=cliente_headers
+    )
+    assert reintento.status_code == 409
+
+    viejo = client.get(f"/api/v1/pagos/{pago_viejo['id']}/estado", headers=cliente_headers).json()
+    assert viejo["estado"] == "aprobado"
+    venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
+    assert venta_final["estado"] == "pagada"
 
 
 def test_webhook_con_firma_invalida_se_rechaza(client, cliente_headers, contexto):

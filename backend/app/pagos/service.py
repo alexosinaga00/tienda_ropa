@@ -72,8 +72,33 @@ def iniciar_pago_pasarela(db: Session, usuario_id: int, datos: PagoIniciarReques
         raise DomainError(f"'{metodo.codigo}' no es un método por pasarela, usá /pagos/caja")
 
     estado_iniciado = estado_repo.obtener_por_codigo(db, "iniciado")
-    if any(p.estado_id == estado_iniciado.id for p in pago_repo.listar_por_venta(db, venta.id)):
-        raise ConflictoError("Ya hay un pago en curso para esta venta")
+    for previo in pago_repo.listar_por_venta(db, venta.id):
+        if previo.estado_id != estado_iniciado.id:
+            continue
+        # Un pago 'iniciado' que nunca se completó (la pasarela lo denegó,
+        # el cliente cerró la ventana) bloqueaba la venta para siempre.
+        # Antes de reemplazarlo se le pregunta a la pasarela: si en realidad
+        # ya se cobró, se aplica esa aprobación y NO se inicia un segundo
+        # cobro.
+        primera = _primera_transaccion(db, previo.id)
+        estado_pasarela = "iniciado"
+        if primera is not None and primera.id_transaccion is not None:
+            try:
+                estado_pasarela = obtener_pasarela(primera.pasarela).consultar_estado(primera.id_transaccion)
+            except RuntimeError:
+                estado_pasarela = "iniciado"
+        if estado_pasarela == "aprobado":
+            _resolver_pago(
+                db,
+                previo.id,
+                pasarela_codigo=primera.pasarela,
+                id_transaccion=primera.id_transaccion,
+                estado_resultado="aprobado",
+                payload_respuesta={"origen": "consultar_estado", "estado": "aprobado"},
+                commit=True,
+            )
+            raise ConflictoError("Esta venta ya fue pagada")
+        _abandonar_pago(db, previo, pasarela_codigo=primera.pasarela if primera else metodo.codigo)
 
     pago = Pago(venta_id=venta.id, metodo_pago_id=metodo.id, estado_id=estado_iniciado.id, monto=venta.total)
     pago_repo.crear(db, pago)  # flush: pago.id ya disponible
@@ -136,6 +161,37 @@ def pagar_en_caja(db: Session, usuario_id: int, datos: PagoCajaRequest) -> tuple
     db.commit()
     db.refresh(pago)
     return pago, cambio
+
+
+def _primera_transaccion(db: Session, pago_id: int) -> TransaccionPasarela | None:
+    """La transacción que dejó iniciar_pago_pasarela: de ahí salen la
+    pasarela y el id de transacción para consultarla."""
+    return db.scalar(
+        select(TransaccionPasarela)
+        .where(TransaccionPasarela.pago_id == pago_id)
+        .order_by(TransaccionPasarela.creado_en.asc())
+        .limit(1)
+    )
+
+
+def _abandonar_pago(db: Session, pago: Pago, *, pasarela_codigo: str) -> None:
+    """Marca 'rechazado' un pago 'iniciado' que se reemplaza por un
+    reintento. A diferencia de _resolver_pago(rechazado), NO anula la
+    venta: sigue en 'pendiente_pago' para que el pago nuevo la pueda
+    confirmar."""
+    pago = pago_repo.obtener_bloqueado(db, pago.id)
+    pago.estado_id = estado_repo.obtener_por_codigo(db, "rechazado").id
+    transaccion_repo.crear(
+        db,
+        TransaccionPasarela(
+            pago_id=pago.id,
+            pasarela=pasarela_codigo,
+            id_transaccion=pago.referencia_externa,
+            payload_envio=None,
+            payload_respuesta={"origen": "reemplazado_por_reintento"},
+            estado="rechazado",
+        ),
+    )
 
 
 def _ya_resuelto(codigo_estado: str) -> bool:
@@ -251,12 +307,7 @@ def obtener_estado_pago(db: Session, usuario_id: int, pago_id: int) -> Pago:
 
     # Todavía no llegó (o nunca llegó) el webhook: pregunta activamente a
     # la pasarela, por si acá se enteran antes que por webhook.
-    primera = db.scalar(
-        select(TransaccionPasarela)
-        .where(TransaccionPasarela.pago_id == pago.id)
-        .order_by(TransaccionPasarela.creado_en.asc())
-        .limit(1)
-    )
+    primera = _primera_transaccion(db, pago.id)
     if primera is None or primera.id_transaccion is None:
         return pago
 
