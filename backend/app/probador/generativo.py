@@ -9,6 +9,7 @@ de caché, límites ni persistencia.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 
 from app.core.config import get_settings
@@ -51,13 +52,28 @@ class VertexAIProbadorGenerativo(ProbadorGenerativoBase):
         self._project = settings.vertex_project_id
         self._location = settings.vertex_location
         self._modelo = settings.vertex_modelo
+        self._credenciales_json = settings.google_credentials_json
+
+    def _credenciales(self):
+        """Sin GOOGLE_CREDENTIALS_JSON devuelve None y el SDK usa las
+        Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS)."""
+        if not self._credenciales_json:
+            return None
+        from google.oauth2 import service_account
+
+        return service_account.Credentials.from_service_account_info(
+            json.loads(self._credenciales_json),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
 
     def _cliente(self):
         from google import genai
 
         if not self._project:
             raise RuntimeError("VERTEX_PROJECT_ID no está configurado")
-        return genai.Client(vertexai=True, project=self._project, location=self._location)
+        return genai.Client(
+            vertexai=True, project=self._project, location=self._location, credentials=self._credenciales()
+        )
 
     def generar(self, foto_cliente: bytes, imagen_prenda: bytes) -> bytes:
         from google.genai import types

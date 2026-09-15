@@ -57,10 +57,13 @@ class Settings(BaseSettings):
     # configurado, VertexAIProbadorGenerativo falla al primer uso: el modo
     # espejo (Flutter, sin backend) sigue funcionando igual, es el
     # generativo el que queda inhabilitado hasta configurar el proyecto de
-    # GCP. Las credenciales van por GOOGLE_APPLICATION_CREDENTIALS, nunca acá.
+    # GCP. Las credenciales van por GOOGLE_APPLICATION_CREDENTIALS (ruta a
+    # archivo, entorno local) o por GOOGLE_CREDENTIALS_JSON (el contenido
+    # del JSON de la cuenta de servicio, para Railway que no tiene archivos).
     vertex_project_id: str = ""
     vertex_location: str = "us-central1"
     vertex_modelo: str = "gemini-2.5-flash-image"
+    google_credentials_json: str = ""
 
     # Secretos para verificar la firma HMAC de los webhooks de pago (ver
     # app/pagos/pasarela.py). Ambas pasarelas corren en modo sandbox sin
