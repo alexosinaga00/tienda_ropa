@@ -11,6 +11,7 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.core import storage
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.deps import ParametrosPeriodo
 from app.core.exceptions import DomainError, PermisoDenegadoError
@@ -32,7 +33,7 @@ LADO_MINIMO_PX = 512
 TAMANIO_MAXIMO_BYTES = 3 * 1024 * 1024  # 3MB
 
 TAMANIO_MAXIMO_FOTO_BYTES = 8 * 1024 * 1024  # 8MB, foto de celular sin exigir canal alfa
-LIMITE_GENERACIONES_DIARIAS = 3
+LIMITE_GENERACIONES_DIARIAS = get_settings().probador_limite_diario
 TIMEOUT_GENERACION_SEG = 60
 
 

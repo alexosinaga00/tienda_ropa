@@ -82,7 +82,12 @@ class GeneracionRepository:
         return db.scalar(
             select(func.count())
             .select_from(ProbadorGeneracion)
-            .where(ProbadorGeneracion.cliente_id == cliente_id, ProbadorGeneracion.creado_en >= desde)
+            .where(
+                ProbadorGeneracion.cliente_id == cliente_id,
+                ProbadorGeneracion.creado_en >= desde,
+                # Un intento fallido (proveedor caído, timeout) no gasta cupo.
+                ProbadorGeneracion.estado != "fallido",
+            )
         )
 
     def obtener(self, db: Session, generacion_id: int) -> ProbadorGeneracion:

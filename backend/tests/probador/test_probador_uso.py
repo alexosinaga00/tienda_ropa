@@ -316,6 +316,31 @@ def test_generar_limite_diario_no_cuenta_hits_de_cache(
     assert len(generativo_falso) == 1
 
 
+def test_generar_limite_diario_no_cuenta_fallidos(
+    client, admin_headers, cliente_headers, storage_falso, descarga_falsa, categoria_y_variante, monkeypatch
+):
+    """Si el proveedor externo falla, el intento no debería gastar cupo."""
+    variante_id = categoria_y_variante["variante"]["id"]
+    _subir_y_validar_overlay(client, admin_headers, variante_id)
+
+    class _ProveedorCaido:
+        nombre = "caido"
+
+        def generar(self, foto_cliente: bytes, imagen_prenda: bytes) -> bytes:
+            raise RuntimeError("proveedor caído")
+
+    monkeypatch.setattr(service, "obtener_proveedor_generativo", lambda: _ProveedorCaido())
+
+    for i in range(service.LIMITE_GENERACIONES_DIARIAS + 2):
+        respuesta = client.post(
+            "/api/v1/probador/generar",
+            data={"variante_id": variante_id},
+            files={"archivo": (f"foto{i}.jpg", io.BytesIO(_foto_jpeg(color=(i, i, i))), "image/jpeg")},
+            headers=cliente_headers,
+        )
+        assert respuesta.status_code == 202, respuesta.json()
+
+
 def test_generar_timeout_no_bloquea_el_background_task(
     client, admin_headers, cliente_headers, storage_falso, descarga_falsa, categoria_y_variante, monkeypatch
 ):

@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     vertex_location: str = "us-central1"
     vertex_modelo: str = "gemini-2.5-flash-image"
     google_credentials_json: str = ""
+    # Generaciones por cliente por día (cada una tiene costo en Vertex AI).
+    probador_limite_diario: int = 3
 
     # Secretos para verificar la firma HMAC de los webhooks de pago (ver
     # app/pagos/pasarela.py). Ambas pasarelas corren en modo sandbox sin
