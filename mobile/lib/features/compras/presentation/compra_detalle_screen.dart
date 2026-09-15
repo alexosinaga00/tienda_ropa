@@ -1,8 +1,11 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/venta.dart';
+import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
 
 class CompraDetalleScreen extends ConsumerWidget {
@@ -64,9 +67,133 @@ class CompraDetalleScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            if (venta.estado == 'pendiente_pago') ...[
+              const SizedBox(height: AppSpacing.lg),
+              _AccionesPendiente(venta: venta),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Una compra que quedó sin pagar (se salió de la pasarela, falló el pago):
+/// se puede pagar desde acá o cancelar para liberar el stock.
+class _AccionesPendiente extends ConsumerStatefulWidget {
+  const _AccionesPendiente({required this.venta});
+
+  final Venta venta;
+
+  @override
+  ConsumerState<_AccionesPendiente> createState() => _AccionesPendienteState();
+}
+
+class _AccionesPendienteState extends ConsumerState<_AccionesPendiente> {
+  bool _ocupado = false;
+
+  Future<void> _pagar() async {
+    final metodo = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text('¿Con qué querés pagar?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet_outlined),
+              title: const Text('PayPal'),
+              onTap: () => Navigator.pop(context, 'paypal'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_2),
+              title: const Text('Libélula'),
+              onTap: () => Navigator.pop(context, 'libelula'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (metodo == null || !mounted) return;
+
+    setState(() => _ocupado = true);
+    try {
+      final pagoIniciado = await ref.read(pagosRepositoryProvider).iniciar(ventaId: widget.venta.id, metodoPago: metodo);
+      // La pantalla de estado lee la URL de la pasarela del checkout.
+      ref.read(checkoutControllerProvider.notifier)
+        ..reiniciar()
+        ..confirmarVenta(widget.venta)
+        ..confirmarPago(pagoIniciado);
+      if (!mounted) return;
+      context.push('/checkout/estado/${pagoIniciado.pago.id}');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(mensajeDeError(e, 'No se pudo iniciar el pago. Probá de nuevo.'))));
+      refrescarDespuesDeCompra(ref);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _cancelar() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Cancelar la compra?'),
+        content: const Text('Se libera la prenda y vuelve a tu carrito.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sí, cancelar')),
+        ],
+      ),
+    );
+    if (confirmado != true || !mounted) return;
+
+    setState(() => _ocupado = true);
+    try {
+      await ref.read(pagosRepositoryProvider).cancelarCompra(widget.venta.id);
+      refrescarDespuesDeCompra(ref);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Compra cancelada. Tus prendas volvieron al carrito.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(mensajeDeError(e, 'No se pudo cancelar la compra. Probá de nuevo.'))));
+      refrescarDespuesDeCompra(ref);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Esta compra todavía no está pagada. Si no se paga, se cancela sola a los 30 minutos.',
+          style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        ElevatedButton(
+          onPressed: _ocupado ? null : _pagar,
+          child: _ocupado
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('Pagar ahora'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(onPressed: _ocupado ? null : _cancelar, child: const Text('Cancelar compra')),
+      ],
     );
   }
 }

@@ -30,9 +30,17 @@ final horariosSucursalProvider = FutureProvider.family<List<HorarioSucursal>, in
 
 /// Disponibilidad de una variante en todas las sucursales (lo usa el
 /// detalle de producto, para mostrar "disponible/agotado" por sucursal).
-final disponibilidadPorVarianteProvider = FutureProvider.family<List<DisponibilidadSucursal>, int>(
+/// autoDispose: el stock cambia con cada compra, así que se vuelve a pedir
+/// cada vez que se entra al detalle en vez de quedar cacheado la sesión.
+final disponibilidadPorVarianteProvider = FutureProvider.autoDispose.family<List<DisponibilidadSucursal>, int>(
   (ref, varianteId) => ref.watch(disponibilidadRepositoryProvider).porVariante(varianteId),
 );
+
+/// Unidades disponibles de una variante sumando todas las sucursales.
+final disponibleTotalProvider = FutureProvider.autoDispose.family<int, int>((ref, varianteId) async {
+  final lista = await ref.watch(disponibilidadPorVarianteProvider(varianteId).future);
+  return lista.fold<int>(0, (total, d) => total + d.cantidadDisponible);
+});
 
 final notificacionesProvider = FutureProvider<List<NotificacionApp>>(
   (ref) => ref.watch(notificacionesRepositoryProvider).listar(),

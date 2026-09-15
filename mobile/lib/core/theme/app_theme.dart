@@ -11,6 +11,7 @@ class AppColors {
   static const acento = Color(0xFF1F2937);
   static const exito = Color(0xFF16A34A);
   static const error = Color(0xFFDC2626);
+  static const advertencia = Color(0xFFB45309);
   static const borde = Color(0xFFE5E5E5);
 }
 

@@ -2,7 +2,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../reservas/state/reservas_providers.dart' show disponibilidadPorVarianteProvider, disponibleTotalProvider;
 import '../models/carrito.dart';
 import '../state/carrito_controller.dart';
 import '../state/checkout_controller.dart';
@@ -19,7 +21,10 @@ class CarritoScreen extends ConsumerWidget {
       backgroundColor: AppColors.fondo,
       appBar: AppBar(title: const Text('Tu carrito')),
       body: RefreshIndicator(
-        onRefresh: () => ref.read(carritoControllerProvider.notifier).cargar(),
+        onRefresh: () {
+          ref.invalidate(disponibilidadPorVarianteProvider);
+          return ref.read(carritoControllerProvider.notifier).cargar();
+        },
         child: asyncCarrito.when(
           loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
           error: (error, stack) => ListView(
@@ -151,6 +156,12 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
     setState(() => _actualizando = true);
     try {
       await accion();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(mensajeDeError(e, 'No se pudo actualizar el carrito. Probá de nuevo.'))));
+      ref.invalidate(disponibilidadPorVarianteProvider(widget.linea.varianteId));
     } finally {
       if (mounted) setState(() => _actualizando = false);
     }
@@ -160,6 +171,15 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
   Widget build(BuildContext context) {
     final linea = widget.linea;
     final controller = ref.read(carritoControllerProvider.notifier);
+    final disponible = ref.watch(disponibleTotalProvider(linea.varianteId)).valueOrNull;
+    final enElMaximo = disponible != null && linea.cantidad >= disponible;
+    final (String? avisoStock, Color colorAviso) = switch (disponible) {
+      null => (null, AppColors.textoTenue),
+      <= 0 => ('Agotado: quitala para continuar', AppColors.error),
+      final d when linea.cantidad > d => ('Solo quedan $d disponibles', AppColors.error),
+      final d when d <= 3 => ('Quedan $d', AppColors.advertencia),
+      _ => (null, AppColors.textoTenue),
+    };
     final subtitulo = [
       if (linea.tallaCodigo != null) linea.tallaCodigo!,
       if (linea.colorNombre != null) linea.colorNombre!,
@@ -199,6 +219,8 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
                     'Bs ${linea.precioUnitario.toStringAsFixed(2)}',
                     style: const TextStyle(color: AppColors.acento, fontWeight: FontWeight.w600),
                   ),
+                  if (avisoStock != null)
+                    Text(avisoStock, style: TextStyle(color: colorAviso, fontSize: 12, fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -228,7 +250,7 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
                         : Text('${linea.cantidad}', style: const TextStyle(fontWeight: FontWeight.w600)),
                     IconButton(
                       icon: const Icon(Icons.add_circle_outline, size: 20),
-                      onPressed: _actualizando
+                      onPressed: _actualizando || enElMaximo
                           ? null
                           : () => _ejecutar(
                               () => controller.actualizarCantidad(

@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../compras/state/carrito_controller.dart';
@@ -125,6 +126,10 @@ class _Contenido extends ConsumerWidget {
                 'Bs ${precio.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.acento),
               ),
+              if (variante != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                _StockTotal(varianteId: variante.id),
+              ],
               const SizedBox(height: AppSpacing.md),
               if (variante != null && autenticado) ...[
                 _BotonAgregarCarrito(varianteId: variante.id),
@@ -305,6 +310,34 @@ class _BotonIniciarSesionParaComprar extends StatelessWidget {
   }
 }
 
+class _StockTotal extends ConsumerWidget {
+  const _StockTotal({required this.varianteId});
+
+  final int varianteId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(disponibleTotalProvider(varianteId)).maybeWhen(
+      data: (cantidad) {
+        final (texto, color) = switch (cantidad) {
+          <= 0 => ('Agotado', AppColors.error),
+          1 => ('¡Última unidad disponible!', AppColors.advertencia),
+          <= 3 => ('¡Solo quedan $cantidad unidades!', AppColors.advertencia),
+          _ => ('$cantidad unidades disponibles', AppColors.exito),
+        };
+        return Row(
+          children: [
+            Icon(cantidad > 0 ? Icons.inventory_2_outlined : Icons.remove_shopping_cart_outlined, size: 16, color: color),
+            const SizedBox(width: AppSpacing.xs),
+            Text(texto, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+          ],
+        );
+      },
+      orElse: () => const SizedBox(height: 18),
+    );
+  }
+}
+
 class _DisponibilidadPorSucursal extends ConsumerWidget {
   const _DisponibilidadPorSucursal({required this.varianteId});
 
@@ -443,11 +476,12 @@ class _BotonAgregarCarritoState extends ConsumerState<_BotonAgregarCarrito> {
           action: SnackBarAction(label: 'Ver carrito', onPressed: () => context.push('/carrito')),
         ),
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('No se pudo agregar al carrito. Probá de nuevo.')));
+      ).showSnackBar(SnackBar(content: Text(mensajeDeError(e, 'No se pudo agregar al carrito. Probá de nuevo.'))));
+      ref.invalidate(disponibilidadPorVarianteProvider(widget.varianteId)); // el stock pudo cambiar
     } finally {
       if (mounted) setState(() => _agregando = false);
     }
@@ -455,8 +489,9 @@ class _BotonAgregarCarritoState extends ConsumerState<_BotonAgregarCarrito> {
 
   @override
   Widget build(BuildContext context) {
+    final agotado = ref.watch(disponibleTotalProvider(widget.varianteId)).valueOrNull == 0;
     return ElevatedButton.icon(
-      onPressed: _agregando ? null : _agregar,
+      onPressed: _agregando || agotado ? null : _agregar,
       icon: _agregando
           ? const SizedBox(
               height: 16,
@@ -464,7 +499,7 @@ class _BotonAgregarCarritoState extends ConsumerState<_BotonAgregarCarrito> {
               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             )
           : const Icon(Icons.shopping_bag_outlined),
-      label: const Text('Agregar al carrito'),
+      label: Text(agotado ? 'Agotado' : 'Agregar al carrito'),
     );
   }
 }

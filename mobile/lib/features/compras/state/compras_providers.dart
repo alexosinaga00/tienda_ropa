@@ -3,7 +3,8 @@ import '../../../core/network/providers.dart';
 import '../../catalogo/models/referencia.dart';
 import '../../catalogo/models/variante_lookup.dart';
 import '../../catalogo/state/catalogo_providers.dart';
-import '../../reservas/state/reservas_providers.dart' show disponibilidadRepositoryProvider;
+import '../../reservas/state/reservas_providers.dart'
+    show disponibilidadRepositoryProvider, disponibilidadPorVarianteProvider, disponibleTotalProvider;
 import '../data/carrito_repository.dart';
 import '../data/direcciones_repository.dart';
 import '../data/envios_repository.dart';
@@ -16,6 +17,7 @@ import '../models/direccion_cliente.dart';
 import '../models/venta.dart';
 import '../models/zona_envio.dart';
 import 'carrito_controller.dart';
+import 'mis_compras_controller.dart';
 
 final carritoRepositoryProvider = Provider<CarritoRepository>((ref) => CarritoRepository(ref.watch(dioProvider)));
 
@@ -61,7 +63,7 @@ final resumenCarritoProvider = FutureProvider.autoDispose<ResumenCarrito?>((ref)
 /// sucursal como para envío a domicilio: registrar_venta_digital descuenta
 /// stock de una única sucursal en los dos casos, no hay "sucursal
 /// despachadora" separada.
-final sucursalesConStockCarritoProvider = FutureProvider<List<SucursalRef>>((ref) async {
+final sucursalesConStockCarritoProvider = FutureProvider.autoDispose<List<SucursalRef>>((ref) async {
   final carrito = ref.watch(carritoControllerProvider).valueOrNull;
   if (carrito == null || carrito.vacio) return const [];
 
@@ -86,6 +88,17 @@ final sucursalesConStockCarritoProvider = FutureProvider<List<SucursalRef>>((ref
   return todasSucursales.where((s) => idsValidos.contains(s.id)).toList();
 });
 
+/// Después de pagar, cancelar o reintentar una compra cambian el stock, el
+/// carrito (cancelar devuelve las prendas) y el estado de la compra.
+void refrescarDespuesDeCompra(WidgetRef ref) {
+  ref.invalidate(disponibilidadPorVarianteProvider);
+  ref.invalidate(disponibleTotalProvider);
+  ref.invalidate(sucursalesConStockCarritoProvider);
+  ref.invalidate(compraDetalleProvider);
+  ref.read(carritoControllerProvider.notifier).cargar();
+  ref.read(misComprasControllerProvider.notifier).cargar();
+}
+
 /// Resuelve nombre/foto/talla/color en lote para un conjunto de variantes,
 /// indexado por variante_id -- lo comparten el carrito y el comprobante de
 /// compra (ver carrito_controller.dart y compraDetalleProvider).
@@ -95,7 +108,7 @@ Future<Map<int, VarianteLookupItem>> lookupVariantes(Ref ref, List<int> variante
   return {for (final item in lookup) if (item.varianteId != null) item.varianteId!: item};
 }
 
-final compraDetalleProvider = FutureProvider.family<Venta, int>((ref, ventaId) async {
+final compraDetalleProvider = FutureProvider.autoDispose.family<Venta, int>((ref, ventaId) async {
   final venta = await ref.watch(ventasRepositoryProvider).comprobante(ventaId);
   if (venta.detalle.isEmpty) return venta;
 

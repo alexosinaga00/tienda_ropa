@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../state/carrito_controller.dart';
 import '../state/checkout_controller.dart';
@@ -28,9 +29,15 @@ class _PagoScreenState extends ConsumerState<PagoScreen> {
 
     setState(() => _procesando = true);
     try {
-      final venta = await ref
-          .read(ventasRepositoryProvider)
-          .registrarVentaDigital(sucursalId: checkout.sucursalId!, costoEnvio: checkout.costoEnvio);
+      // Si un intento anterior ya creó la venta (y falló después, al crear
+      // el envío o iniciar el pago), se reusa: el carrito ya se vació, así
+      // que registrar otra fallaría con "carrito vacío" y dejaría la primera
+      // colgada reteniendo stock. Mismo criterio que la tienda web.
+      final venta = checkout.venta?.estado == 'pendiente_pago'
+          ? checkout.venta!
+          : await ref
+                .read(ventasRepositoryProvider)
+                .registrarVentaDigital(sucursalId: checkout.sucursalId!, costoEnvio: checkout.costoEnvio);
       controller.confirmarVenta(venta);
       // El backend ya vació el carrito al registrar la venta -- si no se
       // refresca acá, el carrito local queda desincronizado (sigue
@@ -38,9 +45,13 @@ class _PagoScreenState extends ConsumerState<PagoScreen> {
       unawaited(ref.read(carritoControllerProvider.notifier).cargar());
 
       if (checkout.tipoEntrega == TipoEntrega.domicilio) {
-        await ref
-            .read(enviosRepositoryProvider)
-            .crear(ventaId: venta.id, direccionId: checkout.direccionId!);
+        try {
+          await ref
+              .read(enviosRepositoryProvider)
+              .crear(ventaId: venta.id, direccionId: checkout.direccionId!);
+        } catch (e) {
+          if (!esConflicto(e)) rethrow; // 409: el envío ya se creó en el intento anterior
+        }
       }
 
       final pagoIniciado = await ref
@@ -50,11 +61,11 @@ class _PagoScreenState extends ConsumerState<PagoScreen> {
 
       if (!mounted) return;
       context.push('/checkout/estado/${pagoIniciado.pago.id}');
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No se pudo iniciar el pago. Probá de nuevo.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mensajeDeError(e, 'No se pudo iniciar el pago. Probá de nuevo.'))),
+      );
     } finally {
       if (mounted) setState(() => _procesando = false);
     }
