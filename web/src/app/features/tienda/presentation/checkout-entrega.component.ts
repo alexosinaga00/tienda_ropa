@@ -1,12 +1,11 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
-import { SelectModule } from 'primeng/select';
-import { DireccionCliente, ZonaEnvio } from '../../../core/models/entregas.models';
+import { SelectModule } from 'primeng/select';import { DireccionCliente, ZonaEnvio } from '../../../core/models/entregas.models';
 import { Sucursal } from '../../../core/models/organizacion.models';
 import { CarritoService } from '../data/carrito.service';
 import { DireccionesService } from '../data/direcciones.service';
@@ -28,7 +27,13 @@ export class CheckoutEntregaComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
 
-  protected readonly sucursales = signal<Sucursal[]>([]);
+  private readonly todasConStock = signal<Sucursal[]>([]);
+  /** Para retirar no sirve un depósito (no recibe clientes); un envío sí lo puede despachar. */
+  protected readonly sucursales = computed(() =>
+    this.checkoutService.tipoEntrega() === 'retiro'
+      ? this.todasConStock().filter((s) => !s.es_deposito)
+      : this.todasConStock(),
+  );
   protected readonly direcciones = signal<DireccionCliente[]>([]);
   protected readonly zonas = signal<ZonaEnvio[]>([]);
   protected readonly cargandoSucursales = signal(true);
@@ -113,7 +118,7 @@ export class CheckoutEntregaComponent implements OnInit {
     this.cargandoSucursales.set(true);
     this.disponibilidadService.sucursalesConStock(lineas).subscribe({
       next: (sucursales) => {
-        this.sucursales.set(sucursales);
+        this.todasConStock.set(sucursales);
         this.cargandoSucursales.set(false);
       },
       error: () => this.cargandoSucursales.set(false),

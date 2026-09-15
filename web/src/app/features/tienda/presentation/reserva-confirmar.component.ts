@@ -1,7 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { HorarioSucursal, Sucursal } from '../../../core/models/organizacion.models';
+import { Router } from '@angular/router';import { HorarioSucursal, Sucursal } from '../../../core/models/organizacion.models';
 import { ReservaCrear } from '../../../core/models/reservas.models';
 import { DisponibilidadService } from '../data/disponibilidad.service';
 import { ReservasClienteService } from '../data/reservas.service';
@@ -86,7 +85,8 @@ export class ReservaConfirmarComponent implements OnInit {
     const lineas = this.reservaCarritoService.lista().map((item) => ({ varianteId: item.varianteId, cantidad: 1 }));
     this.disponibilidadService.sucursalesConStock(lineas).subscribe({
       next: (sucursales) => {
-        this.sucursales.set(sucursales);
+        // En un depósito no se reserva: no recibe clientes.
+        this.sucursales.set(sucursales.filter((s) => !s.es_deposito));
         this.cargandoSucursales.set(false);
       },
       error: () => this.cargandoSucursales.set(false),

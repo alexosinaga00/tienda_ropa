@@ -92,6 +92,8 @@ def _transicionar(
 def crear_reserva(db: Session, usuario_id: int, datos: ReservaCrear) -> Reserva:
     cliente = seguridad_service.obtener_perfil_cliente(db, usuario_id)
     organizacion_service.obtener_sucursal(db, datos.sucursal_id)  # 404 si no existe
+    if not organizacion_service.atiende_al_publico(db, datos.sucursal_id):
+        raise DomainError("Esa sucursal es un depósito y no recibe clientes: elegí otra para tu reserva")
 
     if datos.hora_visita_desde >= datos.hora_visita_hasta:
         raise DomainError("hora_visita_desde debe ser anterior a hora_visita_hasta")

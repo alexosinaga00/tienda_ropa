@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-from sqlalchemy import JSON, BigInteger, CheckConstraint, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import JSON, BigInteger, CheckConstraint, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,7 +45,9 @@ class HistorialNavegacion(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # BIGSERIAL en Postgres; en sqlite (tests) solo un INTEGER PRIMARY KEY
+    # se autoincrementa, BIGINT no.
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     cliente_id: Mapped[int | None] = mapped_column(ForeignKey("cliente.id"))
     sesion_anonima: Mapped[str | None] = mapped_column(String(64))
     producto_id: Mapped[int | None] = mapped_column(ForeignKey("producto.id"))

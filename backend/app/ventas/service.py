@@ -424,6 +424,11 @@ def registrar_venta_digital(db: Session, usuario_id: int, datos: VentaDigitalCre
 
     lineas = [(linea.variante_id, linea.cantidad) for linea in carrito.detalle]
 
+    # Sin costo de envío es retiro en sucursal (el envío a domicilio siempre
+    # cobra la tarifa de la zona): no se puede retirar en un depósito.
+    if datos.costo_envio == 0 and not organizacion_service.atiende_al_publico(db, datos.sucursal_id):
+        raise DomainError("Esa sucursal no atiende al público: elegí otra para retirar tu pedido")
+
     return _registrar_venta(
         db,
         canal="digital",

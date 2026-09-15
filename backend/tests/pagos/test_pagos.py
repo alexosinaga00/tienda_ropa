@@ -215,6 +215,59 @@ def test_tarea_expirar_ventas_pendientes_requiere_token(client):
     assert respuesta.status_code == 200
 
 
+def test_deposito_no_acepta_retiro_ni_reservas_pero_si_despacha(client, admin_headers, cliente_headers, contexto):
+    ciudad = client.post(
+        "/api/v1/ciudades", json={"nombre": "Ciudad Deposito", "departamento": "Santa Cruz"}, headers=admin_headers
+    ).json()
+    deposito = client.post(
+        "/api/v1/sucursales",
+        json={
+            "ciudad_id": ciudad["id"],
+            "codigo": "DEP-1",
+            "nombre": "Deposito",
+            "direccion": "Parque industrial",
+            "es_deposito": True,
+        },
+        headers=admin_headers,
+    ).json()
+    client.post(
+        "/api/v1/inventario/movimientos",
+        json={
+            "variante_id": contexto["variante_id"],
+            "sucursal_id": deposito["id"],
+            "tipo_movimiento_codigo": "recepcion",
+            "cantidad": 5,
+            "costo_unitario": "10.00",
+        },
+        headers=admin_headers,
+    )
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
+
+    retiro = client.post("/api/v1/ventas/digital", json={"sucursal_id": deposito["id"]}, headers=cliente_headers)
+    assert retiro.status_code == 400
+    assert "no atiende al público" in retiro.json()["detail"]
+
+    manana = (dt.date.today() + dt.timedelta(days=1)).isoformat()
+    reserva = client.post(
+        "/api/v1/reservas",
+        json={
+            "sucursal_id": deposito["id"],
+            "fecha_visita": manana,
+            "hora_visita_desde": "10:00",
+            "hora_visita_hasta": "11:00",
+            "detalle": [{"variante_id": contexto["variante_id"]}],
+        },
+        headers=cliente_headers,
+    )
+    assert reserva.status_code == 400
+    assert "depósito" in reserva.json()["detail"]
+
+    envio = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": deposito["id"], "costo_envio": "10.00"}, headers=cliente_headers
+    )
+    assert envio.status_code == 201
+
+
 def test_carrito_no_deja_agregar_mas_que_el_stock(client, cliente_headers, contexto):
     # El contexto tiene 10 unidades en una sola sucursal.
     respuesta = client.post(

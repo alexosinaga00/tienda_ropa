@@ -53,7 +53,10 @@ export class CheckoutService {
 
   elegirTipoEntrega(tipo: TipoEntrega): void {
     this.estado.update((actual) =>
-      actual.tipoEntrega === tipo ? actual : { ...actual, tipoEntrega: tipo, direccionId: null, cotizacion: null },
+      // También se olvida la sucursal: la del envío (p. ej. el depósito) no necesariamente sirve para retirar.
+      actual.tipoEntrega === tipo
+        ? actual
+        : { ...actual, tipoEntrega: tipo, direccionId: null, cotizacion: null, sucursalId: null },
     );
   }
 

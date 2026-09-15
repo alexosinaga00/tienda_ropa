@@ -6,7 +6,6 @@ import '../models/cotizacion_envio.dart';
 import '../models/direccion_cliente.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
-
 class EntregaScreen extends ConsumerWidget {
   const EntregaScreen({super.key});
 
@@ -89,11 +88,15 @@ class _SelectorSucursal extends ConsumerWidget {
     final asyncSucursales = ref.watch(sucursalesConStockCarritoProvider);
     final checkout = ref.watch(checkoutControllerProvider);
     final controller = ref.read(checkoutControllerProvider.notifier);
-
     return asyncSucursales.when(
       loading: () => const LinearProgressIndicator(),
       error: (e, s) => const Text('No se pudo cargar la disponibilidad.', style: TextStyle(color: AppColors.error)),
-      data: (sucursales) {
+      data: (todas) {
+        // Para retirar no sirve un depósito (no recibe clientes); un envío a
+        // domicilio sí lo puede despachar.
+        final sucursales = checkout.tipoEntrega == TipoEntrega.retiro
+            ? todas.where((s) => !s.esDeposito).toList()
+            : todas;
         if (sucursales.isEmpty) {
           return const Text(
             'Ninguna sucursal tiene stock de todas las prendas de tu carrito.',

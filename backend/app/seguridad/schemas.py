@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -171,5 +172,7 @@ class ClientePerfilActualizar(BaseModel):
     razon_social: str | None = Field(default=None, max_length=120)
     fecha_nacimiento: dt.date | None = None
     estatura_cm: int | None = Field(default=None, ge=100, le=250)
-    preferencia_ajuste: str | None = None
+    # Mismos valores que el CHECK de la tabla `cliente`: un valor distinto
+    # tiene que ser un 422 claro, no un error de la base.
+    preferencia_ajuste: Literal["ajustado", "regular", "holgado"] | None = None
     acepta_datos_foto: bool | None = None

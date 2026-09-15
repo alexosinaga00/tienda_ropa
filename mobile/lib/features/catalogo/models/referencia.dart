@@ -56,12 +56,19 @@ class TemporadaRef {
 }
 
 class SucursalRef {
-  const SucursalRef({required this.id, required this.codigo, required this.nombre});
+  const SucursalRef({required this.id, required this.codigo, required this.nombre, this.esDeposito = false});
 
-  factory SucursalRef.fromJson(Map<String, dynamic> json) =>
-      SucursalRef(id: json['id'] as int, codigo: json['codigo'] as String, nombre: json['nombre'] as String);
+  factory SucursalRef.fromJson(Map<String, dynamic> json) => SucursalRef(
+    id: json['id'] as int,
+    codigo: json['codigo'] as String,
+    nombre: json['nombre'] as String,
+    esDeposito: json['es_deposito'] as bool? ?? false,
+  );
 
   final int id;
   final String codigo;
   final String nombre;
+  // Un depósito es solo almacén: despacha envíos pero no recibe clientes
+  // para retiro ni reservas.
+  final bool esDeposito;
 }

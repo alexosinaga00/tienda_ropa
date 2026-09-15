@@ -54,7 +54,8 @@ final sucursalesDisponiblesProvider = FutureProvider<List<SucursalRef>>((ref) as
   if (carrito.isEmpty) return const [];
 
   final disponibilidadRepo = ref.watch(disponibilidadRepositoryProvider);
-  final todasSucursales = await ref.watch(sucursalesRefProvider.future);
+  // En un depósito no se reserva: no recibe clientes.
+  final todasSucursales = (await ref.watch(sucursalesRefProvider.future)).where((s) => !s.esDeposito).toList();
 
   final listasPorVariante = await Future.wait(carrito.map((item) => disponibilidadRepo.porVariante(item.varianteId)));
 

@@ -86,6 +86,12 @@ def listar_horarios(db: Session, sucursal_id: int) -> list[HorarioSucursal]:
     return list(horario_repo.listar_por_sucursal(db, sucursal_id))
 
 
+def atiende_al_publico(db: Session, sucursal_id: int) -> bool:
+    """Un depósito (`es_deposito`) es solo almacén: puede despachar envíos
+    pero no recibir clientes para retiro ni reservas."""
+    return not sucursal_repo.obtener(db, sucursal_id).es_deposito
+
+
 def obtener_horario_dia(db: Session, sucursal_id: int, dia_semana: int) -> HorarioSucursal | None:
     """Para que `reservas` valide que una franja horaria cae dentro del
     horario de atención de la sucursal, sin consultar horario_sucursal

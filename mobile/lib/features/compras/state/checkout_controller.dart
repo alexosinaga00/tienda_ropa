@@ -57,7 +57,9 @@ class CheckoutController extends StateNotifier<CheckoutState> {
 
   void elegirTipoEntrega(TipoEntrega tipo) {
     if (tipo == state.tipoEntrega) return;
-    state = state._copyWith(tipoEntrega: tipo, limpiarDireccion: true, limpiarCotizacion: true);
+    // También se olvida la sucursal: la del envío (p. ej. el depósito) no
+    // necesariamente sirve para retirar.
+    state = CheckoutState(tipoEntrega: tipo, venta: state.venta, pagoIniciado: state.pagoIniciado);
   }
 
   void elegirSucursal(int sucursalId) => state = state._copyWith(sucursalId: sucursalId);
