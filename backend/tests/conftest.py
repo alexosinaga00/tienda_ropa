@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET_KEY", "clave-de-pruebas")
 os.environ.setdefault("TAREAS_TOKEN", "token-de-pruebas")
+os.environ.setdefault("TAREAS_AUTOMATICAS", "false")
 
 import pytest
 from fastapi.testclient import TestClient

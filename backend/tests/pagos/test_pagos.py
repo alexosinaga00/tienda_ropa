@@ -1,10 +1,13 @@
+import datetime as dt
 import hashlib
 import hmac
 import json
 
 import pytest
 
+from app.pagos import service as pagos_service
 from app.pagos.pasarela import LibelulaGateway
+from app.ventas.models import Venta
 from tests.conftest import crear_cajero
 
 SECRETO_LIBELULA = "sandbox-secret-libelula"
@@ -143,6 +146,89 @@ def test_pago_rechazado_no_descuenta_stock(client, admin_headers, cliente_header
 
     venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
     assert venta_final["estado"] == "anulada"
+
+    # Las prendas vuelven al carrito para poder reintentar la compra.
+    carrito = client.get("/api/v1/carrito", headers=cliente_headers).json()
+    assert [(l["variante_id"], l["cantidad"]) for l in carrito["detalle"]] == [(contexto["variante_id"], 3)]
+
+
+# ---- cancelar / vencer una compra que nunca se pagó -----------------------------------
+
+
+def test_cancelar_compra_libera_stock_y_devuelve_el_carrito(client, admin_headers, cliente_headers, contexto):
+    fisica = _stock(client, admin_headers, contexto)["cantidad_fisica"]
+    venta, _ = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+    assert _stock(client, admin_headers, contexto)["cantidad_reservada"] == 1
+
+    respuesta = client.post(f"/api/v1/pagos/venta/{venta['id']}/cancelar", headers=cliente_headers)
+    assert respuesta.status_code == 200
+
+    stock = _stock(client, admin_headers, contexto)
+    assert stock["cantidad_reservada"] == 0
+    assert stock["cantidad_fisica"] == fisica
+    venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
+    assert venta_final["estado"] == "anulada"
+    carrito = client.get("/api/v1/carrito", headers=cliente_headers).json()
+    assert [(l["variante_id"], l["cantidad"]) for l in carrito["detalle"]] == [(contexto["variante_id"], 1)]
+
+    # Cancelar dos veces no vuelve a tocar nada.
+    assert client.post(f"/api/v1/pagos/venta/{venta['id']}/cancelar", headers=cliente_headers).status_code == 409
+
+
+def test_cancelar_compra_que_la_pasarela_ya_cobro_la_deja_pagada(
+    client, admin_headers, cliente_headers, contexto, monkeypatch
+):
+    venta, _ = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+    monkeypatch.setattr(LibelulaGateway, "consultar_estado", lambda self, id_transaccion: "aprobado")
+
+    respuesta = client.post(f"/api/v1/pagos/venta/{venta['id']}/cancelar", headers=cliente_headers)
+    assert respuesta.status_code == 409
+    venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
+    assert venta_final["estado"] == "pagada"
+
+
+def test_expirar_ventas_pendientes_solo_toca_las_vencidas(
+    client, admin_headers, cliente_headers, contexto, db_session
+):
+    vieja, _ = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+    nueva, _ = _venta_con_pago_iniciado(client, cliente_headers, contexto)
+
+    db_session.get(Venta, vieja["id"]).fecha = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(
+        hours=2
+    )
+    db_session.commit()
+
+    resultado = pagos_service.expirar_ventas_pendientes(db_session)
+    assert resultado == {"anuladas": 1, "pagadas": 0}
+
+    estado = lambda v: client.get(f"/api/v1/ventas/{v['id']}/comprobante", headers=admin_headers).json()["estado"]
+    assert estado(vieja) == "anulada"
+    assert estado(nueva) == "pendiente_pago"
+    assert _stock(client, admin_headers, contexto)["cantidad_reservada"] == 1  # solo la nueva sigue reservando
+
+
+def test_tarea_expirar_ventas_pendientes_requiere_token(client):
+    assert client.post("/api/v1/tareas/expirar-ventas-pendientes").status_code == 401
+    respuesta = client.post(
+        "/api/v1/tareas/expirar-ventas-pendientes", headers={"X-Service-Token": "token-de-pruebas"}
+    )
+    assert respuesta.status_code == 200
+
+
+def test_carrito_no_deja_agregar_mas_que_el_stock(client, cliente_headers, contexto):
+    # El contexto tiene 10 unidades en una sola sucursal.
+    respuesta = client.post(
+        "/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 11}, headers=cliente_headers
+    )
+    assert respuesta.status_code == 409
+    assert "10" in respuesta.json()["detail"]
+
+    assert client.post(
+        "/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 10}, headers=cliente_headers
+    ).status_code in (200, 201)
+    assert client.put(
+        f"/api/v1/carrito/{contexto['variante_id']}", json={"cantidad": 11}, headers=cliente_headers
+    ).status_code == 409
 
 
 # ---- webhook duplicado no duplica la venta (idempotencia) ------------------------------

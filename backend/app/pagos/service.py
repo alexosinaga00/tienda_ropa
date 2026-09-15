@@ -16,11 +16,13 @@ duplicado.
 from __future__ import annotations
 
 import json
+import logging
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.exceptions import ConflictoError, DomainError, NoEncontradoError, PermisoDenegadoError
 from app.organizacion import service as organizacion_service
 from app.pagos.models import MetodoPago, Pago, TransaccionPasarela
@@ -28,6 +30,8 @@ from app.pagos.pasarela import obtener_pasarela
 from app.pagos.repository import EstadoPagoRepository, MetodoPagoRepository, PagoRepository, TransaccionPasarelaRepository
 from app.pagos.schemas import PagoCajaRequest, PagoIniciarRequest, PagoRespuesta
 from app.ventas import service as ventas_service
+
+logger = logging.getLogger(__name__)
 
 metodo_repo = MetodoPagoRepository()
 estado_repo = EstadoPagoRepository()
@@ -71,35 +75,13 @@ def iniciar_pago_pasarela(db: Session, usuario_id: int, datos: PagoIniciarReques
     if not metodo.requiere_pasarela:
         raise DomainError(f"'{metodo.codigo}' no es un método por pasarela, usá /pagos/caja")
 
-    estado_iniciado = estado_repo.obtener_por_codigo(db, "iniciado")
-    for previo in pago_repo.listar_por_venta(db, venta.id):
-        if previo.estado_id != estado_iniciado.id:
-            continue
-        # Un pago 'iniciado' que nunca se completó (la pasarela lo denegó,
-        # el cliente cerró la ventana) bloqueaba la venta para siempre.
-        # Antes de reemplazarlo se le pregunta a la pasarela: si en realidad
-        # ya se cobró, se aplica esa aprobación y NO se inicia un segundo
-        # cobro.
-        primera = _primera_transaccion(db, previo.id)
-        estado_pasarela = "iniciado"
-        if primera is not None and primera.id_transaccion is not None:
-            try:
-                estado_pasarela = obtener_pasarela(primera.pasarela).consultar_estado(primera.id_transaccion)
-            except RuntimeError:
-                estado_pasarela = "iniciado"
-        if estado_pasarela == "aprobado":
-            _resolver_pago(
-                db,
-                previo.id,
-                pasarela_codigo=primera.pasarela,
-                id_transaccion=primera.id_transaccion,
-                estado_resultado="aprobado",
-                payload_respuesta={"origen": "consultar_estado", "estado": "aprobado"},
-                commit=True,
-            )
-            raise ConflictoError("Esta venta ya fue pagada")
-        _abandonar_pago(db, previo, pasarela_codigo=primera.pasarela if primera else metodo.codigo)
+    # Un pago 'iniciado' que nunca se completó (la pasarela lo denegó, el
+    # cliente cerró la ventana) bloqueaba la venta para siempre: se
+    # reemplaza, salvo que en realidad ya se haya cobrado.
+    if _cerrar_pagos_iniciados(db, venta.id, motivo="reemplazado_por_reintento"):
+        raise ConflictoError("Esta venta ya fue pagada")
 
+    estado_iniciado = estado_repo.obtener_por_codigo(db, "iniciado")
     pago = Pago(venta_id=venta.id, metodo_pago_id=metodo.id, estado_id=estado_iniciado.id, monto=venta.total)
     pago_repo.crear(db, pago)  # flush: pago.id ya disponible
 
@@ -174,11 +156,10 @@ def _primera_transaccion(db: Session, pago_id: int) -> TransaccionPasarela | Non
     )
 
 
-def _abandonar_pago(db: Session, pago: Pago, *, pasarela_codigo: str) -> None:
-    """Marca 'rechazado' un pago 'iniciado' que se reemplaza por un
-    reintento. A diferencia de _resolver_pago(rechazado), NO anula la
-    venta: sigue en 'pendiente_pago' para que el pago nuevo la pueda
-    confirmar."""
+def _abandonar_pago(db: Session, pago: Pago, *, pasarela_codigo: str, motivo: str) -> None:
+    """Marca 'rechazado' un pago 'iniciado' que nunca se completó. A
+    diferencia de _resolver_pago(rechazado), NO toca la venta: quien llama
+    decide si se reintenta (sigue 'pendiente_pago') o se cancela."""
     pago = pago_repo.obtener_bloqueado(db, pago.id)
     pago.estado_id = estado_repo.obtener_por_codigo(db, "rechazado").id
     transaccion_repo.crear(
@@ -188,10 +169,81 @@ def _abandonar_pago(db: Session, pago: Pago, *, pasarela_codigo: str) -> None:
             pasarela=pasarela_codigo,
             id_transaccion=pago.referencia_externa,
             payload_envio=None,
-            payload_respuesta={"origen": "reemplazado_por_reintento"},
+            payload_respuesta={"origen": motivo},
             estado="rechazado",
         ),
     )
+
+
+def _cerrar_pagos_iniciados(db: Session, venta_id: int, *, motivo: str) -> bool:
+    """Cierra los pagos 'iniciado' de una venta antes de reintentar o
+    cancelar. A cada uno se le pregunta primero a la pasarela: si ya cobró,
+    se aplica esa aprobación (confirma la venta, commit) y devuelve True
+    para que quien llama NO inicie un segundo cobro ni anule una venta
+    pagada. Si no cobró (o la pasarela no responde), el pago se abandona."""
+    estado_iniciado = estado_repo.obtener_por_codigo(db, "iniciado")
+    for previo in pago_repo.listar_por_venta(db, venta_id):
+        if previo.estado_id != estado_iniciado.id:
+            continue
+        primera = _primera_transaccion(db, previo.id)
+        estado_pasarela = "iniciado"
+        if primera is not None and primera.id_transaccion is not None:
+            try:
+                estado_pasarela = obtener_pasarela(primera.pasarela).consultar_estado(primera.id_transaccion)
+            except RuntimeError:
+                estado_pasarela = "iniciado"
+        if estado_pasarela == "aprobado":
+            _resolver_pago(
+                db,
+                previo.id,
+                pasarela_codigo=primera.pasarela,
+                id_transaccion=primera.id_transaccion,
+                estado_resultado="aprobado",
+                payload_respuesta={"origen": "consultar_estado", "estado": "aprobado"},
+                commit=True,
+            )
+            return True
+        metodo = db.get(MetodoPago, previo.metodo_pago_id)
+        _abandonar_pago(db, previo, pasarela_codigo=primera.pasarela if primera else metodo.codigo, motivo=motivo)
+    return False
+
+
+def _cancelar_venta_pendiente(db: Session, venta_id: int, *, motivo: str) -> None:
+    venta = ventas_service.obtener_venta_bloqueada(db, venta_id)
+    estado_venta = ventas_service.obtener_estado_codigo(db, venta.estado_id)
+    if estado_venta != "pendiente_pago":
+        raise ConflictoError(f"La venta está '{estado_venta}', no se puede cancelar")
+    if _cerrar_pagos_iniciados(db, venta.id, motivo=motivo):
+        raise ConflictoError("Esta venta ya fue pagada")
+    ventas_service.anular_venta(db, venta.id, commit=False, restaurar_carrito=True)
+    db.commit()
+
+
+def cancelar_compra(db: Session, usuario_id: int, venta_id: int) -> None:
+    """El cliente abandona una compra que todavía no pagó: libera el stock
+    reservado y le devuelve las prendas al carrito."""
+    ventas_service.obtener_comprobante(db, venta_id, usuario_id)  # valida dueño o staff, 404 si no existe
+    _cancelar_venta_pendiente(db, venta_id, motivo="cancelado_por_cliente")
+
+
+def expirar_ventas_pendientes(db: Session) -> dict[str, int]:
+    """Vence las ventas que siguen 'pendiente_pago' pasado
+    VENTA_PENDIENTE_MINUTOS. Cada venta es su propia transacción: una que
+    falle no frena al resto. Si la pasarela sí había cobrado, la venta queda
+    pagada en vez de anulada."""
+    anuladas = pagadas = 0
+    for venta_id in ventas_service.listar_ventas_pendientes_vencidas(db, get_settings().venta_pendiente_minutos):
+        try:
+            _cancelar_venta_pendiente(db, venta_id, motivo="vencido")
+            anuladas += 1
+        except ConflictoError:
+            db.rollback()
+            if not ventas_service.es_venta_pendiente(db, venta_id):
+                pagadas += 1
+        except Exception:
+            db.rollback()
+            logger.exception("No se pudo vencer la venta %s", venta_id)
+    return {"anuladas": anuladas, "pagadas": pagadas}
 
 
 def _ya_resuelto(codigo_estado: str) -> bool:
@@ -251,7 +303,7 @@ def _resolver_pago(
         if estado_resultado == "aprobado":
             ventas_service.confirmar_venta(db, pago.venta_id, commit=False)
         else:
-            ventas_service.anular_venta(db, pago.venta_id, commit=False)
+            ventas_service.anular_venta(db, pago.venta_id, commit=False, restaurar_carrito=True)
     # 'iniciado' repetido (sin novedad real): no cambia nada más.
 
     if commit:

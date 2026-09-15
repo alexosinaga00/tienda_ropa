@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     # Generaciones por cliente por día (cada una tiene costo en Vertex AI).
     probador_limite_diario: int = 3
 
+    # Una venta digital que sigue sin pagarse pasado este tiempo se anula
+    # sola: libera el stock reservado y devuelve las prendas al carrito.
+    venta_pendiente_minutos: int = 30
+    # Tarea periódica dentro del propio backend (vence ventas pendientes y
+    # reservas). Los tests la apagan.
+    tareas_automaticas: bool = True
+    tareas_intervalo_segundos: int = 300
+
     # Secretos para verificar la firma HMAC de los webhooks de pago (ver
     # app/pagos/pasarela.py). Ambas pasarelas corren en modo sandbox sin
     # credenciales reales todavía, así que estos valores por defecto son

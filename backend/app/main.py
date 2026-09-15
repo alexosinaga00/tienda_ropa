@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
@@ -15,7 +17,9 @@ from sqlalchemy.orm import Session
 load_dotenv()
 
 from app.core.config import get_settings
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
+from app.pagos import service as pagos_service
+from app.reservas import service as reservas_service
 from app.core.exceptions import registrar_handlers
 from app.core.rate_limit import limiter
 from app.abastecimiento.router import routers as abastecimiento_routers
@@ -36,7 +40,41 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-app = FastAPI(title="FashionStore API", version="0.1.0")
+
+def _correr_tareas_periodicas() -> None:
+    """Vence ventas digitales que quedaron sin pagar y reservas vencidas.
+    Sesión propia, igual que la generación en segundo plano del probador."""
+    db = SessionLocal()
+    try:
+        resultado = pagos_service.expirar_ventas_pendientes(db)
+        expiradas = reservas_service.expirar_reservas(db)
+        if resultado["anuladas"] or resultado["pagadas"] or expiradas:
+            logger.info("Tareas periódicas: ventas %s, reservas expiradas %s", resultado, expiradas)
+    except Exception:
+        logger.exception("Falló la tarea periódica")
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Uvicorn corre con un solo worker (scripts/start.sh), así que hay una
+    # sola copia de este loop; igual es idempotente por los locks de fila.
+    tarea = None
+    if settings.tareas_automaticas:
+
+        async def loop() -> None:
+            while True:
+                await asyncio.to_thread(_correr_tareas_periodicas)
+                await asyncio.sleep(settings.tareas_intervalo_segundos)
+
+        tarea = asyncio.create_task(loop())
+    yield
+    if tarea is not None:
+        tarea.cancel()
+
+
+app = FastAPI(title="FashionStore API", version="0.1.0", lifespan=lifespan)
 
 # Rate limiting: por ahora solo lo usan los endpoints públicos del
 # catálogo (ver catalogo/router.py) — es el punto más expuesto a tráfico

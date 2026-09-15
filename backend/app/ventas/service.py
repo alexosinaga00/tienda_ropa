@@ -279,13 +279,18 @@ def confirmar_venta(db: Session, venta_id: int, *, usuario_id: int | None = None
     return venta
 
 
-def anular_venta(db: Session, venta_id: int, *, commit: bool = True) -> Venta:
+def anular_venta(db: Session, venta_id: int, *, commit: bool = True, restaurar_carrito: bool = False) -> Venta:
     """Para que `pagos` anule la venta cuando su pago se rechaza o se
     reembolsa. Se banca los dos casos posibles: si todavía estaba
     'pendiente_pago' (nunca se descontó físicamente), solo libera la
     reserva; si ya estaba 'pagada' (pago aprobado y después reembolsado),
     reingresa el stock como una devolución total. Bloquea la fila de
-    `venta` (obtener_bloqueado) por el mismo motivo que confirmar_venta."""
+    `venta` (obtener_bloqueado) por el mismo motivo que confirmar_venta.
+
+    `restaurar_carrito`: solo para una venta digital que nunca se pagó
+    (rechazada, cancelada por el cliente o vencida) -- registrar_venta_digital
+    vació el carrito, así que se le devuelven las prendas para que pueda
+    volver a intentarlo sin armarlo de nuevo."""
     venta = venta_repo.obtener_bloqueado(db, venta_id)
     estado_actual = estado_repo.obtener(db, venta.estado_id)
 
@@ -295,6 +300,8 @@ def anular_venta(db: Session, venta_id: int, *, commit: bool = True) -> Venta:
     if estado_actual.codigo == "pendiente_pago":
         for linea in venta.detalle:
             inventario_service.liberar_stock(db, linea.variante_id, venta.sucursal_id, linea.cantidad, commit=False)
+        if restaurar_carrito and venta.canal == "digital" and venta.cliente_id is not None:
+            _restaurar_carrito(db, venta)
     elif estado_actual.codigo == "pagada":
         for linea in venta.detalle:
             inventario_service.registrar_movimiento(
@@ -319,6 +326,35 @@ def anular_venta(db: Session, venta_id: int, *, commit: bool = True) -> Venta:
     else:
         db.flush()
     return venta
+
+
+def _restaurar_carrito(db: Session, venta: Venta) -> None:
+    carrito = carrito_repo.obtener_o_crear(db, venta.cliente_id)
+    for linea_venta in venta.detalle:
+        linea = carrito_repo.obtener_linea(db, carrito.id, linea_venta.variante_id)
+        if linea is None:
+            db.add(CarritoDetalle(carrito_id=carrito.id, variante_id=linea_venta.variante_id, cantidad=linea_venta.cantidad))
+        else:
+            # Si el cliente ya la volvió a agregar a mano, no se duplica.
+            linea.cantidad = max(linea.cantidad, linea_venta.cantidad)
+    db.flush()
+
+
+def es_venta_pendiente(db: Session, venta_id: int) -> bool:
+    """Para que `pagos` sepa si una venta todavía espera su pago."""
+    venta = venta_repo.obtener(db, venta_id)
+    return estado_repo.obtener(db, venta.estado_id).codigo == "pendiente_pago"
+
+
+def listar_ventas_pendientes_vencidas(db: Session, minutos: int) -> list[int]:
+    """Para `pagos.expirar_ventas_pendientes`: ids de ventas que siguen en
+    'pendiente_pago' desde hace más de `minutos`. `venta.fecha` se guarda
+    sin zona horaria con el now() de la base (UTC en Railway y en SQLite)."""
+    limite = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(minutes=minutos)
+    estado = estado_repo.obtener_por_codigo(db, "pendiente_pago")
+    return list(
+        db.scalars(select(Venta.id).where(Venta.estado_id == estado.id, Venta.fecha < limite).order_by(Venta.id))
+    )
 
 
 def obtener_venta(db: Session, venta_id: int) -> Venta:
@@ -548,6 +584,17 @@ def _carrito_respuesta(db: Session, carrito: Carrito) -> CarritoRespuesta:
     )
 
 
+def _validar_stock_para_carrito(db: Session, variante_id: int, cantidad: int) -> None:
+    """El carrito todavía no elige sucursal: se valida contra el disponible
+    total de la variante. La sucursal concreta se vuelve a validar al
+    registrar la venta (_registrar_venta)."""
+    disponible = sum(s.cantidad_disponible for s in inventario_service.consultar_disponibilidad(db, variante_id))
+    if cantidad > disponible:
+        if disponible <= 0:
+            raise ConflictoError("Esta prenda está agotada")
+        raise ConflictoError(f"Solo quedan {disponible} unidades disponibles")
+
+
 def obtener_mi_carrito(db: Session, usuario_id: int) -> CarritoRespuesta:
     cliente = seguridad_service.obtener_perfil_cliente(db, usuario_id)
     carrito = carrito_repo.obtener_o_crear(db, cliente.id)
@@ -561,6 +608,7 @@ def agregar_al_carrito(db: Session, usuario_id: int, datos: CarritoDetalleCrear)
     carrito = carrito_repo.obtener_o_crear(db, cliente.id)
 
     linea = carrito_repo.obtener_linea(db, carrito.id, datos.variante_id)
+    _validar_stock_para_carrito(db, datos.variante_id, datos.cantidad + (linea.cantidad if linea else 0))
     if linea is None:
         db.add(CarritoDetalle(carrito_id=carrito.id, variante_id=datos.variante_id, cantidad=datos.cantidad))
     else:
@@ -580,6 +628,8 @@ def actualizar_linea_carrito(
     if linea is None:
         raise NoEncontradoError("Esa variante no está en el carrito")
 
+    if datos.cantidad > linea.cantidad:  # bajar la cantidad nunca se bloquea
+        _validar_stock_para_carrito(db, variante_id, datos.cantidad)
     linea.cantidad = datos.cantidad
     db.commit()
     db.refresh(carrito)
