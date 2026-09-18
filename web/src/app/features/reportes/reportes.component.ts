@@ -76,12 +76,93 @@ export class ReportesComponent implements OnInit {
   protected readonly cargandoReservas = signal(false);
 
   // ---- Gráficos (p-chart) --------------------------------------------------------------
+  // Colores fijos por entidad (canal, estado), nunca por posición: si un estado no
+  // tiene datos, los demás conservan su color. La paleta parte del terracota de la
+  // marca y pasó el validador de daltonismo y contraste (segmentos vecinos del anillo).
+
+  private static readonly COLOR_CANAL: Record<string, string> = { digital: '#9A3E1F', presencial: '#1E6FA8' };
+  private static readonly COLOR_ESTADO_RESERVA: Record<string, string> = {
+    pendiente: '#D39A2C',
+    preparada: '#1E6FA8',
+    en_prueba: '#5B8A3C',
+    completada: '#8250A8',
+    cancelada: '#9A3E1F',
+    expirada: '#2AA0C0',
+  };
+  private static readonly TEXTO = '#1C1713';
+  private static readonly TEXTO_TENUE = '#6E6156';
+  private static readonly REJILLA = '#EFE9E1';
+  private static readonly FUENTE = { family: 'Public Sans, sans-serif', size: 12 };
+
+  private static readonly TOOLTIP = {
+    backgroundColor: '#241C18',
+    titleFont: { family: 'Public Sans, sans-serif', size: 12, weight: 'bold' as const },
+    bodyFont: { family: 'Public Sans, sans-serif', size: 12 },
+    padding: 10,
+    cornerRadius: 6,
+    boxPadding: 4,
+  };
+
+  /** Anillo: alto fijo, anillo delgado y leyenda al costado con la cantidad. */
+  protected readonly opcionesAnillo = {
+    maintainAspectRatio: false,
+    cutout: '64%',
+    layout: { padding: 8 },
+    plugins: {
+      legend: {
+        position: 'right' as const,
+        labels: {
+          color: ReportesComponent.TEXTO,
+          font: ReportesComponent.FUENTE,
+          usePointStyle: true,
+          pointStyle: 'circle' as const,
+          boxWidth: 8,
+          boxHeight: 8,
+          padding: 14,
+        },
+      },
+      tooltip: ReportesComponent.TOOLTIP,
+    },
+  };
+
+  /** Barras finas con extremo redondeado, rejilla suave y sin leyenda (una sola serie). */
+  private static opcionesBarras(horizontal: boolean) {
+    const ejeValor = {
+      beginAtZero: true,
+      grid: { color: ReportesComponent.REJILLA },
+      border: { display: false },
+      ticks: { color: ReportesComponent.TEXTO_TENUE, font: ReportesComponent.FUENTE, precision: 0 },
+    };
+    const ejeCategoria = {
+      grid: { display: false },
+      border: { color: ReportesComponent.REJILLA },
+      ticks: { color: ReportesComponent.TEXTO_TENUE, font: ReportesComponent.FUENTE, autoSkip: false },
+    };
+    return {
+      maintainAspectRatio: false,
+      indexAxis: horizontal ? ('y' as const) : ('x' as const),
+      plugins: { legend: { display: false }, tooltip: ReportesComponent.TOOLTIP },
+      scales: horizontal ? { x: ejeValor, y: ejeCategoria } : { x: ejeCategoria, y: ejeValor },
+    };
+  }
+
+  protected readonly opcionesBarrasVerticales = ReportesComponent.opcionesBarras(false);
+  protected readonly opcionesBarrasHorizontales = ReportesComponent.opcionesBarras(true);
+
+  private static readonly ESTILO_BARRA = { borderRadius: 4, borderSkipped: 'start' as const, maxBarThickness: 26 };
+  private static readonly ESTILO_ANILLO = { borderColor: '#FFFFFF', borderWidth: 2, hoverOffset: 6 };
 
   protected readonly chartVentasPorCanal = computed(() => {
     const filas = this.dashboard()?.ventas_por_canal ?? this.ventas()?.por_canal ?? [];
     return {
       labels: filas.map((f) => (f.canal === 'digital' ? 'Digital' : 'Presencial')),
-      datasets: [{ data: filas.map((f) => Number(f.total_ventas)), backgroundColor: ['#9A3E1F', '#C9BCB2'] }],
+      datasets: [
+        {
+          data: filas.map((f) => Number(f.total_ventas)),
+          backgroundColor: filas.map((f) => ReportesComponent.COLOR_CANAL[f.canal] ?? '#8250A8'),
+          ...ReportesComponent.ESTILO_ANILLO,
+        },
+      ],
     };
   });
 
@@ -89,7 +170,14 @@ export class ReportesComponent implements OnInit {
     const filas = this.ventas()?.por_sucursal ?? this.dashboard()?.ventas_por_sucursal ?? [];
     return {
       labels: filas.map((f) => f.sucursal),
-      datasets: [{ label: 'Ventas', data: filas.map((f) => Number(f.total_ventas)), backgroundColor: '#9A3E1F' }],
+      datasets: [
+        {
+          label: 'Ventas (Bs)',
+          data: filas.map((f) => Number(f.total_ventas)),
+          backgroundColor: '#9A3E1F',
+          ...ReportesComponent.ESTILO_BARRA,
+        },
+      ],
     };
   });
 
@@ -98,7 +186,12 @@ export class ReportesComponent implements OnInit {
     return {
       labels: filas.map((f) => f.producto),
       datasets: [
-        { label: 'Cantidad vendida', data: filas.map((f) => f.cantidad_vendida), backgroundColor: '#9A3E1F' },
+        {
+          label: 'Cantidad vendida',
+          data: filas.map((f) => f.cantidad_vendida),
+          backgroundColor: '#9A3E1F',
+          ...ReportesComponent.ESTILO_BARRA,
+        },
       ],
     };
   });
@@ -110,7 +203,8 @@ export class ReportesComponent implements OnInit {
       datasets: [
         {
           data: filas.map((f) => f.cantidad),
-          backgroundColor: ['#9A3E1F', '#B45309', '#16A34A', '#C7BCAC', '#DC2626'],
+          backgroundColor: filas.map((f) => ReportesComponent.COLOR_ESTADO_RESERVA[f.codigo] ?? '#6E6156'),
+          ...ReportesComponent.ESTILO_ANILLO,
         },
       ],
     };

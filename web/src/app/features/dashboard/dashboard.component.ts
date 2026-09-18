@@ -80,6 +80,12 @@ export class DashboardComponent implements OnInit {
     this.http.get<Empleado>(`${environment.apiUrl}/empleados/yo`).subscribe({
       next: (empleado) => {
         this.cargando.set(false);
+        // Un administrador con ficha de empleado pero sin sucursal ve lo mismo
+        // que uno sin ficha: los indicadores de todas las sucursales.
+        if (empleado.sucursal_id === null && this.esAdministrador()) {
+          this.cargarVistaGlobal();
+          return;
+        }
         this.sucursalId.set(empleado.sucursal_id);
         if (empleado.sucursal_id === null) return;
 
@@ -138,7 +144,8 @@ export class DashboardComponent implements OnInit {
     const ventasHoy = ventas.filter((v) => v.fecha.slice(0, 10) === hoy);
 
     this.ticketsHoy.set(ventasHoy.length);
-    this.totalVentasHoy.set(ventasHoy.reduce((acc, v) => acc + v.total, 0));
+    // El backend serializa los montos (Decimal) como texto: sin Number() se concatenan.
+    this.totalVentasHoy.set(ventasHoy.reduce((acc, v) => acc + Number(v.total), 0));
 
     const cantidadPorVariante = new Map<number, number>();
     for (const venta of ventasHoy) {

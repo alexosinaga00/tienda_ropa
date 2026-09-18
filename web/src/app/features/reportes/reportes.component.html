@@ -94,11 +94,11 @@
         <div class="graficos-fila">
           <div class="fs-card grafico-tarjeta">
             <h3>Ventas por canal</h3>
-            <p-chart type="doughnut" [data]="chartVentasPorCanal()" />
+            <p-chart type="doughnut" [data]="chartVentasPorCanal()" [options]="opcionesAnillo" height="220px" />
           </div>
           <div class="fs-card grafico-tarjeta">
             <h3>Reservas por estado</h3>
-            <p-chart type="doughnut" [data]="chartReservasPorEstado()" />
+            <p-chart type="doughnut" [data]="chartReservasPorEstado()" [options]="opcionesAnillo" height="220px" />
           </div>
         </div>
 
@@ -158,15 +158,15 @@
         <div class="graficos-fila">
           <div class="fs-card grafico-tarjeta">
             <h3>Productos más vendidos</h3>
-            <p-chart type="bar" [data]="chartTopProductos()" />
+            <p-chart type="bar" [data]="chartTopProductos()" [options]="opcionesBarrasHorizontales" height="260px" />
           </div>
           <div class="fs-card grafico-tarjeta">
             <h3>Ventas por sucursal</h3>
-            <p-chart type="bar" [data]="chartVentasPorSucursal()" />
+            <p-chart type="bar" [data]="chartVentasPorSucursal()" [options]="opcionesBarrasVerticales" height="260px" />
           </div>
           <div class="fs-card grafico-tarjeta">
             <h3>Ventas por canal</h3>
-            <p-chart type="doughnut" [data]="chartVentasPorCanal()" />
+            <p-chart type="doughnut" [data]="chartVentasPorCanal()" [options]="opcionesAnillo" height="220px" />
           </div>
         </div>
 
@@ -320,7 +320,7 @@
         <div class="graficos-fila">
           <div class="fs-card grafico-tarjeta">
             <h3>Reservas por estado</h3>
-            <p-chart type="doughnut" [data]="chartReservasPorEstado()" />
+            <p-chart type="doughnut" [data]="chartReservasPorEstado()" [options]="opcionesAnillo" height="220px" />
           </div>
         </div>
 

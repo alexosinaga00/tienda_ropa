@@ -23,7 +23,10 @@ interface GrupoMenu {
   items: ItemMenu[];
 }
 
-const ITEMS_INICIO: ItemMenu[] = [{ etiqueta: 'Dashboard', icono: 'pi pi-home', ruta: '/dashboard' }];
+const ITEMS_INICIO: ItemMenu[] = [
+  { etiqueta: 'Dashboard', icono: 'pi pi-home', ruta: '/dashboard' },
+  { etiqueta: 'Reportes', icono: 'pi pi-chart-bar', ruta: '/reportes', permiso: 'reportes.ver' },
+];
 
 const GRUPOS_MENU: GrupoMenu[] = [
   {
