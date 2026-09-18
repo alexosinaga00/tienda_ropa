@@ -369,6 +369,82 @@ def test_reintentar_si_la_pasarela_ya_cobro_no_inicia_otro_pago(
     assert venta_final["estado"] == "pagada"
 
 
+
+# ---- pasarela simulada "qr_online" -----------------------------------------------------
+
+
+def test_iniciar_pago_qr_online_redirige_a_pantalla_propia(client, cliente_headers, contexto):
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
+    venta = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+    ).json()
+
+    inicio = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "qr_online"}, headers=cliente_headers
+    )
+    assert inicio.status_code == 201
+    cuerpo = inicio.json()
+    id_transaccion = cuerpo["pago"]["referencia_externa"]
+    assert cuerpo["url_redireccion"] == f"http://localhost:8000/api/v1/pagos/qr/{id_transaccion}"
+
+
+def test_pantalla_qr_muestra_el_monto_sin_requerir_login(client, cliente_headers, contexto):
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
+    venta = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+    ).json()
+    inicio = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "qr_online"}, headers=cliente_headers
+    ).json()
+    id_transaccion = inicio["pago"]["referencia_externa"]
+
+    # Sin headers de auth: la pantalla es pública.
+    pantalla = client.get(f"/api/v1/pagos/qr/{id_transaccion}")
+    assert pantalla.status_code == 200
+    assert "100.00" in pantalla.text
+    assert "data:image/png;base64," in pantalla.text
+
+
+def test_pantalla_qr_inexistente_da_404(client):
+    assert client.get("/api/v1/pagos/qr/QR-NOEXISTE").status_code == 404
+
+
+def test_confirmar_pago_qr_aprueba_la_venta_y_descuenta_stock(client, admin_headers, cliente_headers, contexto):
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 2}, headers=cliente_headers)
+    venta = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+    ).json()
+    fisica_antes = _stock(client, admin_headers, contexto)["cantidad_fisica"]
+
+    inicio = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "qr_online"}, headers=cliente_headers
+    ).json()
+    id_transaccion = inicio["pago"]["referencia_externa"]
+
+    confirmacion = client.post(f"/api/v1/pagos/qr/{id_transaccion}/confirmar")
+    assert confirmacion.status_code == 200
+    assert confirmacion.json()["estado"] == "aprobado"
+
+    stock_final = _stock(client, admin_headers, contexto)
+    assert stock_final["cantidad_fisica"] == fisica_antes - 2
+
+    venta_final = client.get(f"/api/v1/ventas/{venta['id']}/comprobante", headers=admin_headers).json()
+    assert venta_final["estado"] == "pagada"
+
+    # Confirmar de nuevo es idempotente: no vuelve a descontar stock.
+    otra_vez = client.post(f"/api/v1/pagos/qr/{id_transaccion}/confirmar")
+    assert otra_vez.status_code == 200
+    assert _stock(client, admin_headers, contexto)["cantidad_fisica"] == fisica_antes - 2
+
+    # Y la pantalla, una vez resuelto el pago, ya no ofrece el botón de confirmar.
+    pantalla_resuelta = client.get(f"/api/v1/pagos/qr/{id_transaccion}")
+    assert "id=\"btn-confirmar\"" not in pantalla_resuelta.text
+
+
+def test_confirmar_pago_qr_con_id_inexistente_da_404(client):
+    assert client.post("/api/v1/pagos/qr/QR-NOEXISTE/confirmar").status_code == 404
+
+
 def test_webhook_con_firma_invalida_se_rechaza(client, cliente_headers, contexto):
     client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
     venta = client.post(

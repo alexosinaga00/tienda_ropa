@@ -145,6 +145,55 @@ def test_producto_codigo_duplicado_falla(client, admin_headers, categoria_camisa
 # ---- admite_probador ----------------------------------------------------------
 
 
+def test_producto_dado_de_baja_se_puede_recrear_con_el_mismo_codigo(
+    client, admin_headers, categoria_camisas, tallas, colores
+):
+    tallas_ids = [t["id"] for t in tallas]
+    colores_ids = [c["id"] for c in colores]
+    producto = _crear_producto(client, admin_headers, categoria_camisas["id"], tallas_ids, colores_ids).json()
+
+    baja = client.delete(f"/api/v1/productos/{producto['id']}", headers=admin_headers)
+    assert baja.status_code == 204
+
+    reingreso = _crear_producto(
+        client, admin_headers, categoria_camisas["id"], tallas_ids, colores_ids, nombre="Camisa relanzada"
+    )
+    assert reingreso.status_code == 201
+    cuerpo = reingreso.json()
+    assert cuerpo["id"] == producto["id"]
+    assert cuerpo["activo"] is True
+    assert cuerpo["nombre"] == "Camisa relanzada"
+
+
+def test_generar_variantes_reactiva_una_variante_dada_de_baja(
+    client, admin_headers, categoria_camisas, tallas, colores
+):
+    tallas_ids = [t["id"] for t in tallas]
+    colores_ids = [c["id"] for c in colores]
+    producto = _crear_producto(client, admin_headers, categoria_camisas["id"], tallas_ids, colores_ids).json()
+
+    variantes = client.get(f"/api/v1/productos/{producto['id']}/variantes", headers=admin_headers).json()
+    variante = variantes[0]
+
+    baja = client.delete(f"/api/v1/variantes/{variante['id']}", headers=admin_headers)
+    assert baja.status_code == 204
+
+    regenerar = client.post(
+        f"/api/v1/productos/{producto['id']}/variantes",
+        json={"tallas_ids": tallas_ids, "colores_ids": colores_ids},
+        headers=admin_headers,
+    )
+    assert regenerar.status_code == 201
+
+    variantes_finales = client.get(
+        f"/api/v1/productos/{producto['id']}/variantes", headers=admin_headers
+    ).json()
+    reactivada = next(v for v in variantes_finales if v["id"] == variante["id"])
+    assert reactivada["activo"] is True
+    assert reactivada["sku"] == variante["sku"]  # se reactiva la misma fila, no genera un sku nuevo
+    assert len(variantes_finales) == len(variantes)  # no se duplicó la combinación
+
+
 def test_admite_probador_se_activa_en_categoria_torso_superior(
     client, admin_headers, categoria_camisas, tallas, colores
 ):

@@ -10,6 +10,7 @@ from app.organizacion.schemas import (
     CiudadCrear,
     EmpleadoActualizar,
     EmpleadoCrear,
+    EmpleadoRespuesta,
     HorarioActualizar,
     HorarioCrear,
     SucursalActualizar,
@@ -112,14 +113,38 @@ def obtener_empleado_por_usuario(db: Session, usuario_id: int) -> Empleado | Non
     return empleado_repo.obtener_por_usuario(db, usuario_id)
 
 
-def obtener_mi_empleado(db: Session, usuario_id: int) -> Empleado:
+def obtener_mi_empleado(db: Session, usuario_id: int) -> EmpleadoRespuesta:
     """GET /empleados/yo: para que la caja (Angular) sepa en qué sucursal
     trabaja el cajero logueado, sin necesitar el permiso de administración
     de organizacion.gestionar (ver empleados_router)."""
     empleado = empleado_repo.obtener_por_usuario(db, usuario_id)
     if empleado is None:
         raise NoEncontradoError("Este usuario no tiene un registro de empleado")
-    return empleado
+    return _enriquecer_empleados(db, [empleado])[0]
+
+
+def _enriquecer_empleados(db: Session, empleados: list[Empleado]) -> list[EmpleadoRespuesta]:
+    """Resuelve usuario_nombre/usuario_apellido/sucursal_nombre para que la
+    tabla de empleados en Angular no muestre ids crudos. `organizacion` no
+    puede consultar la tabla `usuario` directamente (regla 2 de CLAUDE.md),
+    así que el nombre de usuario se resuelve vía seguridad_service."""
+    usuarios = seguridad_service.obtener_usuarios_por_ids(db, [e.usuario_id for e in empleados])
+    sucursal_ids = [e.sucursal_id for e in empleados if e.sucursal_id is not None]
+    sucursales = {s.id: s for s in sucursal_repo.listar_por_ids(db, sucursal_ids)}
+    resultado = []
+    for e in empleados:
+        usuario = usuarios.get(e.usuario_id)
+        sucursal = sucursales.get(e.sucursal_id) if e.sucursal_id is not None else None
+        resultado.append(
+            EmpleadoRespuesta.model_validate(e).model_copy(
+                update={
+                    "usuario_nombre": usuario.nombre if usuario else None,
+                    "usuario_apellido": usuario.apellido if usuario else None,
+                    "sucursal_nombre": sucursal.nombre if sucursal else None,
+                }
+            )
+        )
+    return resultado
 
 
 def crear_horario(db: Session, sucursal_id: int, datos: HorarioCrear) -> HorarioSucursal:
@@ -149,12 +174,12 @@ def eliminar_horario(db: Session, sucursal_id: int, horario_id: int) -> None:
     horario_repo.eliminar(db, horario)
 
 
-def listar_empleados(db: Session, paginacion: ParametrosPaginacion) -> list[Empleado]:
-    return list(empleado_repo.listar(db, paginacion))
+def listar_empleados(db: Session, paginacion: ParametrosPaginacion) -> list[EmpleadoRespuesta]:
+    return _enriquecer_empleados(db, list(empleado_repo.listar(db, paginacion)))
 
 
-def obtener_empleado(db: Session, empleado_id: int) -> Empleado:
-    return empleado_repo.obtener(db, empleado_id)
+def obtener_empleado(db: Session, empleado_id: int) -> EmpleadoRespuesta:
+    return _enriquecer_empleados(db, [empleado_repo.obtener(db, empleado_id)])[0]
 
 
 def desactivar_empleado(db: Session, empleado_id: int) -> Empleado:
@@ -164,11 +189,14 @@ def desactivar_empleado(db: Session, empleado_id: int) -> Empleado:
 def crear_empleado(db: Session, datos: EmpleadoCrear):
     seguridad_service.obtener_usuario(db, datos.usuario_id)  # valida que el usuario exista
 
-    if empleado_repo.obtener_por_usuario(db, datos.usuario_id) is not None:
-        raise ConflictoError("Ese usuario ya es empleado")
-
     if datos.sucursal_id is not None:
         sucursal_repo.obtener(db, datos.sucursal_id)  # 404 si no existe / está inactiva
+
+    existente = empleado_repo.obtener_por_usuario(db, datos.usuario_id)
+    if existente is not None:
+        if existente.activo:
+            raise ConflictoError("Ese usuario ya es empleado")
+        return empleado_repo.reactivar(db, existente, datos)
 
     return empleado_repo.crear(db, datos)
 

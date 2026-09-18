@@ -128,9 +128,17 @@ class ProductoRepository(CRUDBase[Producto, ProductoCrear, ProductoActualizar]):
         # ProductoCrear trae tallas_ids/colores_ids para la combinatoria de
         # variantes (los resuelve el service); acá solo se persiste la fila
         # de producto en sí.
-        if self.obtener_por_codigo(db, datos.codigo) is not None:
-            raise ConflictoError("Ya existe un producto con ese código")
         campos = datos.model_dump(exclude={"tallas_ids", "colores_ids"})
+        existente = self.obtener_por_codigo(db, datos.codigo)
+        if existente is not None:
+            if existente.activo:
+                raise ConflictoError("Ya existe un producto con ese código")
+            for campo, valor in campos.items():
+                setattr(existente, campo, valor)
+            existente.activo = True
+            db.commit()
+            db.refresh(existente)
+            return existente
         producto = Producto(**campos, creado_por=creado_por)
         db.add(producto)
         db.commit()

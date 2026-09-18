@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 EstadoPagoCodigo = Literal["iniciado", "aprobado", "rechazado", "reembolsado"]
 MetodoPagoCaja = Literal["efectivo", "qr", "tarjeta", "transferencia"]
-MetodoPagoPasarela = Literal["libelula", "paypal"]
+MetodoPagoPasarela = Literal["libelula", "paypal", "qr_online"]
 
 
 class PagoRespuesta(BaseModel):

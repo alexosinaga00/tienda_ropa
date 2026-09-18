@@ -20,6 +20,7 @@ METODOS_PAGO: list[tuple[str, str, bool, bool, bool]] = [
     ("transferencia", "Transferencia bancaria", False, True, False),
     ("libelula", "Pasarela Libelula", True, False, True),
     ("paypal", "PayPal", True, False, True),
+    ("qr_online", "Pago con QR (online)", True, False, True),
 ]
 
 ESTADOS_PAGO: list[tuple[str, str]] = [

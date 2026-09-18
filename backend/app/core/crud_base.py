@@ -52,7 +52,12 @@ class CRUDBase(Generic[ModeloT, CrearSchemaT, ActualizarSchemaT]):
         return instancia
 
     def actualizar(self, db: Session, id_: Any, datos: ActualizarSchemaT) -> ModeloT:
-        instancia = self.obtener(db, id_)
+        # No usa self.obtener(): ese filtra activo=True, y bloquearía acá
+        # la única vía genérica para reactivar una fila (PUT con
+        # {"activo": true}) antes de que el propio cambio se aplique.
+        instancia = db.get(self.modelo, id_)
+        if instancia is None:
+            raise NoEncontradoError(f"{self.modelo.__name__} no encontrado")
         for campo, valor in datos.model_dump(exclude_unset=True).items():
             setattr(instancia, campo, valor)
         db.commit()

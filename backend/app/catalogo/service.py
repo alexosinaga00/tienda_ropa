@@ -364,16 +364,21 @@ def generar_variantes(
 ) -> list[ProductoVariante]:
     """Combinatoria talla × color con SKU {codigo_producto}-{codigo_talla}-{codigo_color}.
 
-    Si una combinación ya existe (mismo producto_id + talla_id + color_id)
-    se salta: llamar esto de nuevo agregando un color no duplica las
-    variantes que ya estaban."""
+    Si una combinación ya existe y está activa, se salta: llamar esto de
+    nuevo agregando un color no duplica las variantes que ya estaban. Si
+    existe pero fue desactivada, se reactiva (mismo sku) en vez de
+    quedar huérfana para siempre."""
     tallas = _obtener_tallas(db, tallas_ids)
     colores = _obtener_colores(db, colores_ids)
 
     creadas: list[ProductoVariante] = []
     for talla in tallas:
         for color in colores:
-            if variante_repo.obtener_por_combinacion(db, producto.id, talla.id, color.id) is not None:
+            existente = variante_repo.obtener_por_combinacion(db, producto.id, talla.id, color.id)
+            if existente is not None:
+                if not existente.activo:
+                    existente.activo = True
+                    creadas.append(existente)
                 continue
             sku_base = f"{producto.codigo}-{talla.codigo}-{_slug_color(color.nombre)}".upper()
             sku = _sku_unico(db, sku_base)

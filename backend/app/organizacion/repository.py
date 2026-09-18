@@ -36,6 +36,11 @@ class SucursalRepository(CRUDBase[Sucursal, SucursalCrear, SucursalActualizar]):
     def obtener_por_codigo(self, db: Session, codigo: str) -> Sucursal | None:
         return db.scalar(select(Sucursal).where(Sucursal.codigo == codigo))
 
+    def listar_por_ids(self, db: Session, ids: list[int]) -> list[Sucursal]:
+        if not ids:
+            return []
+        return list(db.scalars(select(Sucursal).where(Sucursal.id.in_(ids))))
+
     def crear(self, db: Session, datos: SucursalCrear) -> Sucursal:
         if self.obtener_por_codigo(db, datos.codigo) is not None:
             raise ConflictoError("Ya existe una sucursal con ese código")
@@ -102,6 +107,19 @@ class EmpleadoRepository(CRUDBase[Empleado, EmpleadoCrear, EmpleadoActualizar]):
 
     def obtener_por_usuario(self, db: Session, usuario_id: int) -> Empleado | None:
         return db.scalar(select(Empleado).where(Empleado.usuario_id == usuario_id))
+
+    def reactivar(self, db: Session, empleado: Empleado, datos: EmpleadoCrear) -> Empleado:
+        """Reusa la fila de un empleado dado de baja en vez de dejar un
+        duplicado: `obtener_por_usuario` no filtra por `activo`, así que un
+        usuario solo puede tener una fila de empleado en toda su historia."""
+        empleado.activo = True
+        empleado.sucursal_id = datos.sucursal_id
+        empleado.cargo = datos.cargo
+        empleado.ci = datos.ci
+        empleado.fecha_ingreso = datos.fecha_ingreso
+        db.commit()
+        db.refresh(empleado)
+        return empleado
 
     def listar_por_sucursal(self, db: Session, sucursal_id: int) -> list[Empleado]:
         return list(

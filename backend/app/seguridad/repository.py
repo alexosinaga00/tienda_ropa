@@ -39,9 +39,24 @@ class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
     def obtener_por_email(self, db: Session, email: str) -> Usuario | None:
         return db.scalar(select(Usuario).where(Usuario.email == email))
 
+    def listar_por_ids(self, db: Session, ids: list[int]) -> list[Usuario]:
+        if not ids:
+            return []
+        return list(db.scalars(select(Usuario).where(Usuario.id.in_(ids))))
+
     def crear(self, db: Session, datos: UsuarioCrear) -> Usuario:
-        if self.obtener_por_email(db, datos.email) is not None:
-            raise ConflictoError("Ya existe un usuario con ese email")
+        existente = self.obtener_por_email(db, datos.email)
+        if existente is not None:
+            if existente.activo:
+                raise ConflictoError("Ya existe un usuario con ese email")
+            existente.nombre = datos.nombre
+            existente.apellido = datos.apellido
+            existente.telefono = datos.telefono
+            existente.password_hash = hash_password(datos.password)
+            existente.activo = True
+            db.commit()
+            db.refresh(existente)
+            return existente
         usuario = Usuario(
             nombre=datos.nombre,
             apellido=datos.apellido,
@@ -83,6 +98,12 @@ class ClienteRepository:
         if cliente is None:
             raise NoEncontradoError("Perfil de cliente no encontrado")
         return cliente
+
+    def buscar_por_usuario(self, db: Session, usuario_id: int) -> Cliente | None:
+        """Variante de obtener_por_usuario que no lanza si no existe, para
+        que el caller decida si crea el perfil o lo reusa (ver
+        seguridad.service.registrar_cliente)."""
+        return db.scalar(select(Cliente).where(Cliente.usuario_id == usuario_id))
 
     def actualizar_perfil(
         self, db: Session, usuario_id: int, datos: ClientePerfilActualizar

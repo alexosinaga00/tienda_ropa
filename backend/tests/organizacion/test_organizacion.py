@@ -69,6 +69,23 @@ def test_crear_sucursal_y_listar_publico_no_expone_empleados(client, admin_heade
     }
 
 
+def test_sucursal_dada_de_baja_se_reactiva_por_put(client, admin_headers):
+    """Cubre el fix de CRUDBase.actualizar: antes, PUT con {"activo": true}
+    sobre una fila inactiva daba 404 porque actualizar() usaba obtener()
+    (que filtra activo=True) para ubicar la fila a editar."""
+    ciudad = crear_ciudad(client, admin_headers).json()
+    sucursal = crear_sucursal(client, admin_headers, ciudad["id"]).json()
+
+    baja = client.delete(f"/api/v1/sucursales/{sucursal['id']}", headers=admin_headers)
+    assert baja.status_code == 204
+
+    reactivada = client.put(
+        f"/api/v1/sucursales/{sucursal['id']}", json={"activo": True}, headers=admin_headers
+    )
+    assert reactivada.status_code == 200
+    assert reactivada.json()["activo"] is True
+
+
 def test_crear_sucursal_con_ciudad_inexistente_falla(client, admin_headers):
     respuesta = crear_sucursal(client, admin_headers, ciudad_id=9999)
     assert respuesta.status_code == 404
@@ -206,6 +223,41 @@ def test_empleado_con_usuario_inexistente_falla(client, admin_headers):
     assert respuesta.status_code == 404
 
 
+def test_empleado_dado_de_baja_se_puede_volver_a_registrar(client, admin_headers, db_session):
+    from app.seguridad.repository import UsuarioRepository
+    from app.seguridad.schemas import UsuarioCrear
+
+    usuario_repo = UsuarioRepository()
+    usuario = usuario_repo.crear(
+        db_session,
+        UsuarioCrear(nombre="Ex", apellido="Empleado", email="ex.empleado@example.com", password="claveSegura123"),
+    )
+
+    ciudad = crear_ciudad(client, admin_headers).json()
+    sucursal = crear_sucursal(client, admin_headers, ciudad["id"], codigo="S3").json()
+
+    creado = client.post(
+        "/api/v1/empleados",
+        json={"usuario_id": usuario.id, "sucursal_id": sucursal["id"], "cargo": "Cajero"},
+        headers=admin_headers,
+    )
+    assert creado.status_code == 201
+    empleado_id = creado.json()["id"]
+
+    baja = client.delete(f"/api/v1/empleados/{empleado_id}", headers=admin_headers)
+    assert baja.status_code == 204
+
+    reingreso = client.post(
+        "/api/v1/empleados",
+        json={"usuario_id": usuario.id, "sucursal_id": sucursal["id"], "cargo": "Encargado"},
+        headers=admin_headers,
+    )
+    assert reingreso.status_code == 201
+    assert reingreso.json()["id"] == empleado_id
+    assert reingreso.json()["activo"] is True
+    assert reingreso.json()["cargo"] == "Encargado"
+
+
 def test_empleados_yo_devuelve_mi_propio_registro(client, admin_headers, db_session):
     from tests.conftest import crear_cajero
 
@@ -240,3 +292,35 @@ def test_empleados_yo_no_requiere_permiso_admin(client, admin_headers, db_sessio
 
     con_yo = client.get("/api/v1/empleados/yo", headers=cajero_headers)
     assert con_yo.status_code == 200
+
+
+def test_empleado_expone_nombre_de_usuario_y_sucursal(client, admin_headers, db_session):
+    """La tabla de empleados en Angular mostraba usuario_id/sucursal_id
+    crudos porque EmpleadoRespuesta no traía nombres resueltos."""
+    from app.seguridad.repository import UsuarioRepository
+    from app.seguridad.schemas import UsuarioCrear
+
+    usuario_repo = UsuarioRepository()
+    usuario = usuario_repo.crear(
+        db_session,
+        UsuarioCrear(nombre="Ana", apellido="Perez", email="ana.perez@example.com", password="claveSegura123"),
+    )
+
+    ciudad = crear_ciudad(client, admin_headers).json()
+    sucursal = crear_sucursal(client, admin_headers, ciudad["id"], codigo="S-NOM").json()
+
+    creado = client.post(
+        "/api/v1/empleados",
+        json={"usuario_id": usuario.id, "sucursal_id": sucursal["id"], "cargo": "Cajera"},
+        headers=admin_headers,
+    ).json()
+
+    listado = client.get("/api/v1/empleados", headers=admin_headers).json()
+    fila = next(e for e in listado if e["id"] == creado["id"])
+    assert fila["usuario_nombre"] == "Ana"
+    assert fila["usuario_apellido"] == "Perez"
+    assert fila["sucursal_nombre"] == "Sucursal Centro"
+
+    detalle = client.get(f"/api/v1/empleados/{creado['id']}", headers=admin_headers).json()
+    assert detalle["usuario_nombre"] == "Ana"
+    assert detalle["sucursal_nombre"] == "Sucursal Centro"
