@@ -9,6 +9,7 @@ class CarritoLinea {
     required this.cantidad,
     required this.precioUnitario,
     required this.subtotal,
+    this.disponible = true,
     this.productoNombre,
     this.imagenPrincipal,
     this.tallaCodigo,
@@ -21,6 +22,7 @@ class CarritoLinea {
     cantidad: json['cantidad'] as int,
     precioUnitario: double.parse(json['precio_unitario'].toString()),
     subtotal: double.parse(json['subtotal'].toString()),
+    disponible: json['disponible'] as bool? ?? true,
   );
 
   final int id;
@@ -28,6 +30,10 @@ class CarritoLinea {
   final int cantidad;
   final double precioUnitario;
   final double subtotal;
+
+  /// False si la prenda se dio de baja después de agregarla: no suma al
+  /// subtotal y el backend no deja comprar el carrito hasta quitarla.
+  final bool disponible;
   final String? productoNombre;
   final String? imagenPrincipal;
   final String? tallaCodigo;
@@ -45,6 +51,7 @@ class CarritoLinea {
       cantidad: cantidad,
       precioUnitario: precioUnitario,
       subtotal: subtotal,
+      disponible: disponible,
       productoNombre: productoNombre,
       imagenPrincipal: imagenPrincipal,
       tallaCodigo: tallaCodigo,

@@ -172,8 +172,9 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
     final linea = widget.linea;
     final controller = ref.read(carritoControllerProvider.notifier);
     final disponible = ref.watch(disponibleTotalProvider(linea.varianteId)).valueOrNull;
-    final enElMaximo = disponible != null && linea.cantidad >= disponible;
+    final enElMaximo = !linea.disponible || (disponible != null && linea.cantidad >= disponible);
     final (String? avisoStock, Color colorAviso) = switch (disponible) {
+      _ when !linea.disponible => ('Ya no está disponible: quitala para continuar', AppColors.error),
       null => (null, AppColors.textoTenue),
       <= 0 => ('Agotado: quitala para continuar', AppColors.error),
       final d when linea.cantidad > d => ('Solo quedan $d disponibles', AppColors.error),

@@ -5,16 +5,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
 import '../models/evento.dart';
 
-/// Registra eventos de navegación (vista, búsqueda, favorito) para
-/// alimentar al recomendador. El endpoint real (POST /api/v1/ia/eventos)
-/// todavía no existe -- llega en la etapa 6 -- así que hasta entonces cada
-/// intento falla con 404 y el evento se queda encolado en memoria.
+/// Registra eventos de navegación (vista, búsqueda, favorito) en
+/// POST /api/v1/ia/eventos, que alimenta al recomendador.
 ///
 /// `track()` nunca lanza ni bloquea a quien lo llama: dispara el envío
-/// sin esperarlo (fire-and-forget). Si falla la red o el endpoint no
-/// existe, el error se traga acá adentro, nunca llega a la UI.
+/// sin esperarlo (fire-and-forget) y cualquier error se traga acá adentro,
+/// nunca llega a la UI.
+///
+/// Qué pasa con un evento que no se pudo enviar:
+/// - sin conexión, timeout, 5xx, 408 o 429: queda encolado y se reintenta
+///   con el próximo `track()`;
+/// - cualquier otro 4xx (p. ej. 422): el backend rechaza ESE payload y
+///   reintentarlo daría lo mismo, así que se descarta y se sigue con el
+///   resto de la cola.
+/// La cola tiene un tope: si se llena (mucho tiempo sin red), se descartan
+/// los eventos más viejos.
 class TrackingService {
   TrackingService(this._dio);
+
+  static const maxEventosEncolados = 100;
 
   final Dio _dio;
   final List<Evento> _cola = [];
@@ -25,6 +34,9 @@ class TrackingService {
     _cola.add(
       Evento(tipo: tipo, productoId: productoId, varianteId: varianteId, texto: texto, creadoEn: DateTime.now()),
     );
+    if (_cola.length > maxEventosEncolados) {
+      _cola.removeRange(0, _cola.length - maxEventosEncolados);
+    }
     unawaited(_vaciarCola());
   }
 
@@ -35,12 +47,21 @@ class TrackingService {
       try {
         await _dio.post<void>('/ia/eventos', data: evento.toJson());
         _cola.remove(evento);
-      } catch (_) {
-        // Sin conexión, o 404 porque el endpoint todavía no existe: se
-        // deja encolado para el próximo intento, no se propaga el error.
-        return;
+      } catch (error) {
+        if (_esRechazoDefinitivo(error)) {
+          _cola.remove(evento);
+          continue;
+        }
+        return; // sin red o backend caído: se reintenta con el próximo track()
       }
     }
+  }
+
+  static bool _esRechazoDefinitivo(Object error) {
+    if (error is! DioException) return false;
+    final status = error.response?.statusCode;
+    if (status == null) return false;
+    return status >= 400 && status < 500 && status != 408 && status != 429;
   }
 }
 

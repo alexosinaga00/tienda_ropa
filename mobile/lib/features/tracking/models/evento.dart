@@ -13,7 +13,9 @@ class Evento {
 
   Map<String, dynamic> toJson() {
     return {
-      'tipo': tipo.name,
+      // El backend (EventoCrear) espera `tipo_evento`; con `tipo` todos
+      // los eventos daban 422 y el recomendador nunca recibía historial.
+      'tipo_evento': tipo.name,
       if (productoId != null) 'producto_id': productoId,
       if (varianteId != null) 'variante_id': varianteId,
       if (texto != null) 'texto': texto,

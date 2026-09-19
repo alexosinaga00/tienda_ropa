@@ -28,8 +28,12 @@ class CheckoutState {
 
   double get costoEnvio => tipoEntrega == TipoEntrega.domicilio ? (cotizacion?.costo ?? 0) : 0;
 
+  // Para domicilio también hace falta la cotización de ESA dirección: sin
+  // ella costoEnvio valdría 0 y el backend rechaza el envío cuando el costo
+  // de la venta no coincide con la tarifa real de la zona (CU-42).
   bool get listoParaPagar =>
-      sucursalId != null && (tipoEntrega == TipoEntrega.retiro || direccionId != null);
+      sucursalId != null &&
+      (tipoEntrega == TipoEntrega.retiro || (direccionId != null && cotizacion != null));
 
   CheckoutState _copyWith({
     TipoEntrega? tipoEntrega,
@@ -64,7 +68,12 @@ class CheckoutController extends StateNotifier<CheckoutState> {
 
   void elegirSucursal(int sucursalId) => state = state._copyWith(sucursalId: sucursalId);
 
-  void elegirDireccion(int direccionId) => state = state._copyWith(direccionId: direccionId);
+  void elegirDireccion(int direccionId) {
+    if (direccionId == state.direccionId) return;
+    // La cotización anterior era de otra dirección (otra zona): se descarta
+    // hasta que entrega_screen fije la nueva.
+    state = state._copyWith(direccionId: direccionId, limpiarCotizacion: true);
+  }
 
   void fijarCotizacion(CotizacionEnvio cotizacion) => state = state._copyWith(cotizacion: cotizacion);
 
