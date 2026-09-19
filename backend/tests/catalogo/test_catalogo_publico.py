@@ -57,8 +57,8 @@ def test_catalogo_detalle_es_publico(client, admin_headers, categoria_camisas, t
     assert cuerpo["codigo"] == "PUB-2"
     assert len(cuerpo["variantes"]) == 1
     assert cuerpo["variantes"][0]["precio_efectivo"] == "150.00"
-    # TODO(P3.1): hoy siempre None porque no existe `inventario` todavía.
-    assert cuerpo["variantes"][0]["cantidad_disponible"] is None
+    # Sin stock registrado en `inventario` para esta variante, 0 disponible.
+    assert cuerpo["variantes"][0]["cantidad_disponible"] == 0
 
 
 def test_catalogo_no_muestra_producto_inactivo(client, admin_headers, categoria_camisas, tallas, colores):
@@ -154,6 +154,73 @@ def test_buscar_no_duplica_por_join_de_variantes(client, admin_headers, categori
 def test_buscar_genero_invalido_rechazado(client):
     respuesta = client.get("/api/v1/catalogo/buscar?genero=marciano")
     assert respuesta.status_code == 422
+
+
+# ---- solo_disponibles / sucursal_id (CU-10, disponibilidad real) --------------
+
+
+def _registrar_stock(client, admin_headers, variante_id, sucursal_id, cantidad=10):
+    return client.post(
+        "/api/v1/inventario/movimientos",
+        json={
+            "variante_id": variante_id,
+            "sucursal_id": sucursal_id,
+            "tipo_movimiento_codigo": "recepcion",
+            "cantidad": cantidad,
+            "costo_unitario": "10.00",
+        },
+        headers=admin_headers,
+    )
+
+
+def _crear_sucursal(client, admin_headers, ciudad_id, codigo):
+    return client.post(
+        "/api/v1/sucursales",
+        json={"ciudad_id": ciudad_id, "codigo": codigo, "nombre": codigo, "direccion": "Km 5"},
+        headers=admin_headers,
+    ).json()
+
+
+def test_buscar_solo_disponibles_excluye_sin_stock(client, admin_headers, categoria_camisas, tallas, colores):
+    con_stock = _crear_producto(
+        client, admin_headers, categoria_camisas["id"], [tallas[0]["id"]], [colores[0]["id"]], "DISP-CON"
+    )
+    _crear_producto(client, admin_headers, categoria_camisas["id"], [tallas[0]["id"]], [colores[0]["id"]], "DISP-SIN")
+    variante = client.get(f"/api/v1/productos/{con_stock['id']}/variantes", headers=admin_headers).json()[0]
+    ciudad = client.post(
+        "/api/v1/ciudades", json={"nombre": "Santa Cruz", "departamento": "Santa Cruz"}, headers=admin_headers
+    ).json()
+    sucursal = _crear_sucursal(client, admin_headers, ciudad["id"], "SUC-DISP-1")
+    assert _registrar_stock(client, admin_headers, variante["id"], sucursal["id"]).status_code == 201
+
+    sin_filtro = client.get("/api/v1/catalogo/buscar").json()
+    assert {"DISP-CON", "DISP-SIN"} <= {p["codigo"] for p in sin_filtro}
+
+    resultados = client.get("/api/v1/catalogo/buscar?solo_disponibles=true").json()
+    assert {p["codigo"] for p in resultados} == {"DISP-CON"}
+
+
+def test_buscar_solo_disponibles_respeta_sucursal_id(client, admin_headers, categoria_camisas, tallas, colores):
+    producto = _crear_producto(
+        client, admin_headers, categoria_camisas["id"], [tallas[0]["id"]], [colores[0]["id"]], "DISP-SUC"
+    )
+    variante = client.get(f"/api/v1/productos/{producto['id']}/variantes", headers=admin_headers).json()[0]
+    ciudad = client.post(
+        "/api/v1/ciudades", json={"nombre": "Santa Cruz", "departamento": "Santa Cruz"}, headers=admin_headers
+    ).json()
+    sucursal_con_stock = _crear_sucursal(client, admin_headers, ciudad["id"], "SUC-DISP-A")
+    sucursal_sin_stock = _crear_sucursal(client, admin_headers, ciudad["id"], "SUC-DISP-B")
+    assert _registrar_stock(client, admin_headers, variante["id"], sucursal_con_stock["id"]).status_code == 201
+
+    en_su_sucursal = client.get(
+        f"/api/v1/catalogo/buscar?solo_disponibles=true&sucursal_id={sucursal_con_stock['id']}"
+    ).json()
+    assert "DISP-SUC" in {p["codigo"] for p in en_su_sucursal}
+
+    en_otra_sucursal = client.get(
+        f"/api/v1/catalogo/buscar?solo_disponibles=true&sucursal_id={sucursal_sin_stock['id']}"
+    ).json()
+    assert "DISP-SUC" not in {p["codigo"] for p in en_otra_sucursal}
 
 
 # ---- Variantes para la caja (POS) ---------------------------------------------

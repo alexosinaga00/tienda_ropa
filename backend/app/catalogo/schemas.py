@@ -359,8 +359,10 @@ class FiltrosCatalogo(BaseModel):
     genero: Genero | None = None
     precio_min: Decimal | None = None
     precio_max: Decimal | None = None
-    # TODO(P3.1): sin `inventario` todavía no hay noción de stock por
-    # sucursal. Se acepta el parámetro pero no filtra nada por ahora.
+    # `sucursal_id` no filtra el listado por sí solo (todo producto se
+    # vende en todas las sucursales, solo cambia el stock): únicamente
+    # acota a esa sucursal el chequeo de `solo_disponibles`. Sin
+    # `sucursal_id`, "disponible" es "en alguna sucursal".
     sucursal_id: int | None = None
     solo_disponibles: bool = False
 
@@ -398,11 +400,12 @@ class VarianteCatalogoRespuesta(BaseModel):
     color_id: int
     sku: str
     precio_efectivo: Decimal
-    # TODO(P3.1): hoy siempre None. Cuando exista el paquete `inventario`,
-    # esto se resuelve llamando a inventario.service (nunca a la tabla
-    # `stock` directamente), sumando cantidad_disponible por sucursal (o
-    # filtrado a una sucursal si se pidió `sucursal_id` en la búsqueda).
-    cantidad_disponible: int | None = None
+    # Suma entre todas las sucursales si el detalle se pidió sin
+    # `sucursal_id`, o la de esa sucursal sola si se pidió (ver
+    # ConsultarCatalogo._disponibilidad_variante en cu09_consultar_catalogo.py,
+    # que llama a inventario.casos_uso.cu13, nunca a la tabla `stock`
+    # directamente).
+    cantidad_disponible: int = 0
 
 
 class ProductoImagenLookupItem(BaseModel):

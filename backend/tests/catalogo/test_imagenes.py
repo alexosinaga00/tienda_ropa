@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from app.catalogo import service
+from app.core import storage
 
 
 @pytest.fixture()
@@ -26,9 +26,9 @@ def storage_falso(monkeypatch):
     def _url_catalogo(public_id: str, ancho=None, alto=None) -> str:
         return f"https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/{public_id}.jpg"
 
-    monkeypatch.setattr(service.storage, "subir_imagen", _subir_imagen)
-    monkeypatch.setattr(service.storage, "eliminar_imagen", _eliminar_imagen)
-    monkeypatch.setattr(service.storage, "url_catalogo", _url_catalogo)
+    monkeypatch.setattr(storage, "subir_imagen", _subir_imagen)
+    monkeypatch.setattr(storage, "eliminar_imagen", _eliminar_imagen)
+    monkeypatch.setattr(storage, "url_catalogo", _url_catalogo)
 
     return {"subidos": subidos, "eliminados": eliminados}
 

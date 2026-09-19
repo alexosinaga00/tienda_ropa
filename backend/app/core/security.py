@@ -3,13 +3,13 @@
 Vive en `core` (así lo pide el plan de desarrollo), pero para resolver el
 usuario/los permisos detrás de un JWT necesita al paquete `seguridad`
 (dueño de esas tablas). En vez de consultar `usuario`/`rol_permiso`/
-`usuario_rol` directamente, llama a `seguridad.service` -- mismo patrón que
-CLAUDE.md pide entre los 13 paquetes de negocio ("llama al service del otro
-paquete, no consulta sus tablas"). El import es diferido (dentro de cada
-función) porque `seguridad.service` importa `core.security` a nivel de
-módulo (para crear_access_token/decodificar_token/etc.): con el import acá
-arriba, cargar cualquiera de los dos módulos primero rompería con un
-ImportError circular.
+`usuario_rol` directamente, llama a `seguridad.politicas` -- mismo patrón
+que CLAUDE.md pide entre los 13 paquetes de negocio ("llama a la política
+del otro paquete, no consulta sus tablas"). El import es diferido (dentro
+de cada función) porque `seguridad.repository` importa `core.security` a
+nivel de módulo (para hash_password): con el import acá arriba, cargar
+cualquiera de los dos módulos primero rompería con un ImportError
+circular.
 """
 
 from __future__ import annotations
@@ -80,19 +80,19 @@ def decodificar_token(token: str) -> dict:
 
 def permisos_de_usuario(db: Session, usuario_id: int) -> list[str]:
     """Códigos de permiso reales del usuario, vía sus roles activos. La
-    consulta real vive en seguridad.service (dueño de esas tablas); acá
+    consulta real vive en seguridad.politicas (dueño de esas tablas); acá
     solo se reexpone con el mismo nombre para no obligar a los demás
     paquetes a cambiar su import."""
-    from app.seguridad import service as seguridad_service
+    from app.seguridad import politicas as seguridad_politicas
 
-    return seguridad_service.permisos_de_usuario(db, usuario_id)
+    return seguridad_politicas.permisos_de_usuario(db, usuario_id)
 
 
 def get_current_user(
     credenciales: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
 ):
-    from app.seguridad import service as seguridad_service
+    from app.seguridad import politicas as seguridad_politicas
 
     if credenciales is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
@@ -101,7 +101,7 @@ def get_current_user(
     if payload.get("tipo") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
-    usuario = seguridad_service.obtener_usuario_para_auth(db, int(payload["sub"]))
+    usuario = seguridad_politicas.obtener_usuario_para_auth(db, int(payload["sub"]))
     if usuario is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inválido")
     return usuario
@@ -115,7 +115,7 @@ def get_current_user_opcional(
     hay token o es inválido/expirado. Para endpoints públicos que igual
     quieren asociar la acción a un usuario logueado cuando lo hay (p. ej.
     POST /ia/voz, que admite búsqueda anónima)."""
-    from app.seguridad import service as seguridad_service
+    from app.seguridad import politicas as seguridad_politicas
 
     if credenciales is None:
         return None
@@ -125,7 +125,7 @@ def get_current_user_opcional(
         return None
     if payload.get("tipo") != "access":
         return None
-    return seguridad_service.obtener_usuario_para_auth(db, int(payload["sub"]))
+    return seguridad_politicas.obtener_usuario_para_auth(db, int(payload["sub"]))
 
 
 def require_permission(codigo: str):

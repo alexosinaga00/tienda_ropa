@@ -18,8 +18,8 @@ load_dotenv()
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
-from app.pagos import service as pagos_service
-from app.reservas import service as reservas_service
+from app.pagos.politicas import expirar_ventas_pendientes
+from app.reservas.politicas import expirar_reservas_vencidas
 from app.core.exceptions import registrar_handlers
 from app.core.rate_limit import limiter
 from app.abastecimiento.router import routers as abastecimiento_routers
@@ -43,17 +43,18 @@ settings = get_settings()
 
 def _correr_tareas_periodicas() -> None:
     """Vence ventas digitales que quedaron sin pagar y reservas vencidas.
-    Sesión propia, igual que la generación en segundo plano del probador."""
-    db = SessionLocal()
-    try:
-        resultado = pagos_service.expirar_ventas_pendientes(db)
-        expiradas = reservas_service.expirar_reservas(db)
-        if resultado["anuladas"] or resultado["pagadas"] or expiradas:
-            logger.info("Tareas periódicas: ventas %s, reservas expiradas %s", resultado, expiradas)
-    except Exception:
-        logger.exception("Falló la tarea periódica")
-    finally:
-        db.close()
+    Sesión propia, igual que la generación en segundo plano del probador.
+    Cada tarea va aislada: si una falla, la otra corre igual."""
+    for nombre, tarea in (("ventas pendientes", expirar_ventas_pendientes), ("reservas", expirar_reservas_vencidas)):
+        db = SessionLocal()
+        try:
+            resultado = tarea(db)
+            if resultado and (not isinstance(resultado, dict) or any(resultado.values())):
+                logger.info("Tarea periódica de %s: %s", nombre, resultado)
+        except Exception:
+            logger.exception("Falló la tarea periódica de %s", nombre)
+        finally:
+            db.close()
 
 
 @asynccontextmanager

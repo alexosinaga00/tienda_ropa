@@ -69,9 +69,13 @@ PERMISOS_POR_ROL: dict[str, list[str]] = {
         # en venta, no solo el encargado del depósito.
         "reservas.gestionar_sucursal",
     ],
+    # Sin abastecimiento.gestionar: ese permiso protege TODO el paquete
+    # (proveedores ajenos, órdenes de compra y recepciones, que suben stock
+    # y fijan el costo promedio en cualquier sucursal) y no hay endpoints
+    # acotados al proveedor dueño de la sesión. Es un tercero externo: solo
+    # consulta el catálogo.
     "proveedor": [
         "catalogo.ver",
-        "abastecimiento.gestionar",
     ],
     "cliente": [
         "catalogo.ver",

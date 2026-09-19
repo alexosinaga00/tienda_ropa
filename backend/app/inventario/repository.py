@@ -83,10 +83,14 @@ class StockRepository:
             db.scalars(select(Stock).where(Stock.sucursal_id == sucursal_id).order_by(Stock.variante_id))
         )
 
-    def listar_variantes_con_stock(self, db: Session) -> set[int]:
-        """Para `inteligencia` (P6.2): variantes con stock disponible en
-        cualquier sucursal."""
-        return set(db.scalars(select(Stock.variante_id).where(Stock.cantidad_disponible > 0).distinct()))
+    def listar_variantes_con_stock(self, db: Session, sucursal_id: int | None = None) -> set[int]:
+        """Para `inteligencia` (P6.2) y `catalogo` (CU-10, `solo_disponibles`):
+        variantes con stock disponible, en cualquier sucursal si no se pasa
+        `sucursal_id`, o en esa sola si se pasa."""
+        consulta = select(Stock.variante_id).where(Stock.cantidad_disponible > 0)
+        if sucursal_id is not None:
+            consulta = consulta.where(Stock.sucursal_id == sucursal_id)
+        return set(db.scalars(consulta.distinct()))
 
     def listar_con_alerta(self, db: Session, sucursal_id: int | None = None) -> list[Stock]:
         consulta = select(Stock).where(Stock.cantidad_disponible <= Stock.stock_minimo)

@@ -6,7 +6,11 @@ import pytest
 from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
-from app.probador import service
+from app.core import storage
+from app.probador.casos_uso import cu39_generar_prueba_realista_ia
+from app.probador.repository import GeneracionRepository
+
+generacion_repo = GeneracionRepository()
 
 
 # ---- Fixtures -----------------------------------------------------------------
@@ -20,7 +24,7 @@ def _sesion_background_en_memoria(monkeypatch, db_session):
     (con StaticPool comparten una única conexión), si no `SessionLocal()`
     real abriría una base `sqlite:///:memory:` nueva y vacía."""
     fabrica = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
-    monkeypatch.setattr(service, "SessionLocal", fabrica)
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "SessionLocal", fabrica)
 
 
 @pytest.fixture()
@@ -36,8 +40,8 @@ def storage_falso(monkeypatch):
     def _url_probador(public_id: str) -> str:
         return f"https://res.cloudinary.com/demo/image/upload/{public_id}.png"
 
-    monkeypatch.setattr(service.storage, "subir_imagen", _subir_imagen)
-    monkeypatch.setattr(service.storage, "url_probador", _url_probador)
+    monkeypatch.setattr(storage, "subir_imagen", _subir_imagen)
+    monkeypatch.setattr(storage, "url_probador", _url_probador)
     return subidos
 
 
@@ -55,7 +59,7 @@ def generativo_falso(monkeypatch):
             llamadas.append((foto_cliente, imagen_prenda))
             return b"contenido-png-generado-falso"
 
-    monkeypatch.setattr(service, "obtener_proveedor_generativo", lambda: _ProveedorFalso())
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "obtener_proveedor_generativo", lambda: _ProveedorFalso())
     return llamadas
 
 
@@ -63,7 +67,7 @@ def generativo_falso(monkeypatch):
 def descarga_falsa(monkeypatch):
     """Evita que `_ejecutar_generacion` haga un GET real a la URL (falsa)
     del flat-lay/overlay que devuelve `storage_falso`."""
-    monkeypatch.setattr(service, "_descargar_bytes", lambda url: b"contenido-prenda-referencia")
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "_descargar_bytes", lambda url: b"contenido-prenda-referencia")
 
 
 @pytest.fixture()
@@ -267,7 +271,7 @@ def test_generar_foto_original_no_se_persiste(
 
     # Lo único que queda de ella en la fila es su hash sha256 (64 hex).
     hash_foto = hashlib.sha256(foto).hexdigest()
-    fila = service.generacion_repo.buscar_completado(db_session, hash_foto, variante_id)
+    fila = generacion_repo.buscar_completado(db_session, hash_foto, variante_id)
     assert fila is not None
     assert fila.hash_foto == hash_foto
     assert len(fila.hash_foto) == 64
@@ -279,7 +283,7 @@ def test_generar_limite_diario(
     variante_id = categoria_y_variante["variante"]["id"]
     _subir_y_validar_overlay(client, admin_headers, variante_id)
 
-    for i in range(service.LIMITE_GENERACIONES_DIARIAS):
+    for i in range(cu39_generar_prueba_realista_ia.LIMITE_GENERACIONES_DIARIAS):
         respuesta = client.post(
             "/api/v1/probador/generar",
             data={"variante_id": variante_id},
@@ -305,7 +309,7 @@ def test_generar_limite_diario_no_cuenta_hits_de_cache(
     _subir_y_validar_overlay(client, admin_headers, variante_id)
     foto = _foto_jpeg()
 
-    for _ in range(service.LIMITE_GENERACIONES_DIARIAS + 2):
+    for _ in range(cu39_generar_prueba_realista_ia.LIMITE_GENERACIONES_DIARIAS + 2):
         respuesta = client.post(
             "/api/v1/probador/generar",
             data={"variante_id": variante_id},
@@ -329,9 +333,9 @@ def test_generar_limite_diario_no_cuenta_fallidos(
         def generar(self, foto_cliente: bytes, imagen_prenda: bytes) -> bytes:
             raise RuntimeError("proveedor caído")
 
-    monkeypatch.setattr(service, "obtener_proveedor_generativo", lambda: _ProveedorCaido())
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "obtener_proveedor_generativo", lambda: _ProveedorCaido())
 
-    for i in range(service.LIMITE_GENERACIONES_DIARIAS + 2):
+    for i in range(cu39_generar_prueba_realista_ia.LIMITE_GENERACIONES_DIARIAS + 2):
         respuesta = client.post(
             "/api/v1/probador/generar",
             data={"variante_id": variante_id},
@@ -357,8 +361,8 @@ def test_generar_timeout_no_bloquea_el_background_task(
             time.sleep(5)  # mucho más que el timeout de prueba de abajo
             return b"nunca-llega"
 
-    monkeypatch.setattr(service, "obtener_proveedor_generativo", lambda: _ProveedorColgado())
-    monkeypatch.setattr(service, "TIMEOUT_GENERACION_SEG", 0.2)
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "obtener_proveedor_generativo", lambda: _ProveedorColgado())
+    monkeypatch.setattr(cu39_generar_prueba_realista_ia, "TIMEOUT_GENERACION_SEG", 0.2)
 
     inicio = time.monotonic()
     respuesta = client.post(
@@ -461,7 +465,7 @@ def tabla_medidas(client, admin_headers, categoria_y_variante):
     """Tres tallas (S, M, L) con rangos de pecho centrados alrededor de la
     estimación real que calcula `_estimar_medidas` para una persona de
     180cm/80kg, así el test no depende de recalcular la fórmula a mano."""
-    pecho_est, cintura_est = service._estimar_medidas(180, 80)
+    pecho_est, cintura_est = cu39_generar_prueba_realista_ia._estimar_medidas(180, 80)
 
     producto_id = categoria_y_variante["producto"]["id"]
     talla_m = categoria_y_variante["talla"]  # ya viene de la fixture, orden=2

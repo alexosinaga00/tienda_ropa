@@ -5,12 +5,13 @@ import json
 
 import pytest
 
-from app.pagos import service as pagos_service
+from app.core.config import get_settings
+from app.pagos.politicas import expirar_ventas_pendientes
 from app.pagos.pasarela import LibelulaGateway
 from app.ventas.models import Venta
 from tests.conftest import crear_cajero
 
-SECRETO_LIBELULA = "sandbox-secret-libelula"
+SECRETO_LIBELULA = get_settings().libelula_webhook_secret
 
 
 def _firmar(payload: dict) -> tuple[bytes, str]:
@@ -198,7 +199,7 @@ def test_expirar_ventas_pendientes_solo_toca_las_vencidas(
     )
     db_session.commit()
 
-    resultado = pagos_service.expirar_ventas_pendientes(db_session)
+    resultado = expirar_ventas_pendientes(db_session)
     assert resultado == {"anuladas": 1, "pagadas": 0}
 
     estado = lambda v: client.get(f"/api/v1/ventas/{v['id']}/comprobante", headers=admin_headers).json()["estado"]
@@ -462,3 +463,31 @@ def test_webhook_con_firma_invalida_se_rechaza(client, cliente_headers, contexto
         headers={"Content-Type": "application/json", "x-signature": "firma-trucha"},
     )
     assert respuesta.status_code == 403
+
+
+def test_webhook_sin_secreto_configurado_se_rechaza_siempre(client, cliente_headers, contexto, monkeypatch):
+    """Sin LIBELULA_WEBHOOK_SECRET no hay firma válida posible: antes el
+    secreto por defecto estaba escrito en el código (cualquiera con el repo
+    podía firmar un 'aprobado'), y un HMAC con clave vacía lo calcula
+    cualquiera."""
+    monkeypatch.setattr(get_settings(), "libelula_webhook_secret", "")
+    client.post("/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers)
+    venta = client.post(
+        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+    ).json()
+    inicio = client.post(
+        "/api/v1/pagos/iniciar", json={"venta_id": venta["id"], "metodo_pago": "libelula"}, headers=cliente_headers
+    ).json()
+    cuerpo = json.dumps({"id_transaccion": inicio["pago"]["referencia_externa"], "estado": "aprobado"}).encode("utf-8")
+
+    for secreto in ("", "sandbox-secret-libelula"):
+        firma = hmac.new(secreto.encode("utf-8"), cuerpo, hashlib.sha256).hexdigest()
+        respuesta = client.post(
+            "/api/v1/pagos/webhook/libelula",
+            content=cuerpo,
+            headers={"Content-Type": "application/json", "x-signature": firma},
+        )
+        assert respuesta.status_code == 403
+
+    estado = client.get(f"/api/v1/pagos/{inicio['pago']['id']}/estado", headers=cliente_headers).json()
+    assert estado["estado"] == "iniciado"

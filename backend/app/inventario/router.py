@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
-from app.inventario import service
+from app.inventario.casos_uso.cu13_consultar_disponibilidad_sucursal import ConsultarDisponibilidadSucursal
+from app.inventario.casos_uso.cu14_consultar_inventario_global import ConsultarInventarioGlobal
+from app.inventario.casos_uso.cu15_registrar_movimiento_inventario import RegistrarMovimientoInventario
 from app.inventario.schemas import (
     AjusteCrear,
     ConsolidadoRespuesta,
@@ -11,7 +13,6 @@ from app.inventario.schemas import (
     LimitesActualizar,
     MovimientoCrear,
     MovimientoRespuesta,
-    ReservaSchema,
     StockRespuesta,
     TipoMovimientoRespuesta,
     TransferenciaCrear,
@@ -23,6 +24,10 @@ PERMISO_VER = "inventario.ver"
 PERMISO_GESTIONAR = "inventario.gestionar"
 ver_requerido = Depends(require_permission(PERMISO_VER))
 gestionar_requerido = Depends(require_permission(PERMISO_GESTIONAR))
+
+cu_consultar_disponibilidad = ConsultarDisponibilidadSucursal()
+cu_consultar_inventario = ConsultarInventarioGlobal()
+cu_registrar_movimiento = RegistrarMovimientoInventario()
 
 
 # ---- /api/v1/inventario/disponibilidad (público) -----------------------------
@@ -39,7 +44,7 @@ def consultar_disponibilidad(
     sucursal_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[DisponibilidadRespuesta]:
-    return list(service.consultar_disponibilidad(db, variante_id, sucursal_id))
+    return list(cu_consultar_disponibilidad.ejecutar(db, variante_id, sucursal_id))
 
 
 # ---- /api/v1/inventario (administración) --------------------------------------
@@ -49,62 +54,71 @@ router = APIRouter(prefix="/api/v1/inventario", tags=["inventario"], dependencie
 
 @router.get("/tipos-movimiento", response_model=list[TipoMovimientoRespuesta])
 def listar_tipos_movimiento(db: Session = Depends(get_db)) -> list[TipoMovimientoRespuesta]:
-    return list(service.listar_tipos_movimiento(db))
+    return list(cu_registrar_movimiento.listar_tipos_movimiento(db))
 
 
 @router.get("/consolidado", response_model=list[ConsolidadoRespuesta])
 def listar_consolidado(
     sucursal_id: int | None = Query(default=None),
     producto_id: int | None = Query(default=None),
+    usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ConsolidadoRespuesta]:
-    return [ConsolidadoRespuesta(**fila) for fila in service.listar_consolidado(db, sucursal_id, producto_id)]
+    filas = cu_consultar_inventario.listar_consolidado(db, usuario.id, sucursal_id, producto_id)
+    return [ConsolidadoRespuesta(**fila) for fila in filas]
 
 
 @router.get("/alertas", response_model=list[ConsolidadoRespuesta])
 def listar_alertas(
-    sucursal_id: int | None = Query(default=None), db: Session = Depends(get_db)
+    sucursal_id: int | None = Query(default=None), usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[ConsolidadoRespuesta]:
-    return [ConsolidadoRespuesta(**fila) for fila in service.listar_alertas(db, sucursal_id)]
+    return [ConsolidadoRespuesta(**fila) for fila in cu_consultar_inventario.listar_alertas(db, usuario.id, sucursal_id)]
 
 
 @router.get("/valuacion", response_model=list[ValuacionRespuesta])
 def listar_valuacion(
-    sucursal_id: int | None = Query(default=None), db: Session = Depends(get_db)
+    sucursal_id: int | None = Query(default=None), usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[ValuacionRespuesta]:
-    return [ValuacionRespuesta(**fila) for fila in service.listar_valuacion(db, sucursal_id)]
+    return [ValuacionRespuesta(**fila) for fila in cu_consultar_inventario.listar_valuacion(db, usuario.id, sucursal_id)]
 
 
 @router.get("/sucursal/{sucursal_id}", response_model=list[StockRespuesta])
-def listar_stock_por_sucursal(sucursal_id: int, db: Session = Depends(get_db)) -> list[StockRespuesta]:
-    return list(service.listar_stock_por_sucursal(db, sucursal_id))
+def listar_stock_por_sucursal(
+    sucursal_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[StockRespuesta]:
+    return list(cu_consultar_inventario.listar_stock_por_sucursal(db, usuario.id, sucursal_id))
 
 
 @router.get("/stock/{variante_id}/{sucursal_id}", response_model=StockRespuesta)
-def obtener_stock(variante_id: int, sucursal_id: int, db: Session = Depends(get_db)) -> StockRespuesta:
-    return service.obtener_stock(db, variante_id, sucursal_id)
+def obtener_stock(
+    variante_id: int, sucursal_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> StockRespuesta:
+    return cu_consultar_inventario.obtener_stock(db, usuario.id, variante_id, sucursal_id)
 
 
 @router.get("/stock", response_model=list[StockRespuesta])
 def listar_stock_por_variante(
-    variante_id: int = Query(...), db: Session = Depends(get_db)
+    variante_id: int = Query(...), usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[StockRespuesta]:
-    return list(service.listar_stock_por_variante(db, variante_id))
+    return list(cu_consultar_inventario.listar_stock_por_variante(db, usuario.id, variante_id))
 
 
 @router.put("/stock/{stock_id}/limites", response_model=StockRespuesta, dependencies=[gestionar_requerido])
 def actualizar_limites_stock(
-    stock_id: int, datos: LimitesActualizar, db: Session = Depends(get_db)
+    stock_id: int, datos: LimitesActualizar, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> StockRespuesta:
-    return service.actualizar_limites_stock(db, stock_id, datos.stock_minimo, datos.stock_maximo)
+    return cu_consultar_inventario.actualizar_limites(db, usuario.id, stock_id, datos.stock_minimo, datos.stock_maximo)
 
 
 @router.get("/movimientos", response_model=list[MovimientoRespuesta])
 def listar_kardex(
-    variante_id: int = Query(...), sucursal_id: int = Query(...), db: Session = Depends(get_db)
+    variante_id: int = Query(...),
+    sucursal_id: int = Query(...),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> list[MovimientoRespuesta]:
-    movimientos = service.listar_kardex(db, variante_id, sucursal_id)
-    codigos = service.mapa_codigos_tipo_movimiento(db)
+    movimientos = cu_registrar_movimiento.listar_kardex(db, usuario.id, variante_id, sucursal_id)
+    codigos = cu_registrar_movimiento.mapa_codigos_tipo_movimiento(db)
     return [MovimientoRespuesta.from_modelo(m, codigos[m.tipo_movimiento_id]) for m in movimientos]
 
 
@@ -117,32 +131,17 @@ def listar_kardex(
 def registrar_movimiento(
     datos: MovimientoCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> MovimientoRespuesta:
-    movimiento = service.registrar_movimiento(
-        db,
-        variante_id=datos.variante_id,
-        sucursal_id=datos.sucursal_id,
-        tipo_movimiento_codigo=datos.tipo_movimiento_codigo,
-        cantidad=datos.cantidad,
-        costo_unitario=datos.costo_unitario,
-        referencia_tipo=datos.referencia_tipo,
-        referencia_id=datos.referencia_id,
-        usuario_id=usuario.id,
-        observacion=datos.observacion,
-    )
-    # service.registrar_movimiento ya validó que el código exista (si no,
+    movimiento = cu_registrar_movimiento.registrar_movimiento(db, usuario.id, datos)
+    # actualizar_stock_operacion ya validó que el código exista (si no,
     # hubiera lanzado antes de llegar acá): se reusa el mismo valor en vez
     # de volver a consultar `tipo_movimiento` desde el router.
     return MovimientoRespuesta.from_modelo(movimiento, datos.tipo_movimiento_codigo)
 
 
-@router.post("/reservas", response_model=StockRespuesta, dependencies=[gestionar_requerido])
-def reservar_stock(datos: ReservaSchema, db: Session = Depends(get_db)) -> StockRespuesta:
-    return service.reservar_stock(db, datos.variante_id, datos.sucursal_id, datos.cantidad)
-
-
-@router.post("/liberaciones", response_model=StockRespuesta, dependencies=[gestionar_requerido])
-def liberar_stock(datos: ReservaSchema, db: Session = Depends(get_db)) -> StockRespuesta:
-    return service.liberar_stock(db, datos.variante_id, datos.sucursal_id, datos.cantidad)
+# Sin POST /reservas ni /liberaciones sueltos: reservar_stock/liberar_stock
+# son pasos internos de reservas (CU-16/18/20) y ventas (CU-24/25). Moverlos
+# a mano desincronizaba cantidad_reservada de las reservas reales y trababa
+# su expiración automática.
 
 
 @router.post(
@@ -151,7 +150,7 @@ def liberar_stock(datos: ReservaSchema, db: Session = Depends(get_db)) -> StockR
 def registrar_ajuste(
     datos: AjusteCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> MovimientoRespuesta:
-    movimiento = service.registrar_ajuste(
+    movimiento = cu_registrar_movimiento.registrar_ajuste(
         db, datos.variante_id, datos.sucursal_id, datos.cantidad, usuario.id, datos.observacion
     )
     codigo = "ajuste_positivo" if datos.cantidad > 0 else "ajuste_negativo"
@@ -169,14 +168,16 @@ transferencias_router = APIRouter(
 
 @transferencias_router.get("", response_model=list[TransferenciaRespuesta])
 def listar_transferencias(
-    sucursal_id: int | None = Query(default=None), db: Session = Depends(get_db)
+    sucursal_id: int | None = Query(default=None), usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[TransferenciaRespuesta]:
-    return list(service.listar_transferencias(db, sucursal_id))
+    return list(cu_registrar_movimiento.listar_transferencias(db, usuario.id, sucursal_id))
 
 
 @transferencias_router.get("/{transferencia_id}", response_model=TransferenciaRespuesta)
-def obtener_transferencia(transferencia_id: int, db: Session = Depends(get_db)) -> TransferenciaRespuesta:
-    return service.obtener_transferencia(db, transferencia_id)
+def obtener_transferencia(
+    transferencia_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> TransferenciaRespuesta:
+    return cu_registrar_movimiento.obtener_transferencia(db, usuario.id, transferencia_id)
 
 
 @transferencias_router.post(
@@ -185,7 +186,7 @@ def obtener_transferencia(transferencia_id: int, db: Session = Depends(get_db)) 
 def crear_transferencia(
     datos: TransferenciaCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> TransferenciaRespuesta:
-    return service.crear_transferencia(db, datos, usuario.id)
+    return cu_registrar_movimiento.crear_transferencia(db, datos, usuario.id)
 
 
 @transferencias_router.post(
@@ -194,7 +195,7 @@ def crear_transferencia(
 def enviar_transferencia(
     transferencia_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> TransferenciaRespuesta:
-    return service.enviar_transferencia(db, transferencia_id, usuario.id)
+    return cu_registrar_movimiento.enviar_transferencia(db, transferencia_id, usuario.id)
 
 
 @transferencias_router.post(
@@ -203,14 +204,16 @@ def enviar_transferencia(
 def recibir_transferencia(
     transferencia_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> TransferenciaRespuesta:
-    return service.recibir_transferencia(db, transferencia_id, usuario.id)
+    return cu_registrar_movimiento.recibir_transferencia(db, transferencia_id, usuario.id)
 
 
 @transferencias_router.delete(
     "/{transferencia_id}", status_code=status.HTTP_200_OK, response_model=TransferenciaRespuesta, dependencies=[gestionar_requerido]
 )
-def anular_transferencia(transferencia_id: int, db: Session = Depends(get_db)) -> TransferenciaRespuesta:
-    return service.anular_transferencia(db, transferencia_id)
+def anular_transferencia(
+    transferencia_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> TransferenciaRespuesta:
+    return cu_registrar_movimiento.anular_transferencia(db, usuario.id, transferencia_id)
 
 
 routers = [publico_router, router, transferencias_router]

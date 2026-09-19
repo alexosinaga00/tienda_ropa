@@ -3,7 +3,10 @@ import io
 import pytest
 from PIL import Image
 
-from app.probador import service
+from app.core import storage
+from app.probador.casos_uso.cu21_cargar_assets_anclajes import CargarAssetsAnclajes
+
+_cu_assets = CargarAssetsAnclajes()
 
 
 @pytest.fixture()
@@ -19,8 +22,8 @@ def storage_falso(monkeypatch):
     def _url_probador(public_id: str) -> str:
         return f"https://res.cloudinary.com/demo/image/upload/{public_id}.png"
 
-    monkeypatch.setattr(service.storage, "subir_imagen", _subir_imagen)
-    monkeypatch.setattr(service.storage, "url_probador", _url_probador)
+    monkeypatch.setattr(storage, "subir_imagen", _subir_imagen)
+    monkeypatch.setattr(storage, "url_probador", _url_probador)
     return subidos
 
 
@@ -331,7 +334,7 @@ def test_clonar_asset_a_otra_talla_del_mismo_producto(client, admin_headers, db_
     client.put(f"/api/v1/probador/assets/{activo['id']}/anclajes", json=anclajes, headers=admin_headers)
     client.put(f"/api/v1/probador/assets/{activo['id']}/validar", headers=admin_headers)
 
-    copia = service.clonar_asset_a_variante(db_session, activo["id"], destino_id)
+    copia = _cu_assets.clonar_a_variante(db_session, activo["id"], destino_id)
 
     assert copia.variante_id == destino_id
     assert copia.url == activo["public_id"]  # mismo archivo, sin volver a subir
@@ -365,4 +368,4 @@ def test_clonar_asset_a_otro_producto_rechazado(client, admin_headers, db_sessio
     variante_otro = client.get(f"/api/v1/productos/{otro['id']}/variantes", headers=admin_headers).json()[0]
 
     with pytest.raises(DomainError):
-        service.clonar_asset_a_variante(db_session, activo["id"], variante_otro["id"])
+        _cu_assets.clonar_a_variante(db_session, activo["id"], variante_otro["id"])

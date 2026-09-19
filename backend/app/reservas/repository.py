@@ -26,7 +26,7 @@ class EstadoReservaRepository:
 
 class ReservaRepository:
     """No hereda de CRUDBase: `reserva` no tiene columna `activo`, su ciclo
-    de vida es la máquina de estados de reservas.service, y crear() maneja
+    de vida es la máquina de estados de reservas.politicas, y crear() maneja
     detalle + historial como parte de la misma operación."""
 
     def _consulta_base(self):
@@ -37,6 +37,19 @@ class ReservaRepository:
 
     def obtener(self, db: Session, reserva_id: int) -> Reserva:
         reserva = db.scalar(self._consulta_base().where(Reserva.id == reserva_id))
+        if reserva is None:
+            raise NoEncontradoError("Reserva no encontrada")
+        return reserva
+
+    def obtener_bloqueado(self, db: Session, reserva_id: int) -> Reserva:
+        """Igual que obtener(), pero con SELECT FOR UPDATE (Postgres) y
+        populate_existing=True: serializa las operaciones que leen el estado
+        de la reserva y después mueven stock (facturarla, expirarla). Mismo
+        patrón que ventas.repository.VentaRepository.obtener_bloqueado."""
+        consulta = self._consulta_base().where(Reserva.id == reserva_id)
+        if db.get_bind().dialect.name == "postgresql":
+            consulta = consulta.with_for_update()
+        reserva = db.scalars(consulta.execution_options(populate_existing=True)).one_or_none()
         if reserva is None:
             raise NoEncontradoError("Reserva no encontrada")
         return reserva

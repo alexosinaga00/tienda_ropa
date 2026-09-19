@@ -71,12 +71,6 @@ class StockRespuesta(BaseModel):
     actualizado_en: dt.datetime
 
 
-class ReservaSchema(BaseModel):
-    variante_id: int
-    sucursal_id: int
-    cantidad: int = Field(gt=0)
-
-
 class TipoMovimientoRespuesta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

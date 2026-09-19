@@ -225,7 +225,13 @@ def ean13(variante_id: int) -> str:
 
 
 def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) -> None:
-    from app.catalogo import service as catalogo_service
+    from app.catalogo.casos_uso.cu07_gestionar_catalogo_maestro import (
+        GestionarCategorias,
+        GestionarColecciones,
+        GestionarMateriales,
+        GestionarTemporadas,
+    )
+    from app.catalogo.casos_uso.cu08_gestionar_productos import GestionarProductos
     from app.catalogo.models import Categoria, Coleccion, Material, Producto, ProductoVariante, TablaMedida, Temporada
     from app.catalogo.schemas import (
         CategoriaActualizar,
@@ -237,13 +243,19 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
         VarianteActualizar,
     )
 
+    cu_categorias = GestionarCategorias()
+    cu_colecciones = GestionarColecciones()
+    cu_materiales = GestionarMateriales()
+    cu_temporadas = GestionarTemporadas()
+    cu_productos = GestionarProductos()
+
     temporadas: dict[tuple[str, int], int | None] = {}
     for nombre, anio, inicio, fin in TEMPORADAS:
         t = db.scalar(select(Temporada).where(Temporada.nombre == nombre, Temporada.anio == anio))
         if t is None:
             resumen.creado("temporada")
             if ejecutar:
-                t = catalogo_service.crear_temporada(
+                t = cu_temporadas.crear(
                     db, TemporadaCrear(nombre=nombre, anio=anio, fecha_inicio=inicio, fecha_fin=fin)
                 )
         else:
@@ -256,7 +268,7 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
         if c is None:
             resumen.creado("coleccion")
             if ejecutar:
-                c = catalogo_service.crear_coleccion(
+                c = cu_colecciones.crear(
                     db, ColeccionCrear(nombre=nombre, temporada_id=temporadas[temporada], descripcion=descripcion)
                 )
         else:
@@ -269,12 +281,12 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
         if m is not None and not m.descripcion:
             resumen.creado("material.descripcion")
             if ejecutar:
-                catalogo_service.actualizar_material(db, m.id, MaterialActualizar(descripcion=descripcion))
+                cu_materiales.actualizar(db, m.id, MaterialActualizar(descripcion=descripcion))
     for c in list(db.scalars(select(Categoria))):
         if not c.descripcion and c.nombre in DESCRIPCION_CATEGORIA:
             resumen.creado("categoria.descripcion")
             if ejecutar:
-                catalogo_service.actualizar_categoria(db, c.id, CategoriaActualizar(descripcion=DESCRIPCION_CATEGORIA[c.nombre]))
+                cu_categorias.actualizar(db, c.id, CategoriaActualizar(descripcion=DESCRIPCION_CATEGORIA[c.nombre]))
 
     nombre_categoria = {v: k for k, v in ctx.categorias.items()}
     productos = list(db.scalars(select(Producto).where(Producto.activo.is_(True)).order_by(Producto.id)))
@@ -290,7 +302,7 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
         if cambios:
             resumen.creado("producto.material/coleccion")
             if ejecutar:
-                catalogo_service.actualizar_producto(db, p.id, ProductoActualizar(**cambios))
+                cu_productos.actualizar(db, p.id, ProductoActualizar(**cambios))
         elif p.material_id is not None:
             resumen.existente("producto.material/coleccion")
 
@@ -301,7 +313,7 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
                 continue
             resumen.creado("variante.codigo_barras")
             if ejecutar:
-                catalogo_service.actualizar_variante(db, v.id, VarianteActualizar(codigo_barras=ean13(v.id)))
+                cu_productos.actualizar_variante(db, v.id, VarianteActualizar(codigo_barras=ean13(v.id)))
 
         if p.id in con_medidas:
             resumen.existente("tabla_medida", len({v.talla_id for v in variantes}))
@@ -314,7 +326,7 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
             pmin, pmax, cmin, cmax, hombros, largo = MEDIDAS[codigo]
             resumen.creado("tabla_medida")
             if ejecutar:
-                catalogo_service.crear_medida(
+                cu_productos.crear_medida(
                     db,
                     p.id,
                     TablaMedidaCrear(
@@ -331,12 +343,16 @@ def seed_maestros(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) 
 
 def seed_clientes(db: Session, password: str | None, ejecutar: bool, resumen: Resumen) -> dict[int, int | None]:
     """Devuelve usuario_id por número de cliente demo."""
-    from app.entregas import service as entregas_service
+    from app.entregas.casos_uso.cu42_solicitar_envio_domicilio import SolicitarEnvioDomicilio
     from app.entregas.models import DireccionCliente, ZonaEnvio
     from app.entregas.schemas import DireccionClienteCrear
-    from app.seguridad import service as seguridad_service
+
+    cu_solicitar_envio = SolicitarEnvioDomicilio()
+    from app.seguridad.casos_uso.cu01_registrar_cliente import RegistrarCliente
     from app.seguridad.models import Cliente, Usuario
     from app.seguridad.schemas import ClientePerfilActualizar, RegistroRequest
+
+    cu_registrar_cliente = RegistrarCliente()
 
     zonas = list(db.scalars(select(ZonaEnvio).where(ZonaEnvio.activo.is_(True)).order_by(ZonaEnvio.anillo_desde)))
 
@@ -352,7 +368,7 @@ def seed_clientes(db: Session, password: str | None, ejecutar: bool, resumen: Re
         if usuario is None:
             resumen.creado("cliente")
             if ejecutar:
-                usuario = seguridad_service.registrar_cliente(
+                usuario = cu_registrar_cliente.registrar(
                     db,
                     RegistroRequest(
                         nombre=c.nombre, apellido=c.apellido, email=email_cliente(c.numero),
@@ -372,7 +388,7 @@ def seed_clientes(db: Session, password: str | None, ejecutar: bool, resumen: Re
         if perfil.estatura_cm is None:
             resumen.creado("cliente.perfil")
             if ejecutar:
-                seguridad_service.actualizar_perfil_cliente(
+                cu_registrar_cliente.actualizar_perfil(
                     db,
                     usuario.id,
                     ClientePerfilActualizar(
@@ -389,7 +405,7 @@ def seed_clientes(db: Session, password: str | None, ejecutar: bool, resumen: Re
         for i, (alias, direccion, referencia, anillo) in enumerate(c.direcciones):
             resumen.creado("direccion_cliente")
             if ejecutar:
-                entregas_service.crear_mi_direccion(
+                cu_solicitar_envio.crear_mi_direccion(
                     db,
                     usuario.id,
                     DireccionClienteCrear(
@@ -405,10 +421,11 @@ def seed_clientes(db: Session, password: str | None, ejecutar: bool, resumen: Re
 
 def seed_promociones(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resumen) -> None:
     from app.catalogo.models import Temporada
-    from app.ventas import service as ventas_service
+    from app.ventas.casos_uso.cu27_gestionar_promociones import GestionarPromociones
     from app.ventas.models import Promocion
     from app.ventas.schemas import PromocionAlcanceCrear, PromocionCrear
 
+    cu_promociones = GestionarPromociones()
     invierno = db.scalar(select(Temporada.id).where(Temporada.nombre == "Invierno", Temporada.anio == 2026))
     promociones = [
         ("Poleras 15%", "porcentaje", Decimal("15"), dt.date(2026, 9, 1), dt.date(2026, 11, 30),
@@ -428,7 +445,7 @@ def seed_promociones(db: Session, ctx: Contexto, ejecutar: bool, resumen: Resume
         if alcance is None or all(x is None for x in (alcance.categoria_id, alcance.temporada_id, alcance.producto_id)):
             print(f"  (se omite '{nombre}': falta su categoría/temporada)")
             continue
-        ventas_service.crear_promocion(
+        cu_promociones.crear(
             db, PromocionCrear(nombre=nombre, tipo=tipo, valor=valor, fecha_inicio=inicio, fecha_fin=fin, alcances=[alcance])
         )
 
@@ -459,21 +476,28 @@ def _variantes_con_stock(db: Session, sucursal_id: int, minimo: int) -> list[int
 def seed_operacion(
     db: Session, ctx: Contexto, clientes: dict[int, int | None], ejecutar: bool, resumen: Resumen
 ) -> Creado:
-    from app.entregas import service as entregas_service
+    from app.entregas.casos_uso.cu42_solicitar_envio_domicilio import SolicitarEnvioDomicilio
+    from app.entregas.casos_uso.cu43_actualizar_estado_envio import ActualizarEstadoEnvio
     from app.entregas.models import DireccionCliente
     from app.entregas.schemas import CotizarEnvioRequest, EnvioCrear, EnvioEstadoActualizar
-    from app.inteligencia import service as inteligencia_service
+    from app.inteligencia.politicas import registrar_evento
     from app.inteligencia.schemas import EventoCrear
-    from app.inventario import service as inventario_service
+    from app.inventario.casos_uso.cu15_registrar_movimiento_inventario import RegistrarMovimientoInventario
     from app.inventario.models import Transferencia
     from app.inventario.schemas import TransferenciaCrear, TransferenciaDetalleCrear
-    from app.pagos import service as pagos_service
+    from app.pagos.casos_uso.cu30_procesar_pago_caja import ProcesarPagoCaja
     from app.pagos.schemas import PagoCajaRequest
-    from app.reservas import service as reservas_service
+    from app.reservas.casos_uso.cu16_reservar_prendas import ReservarPrendas
+    from app.reservas.casos_uso.cu18_cancelar_reserva import CancelarReserva
+    from app.reservas.casos_uso.cu20_atender_prueba_reserva_sucursal import AtenderPruebaReservaSucursal
     from app.reservas.schemas import ReservaCrear, ReservaDetalleCrear, SeleccionActualizar, SeleccionLinea
-    from app.seguridad import service as seguridad_service
     from app.seguridad.models import Usuario
-    from app.ventas import service as ventas_service
+    from app.seguridad.politicas import obtener_perfil_cliente
+    from app.ventas.casos_uso.cu23_gestionar_carrito import GestionarCarrito
+    from app.ventas.casos_uso.cu24_realizar_compra_digital import RealizarCompraDigital
+    from app.ventas.casos_uso.cu25_registrar_venta_presencial import RegistrarVentaPresencial
+    from app.ventas.casos_uso.cu40_registrar_devolucion import RegistrarDevolucion
+    from app.ventas.politicas import obtener_venta
     from app.ventas.schemas import (
         CarritoDetalleCrear,
         DevolucionCrear,
@@ -482,6 +506,18 @@ def seed_operacion(
         VentaDigitalCrear,
         VentaPresencialCrear,
     )
+
+    cu_solicitar_envio = SolicitarEnvioDomicilio()
+    cu_actualizar_estado_envio = ActualizarEstadoEnvio()
+    cu_transferencias = RegistrarMovimientoInventario()
+    cu_pago_caja = ProcesarPagoCaja()
+    cu_reservar = ReservarPrendas()
+    cu_cancelar_reserva = CancelarReserva()
+    cu_atender_reserva = AtenderPruebaReservaSucursal()
+    cu_carrito = GestionarCarrito()
+    cu_compra_digital = RealizarCompraDigital()
+    cu_venta_presencial = RegistrarVentaPresencial()
+    cu_devolucion = RegistrarDevolucion()
 
     creado = Creado()
     plan = {"transferencia": 4, "venta_presencial": 15, "venta_digital": 10, "envio": 5, "devolucion": 3,
@@ -501,7 +537,7 @@ def seed_operacion(
 
     rnd = random.Random(2026)
     cliente_ids = {
-        n: seguridad_service.obtener_perfil_cliente(db, uid).id for n, uid in clientes.items() if uid is not None
+        n: obtener_perfil_cliente(db, uid).id for n, uid in clientes.items() if uid is not None
     }
 
     def pagar(venta_id: int, sucursal_id: int, total: Decimal) -> None:
@@ -509,7 +545,7 @@ def seed_operacion(
         recibido = (total + Decimal(rnd.choice([0, 1, 10, 50]))).quantize(Decimal("1")) if metodo == "efectivo" else None
         if recibido is not None and recibido < total:
             recibido += 1
-        pagos_service.pagar_en_caja(
+        cu_pago_caja.ejecutar(
             db, ctx.cajeros[sucursal_id], PagoCajaRequest(venta_id=venta_id, metodo_pago=metodo, monto_recibido=recibido)
         )
 
@@ -522,7 +558,7 @@ def seed_operacion(
             lineas = stock_deposito[(n - 1) * 3 : (n - 1) * 3 + 3]
             if not lineas:
                 break
-            t = inventario_service.crear_transferencia(
+            t = cu_transferencias.crear_transferencia(
                 db,
                 TransferenciaCrear(
                     codigo=f"TRF-DEMO-{n:02d}",
@@ -533,11 +569,11 @@ def seed_operacion(
                 ctx.admin_usuario_id,
             )
             if estado == "anulada":
-                inventario_service.anular_transferencia(db, t.id)
+                cu_transferencias.anular_transferencia(db, ctx.admin_usuario_id, t.id)
             else:
-                inventario_service.enviar_transferencia(db, t.id, ctx.admin_usuario_id)
+                cu_transferencias.enviar_transferencia(db, t.id, ctx.admin_usuario_id)
                 if estado == "recibida":
-                    inventario_service.recibir_transferencia(db, t.id, ctx.encargados[t.sucursal_destino_id])
+                    cu_transferencias.recibir_transferencia(db, t.id, ctx.encargados[t.sucursal_destino_id])
             creado.eventos.append(("transferencia", t.id))
             resumen.creado("transferencia")
             print(f"  {t.codigo} -> {estado}")
@@ -550,7 +586,7 @@ def seed_operacion(
         if not disponibles:
             continue
         lineas = rnd.sample(disponibles, k=min(len(disponibles), rnd.choice([1, 1, 2])))
-        venta = ventas_service.registrar_venta_presencial(
+        venta = cu_venta_presencial.ejecutar(
             db,
             ctx.cajeros[sucursal],
             VentaPresencialCrear(
@@ -579,7 +615,7 @@ def seed_operacion(
             continue
         variantes = rnd.sample(disponibles, k=min(len(disponibles), rnd.choice([1, 2])))
         for v in variantes:
-            ventas_service.agregar_al_carrito(db, usuario_id, CarritoDetalleCrear(variante_id=v, cantidad=1))
+            cu_carrito.agregar(db, usuario_id, CarritoDetalleCrear(variante_id=v, cantidad=1))
 
         costo_envio = Decimal("0")
         direccion_id = None
@@ -588,23 +624,25 @@ def seed_operacion(
                 select(DireccionCliente.id)
                 .where(DireccionCliente.cliente_id == cliente_ids[numero], DireccionCliente.es_principal.is_(True))
             )
-            costo_envio = entregas_service.cotizar_envio(
+            costo_envio = cu_solicitar_envio.cotizar(
                 db, CotizarEnvioRequest(direccion_id=direccion_id, cantidad_prendas=len(variantes))
             ).costo
-        venta = ventas_service.registrar_venta_digital(
+        venta = cu_compra_digital.ejecutar(
             db, usuario_id, VentaDigitalCrear(sucursal_id=sucursal, costo_envio=costo_envio)
         )
         # Pago confirmado sin pasarela externa (equivalente a un pago aprobado).
-        pagos_service.pagar_en_caja(
+        # El depósito no tiene cajero: lo cobra el admin (alcance global), no
+        # el cajero de otra sucursal.
+        cu_pago_caja.ejecutar(
             db,
-            ctx.cajeros.get(sucursal) or next(iter(ctx.cajeros.values())),
+            ctx.cajeros.get(sucursal) or ctx.admin_usuario_id,
             PagoCajaRequest(venta_id=venta.id, metodo_pago="qr"),
         )
         ventas_pagadas.append(venta.id)
         creado.eventos.append(("venta", venta.id))
         resumen.creado("venta_digital")
         if con_envio and direccion_id is not None:
-            envio = entregas_service.crear_envio(db, usuario_id, EnvioCrear(venta_id=venta.id, direccion_id=direccion_id))
+            envio = cu_solicitar_envio.crear_envio(db, usuario_id, EnvioCrear(venta_id=venta.id, direccion_id=direccion_id))
             envios_creados.append(envio.id)
             resumen.creado("envio")
 
@@ -614,17 +652,17 @@ def seed_operacion(
         pasos = {"programado": [], "en_ruta": ["en_ruta"], "entregado": ["en_ruta", "entregado"],
                  "fallido": ["en_ruta", "fallido"]}[destino]
         for paso in pasos:
-            entregas_service.actualizar_estado_envio(
-                db, envio_id, EnvioEstadoActualizar(estado=paso, repartidor=repartidores[i % 2])
+            cu_actualizar_estado_envio.ejecutar(
+                db, ctx.admin_usuario_id, envio_id, EnvioEstadoActualizar(estado=paso, repartidor=repartidores[i % 2])
             )
 
     # 4.4 Devoluciones parciales sobre ventas pagadas.
     motivos = ["La talla no le quedó", "Cambio de opinión del cliente", "Detalle de costura"]
     for i, venta_id in enumerate(ventas_pagadas[1:12:4][:3]):
-        venta = ventas_service.obtener_venta(db, venta_id)
+        venta = obtener_venta(db, venta_id)
         linea = venta.detalle[0]
         encargado = ctx.encargados.get(venta.sucursal_id, ctx.admin_usuario_id)
-        dev = ventas_service.registrar_devolucion(
+        dev = cu_devolucion.ejecutar(
             db,
             encargado,
             DevolucionCrear(
@@ -643,11 +681,11 @@ def seed_operacion(
     encargado = ctx.encargados[tienda]
 
     def fecha_con_horario(desde: dt.date, paso: int) -> dt.date:
-        from app.organizacion import service as organizacion_service
+        from app.organizacion.politicas import obtener_horario_dia
 
         fecha = desde
         for _ in range(8):
-            if organizacion_service.obtener_horario_dia(db, tienda, fecha.isoweekday()) is not None:
+            if obtener_horario_dia(db, tienda, fecha.isoweekday()) is not None:
                 return fecha
             fecha += dt.timedelta(days=paso)
         return desde
@@ -664,7 +702,7 @@ def seed_operacion(
         if len(disponibles) < 2:
             break
         variantes = rnd.sample(disponibles, k=2)
-        reserva = reservas_service.crear_reserva(
+        reserva = cu_reservar.ejecutar(
             db,
             clientes[numero],
             ReservaCrear(
@@ -675,18 +713,18 @@ def seed_operacion(
             ),
         )
         if estado == "cancelada":
-            reservas_service.cancelar_reserva(db, reserva.id, clientes[numero])
+            cu_cancelar_reserva.ejecutar(db, reserva.id, clientes[numero])
         if estado in ("preparada", "facturada"):
-            reservas_service.preparar_reserva(db, reserva.id, encargado)
+            cu_atender_reserva.preparar(db, reserva.id, encargado)
         if estado == "facturada":
-            reservas_service.confirmar_llegada(db, reserva.id, encargado)
-            reservas_service.registrar_seleccion(
+            cu_atender_reserva.confirmar_llegada(db, reserva.id, encargado)
+            cu_atender_reserva.registrar_seleccion(
                 db, reserva.id, encargado,
                 SeleccionActualizar(lineas=[SeleccionLinea(variante_id=variantes[0], seleccionada=True),
                                             SeleccionLinea(variante_id=variantes[1], seleccionada=False)]),
             )
         if estado == "facturada":
-            venta = ventas_service.registrar_venta_presencial(
+            venta = cu_venta_presencial.ejecutar(
                 db, ctx.cajeros[tienda], VentaPresencialCrear(sucursal_id=tienda, reserva_id=reserva.id)
             )
             pagar(venta.id, tienda, venta.total)
@@ -705,7 +743,7 @@ def seed_operacion(
         numero = rnd.randint(1, 10)
         variante_id, producto_id = rnd.choice(variantes)
         tipo = rnd.choice(tipos)
-        inteligencia_service.registrar_evento(
+        registrar_evento(
             db,
             EventoCrear(
                 tipo_evento=tipo,

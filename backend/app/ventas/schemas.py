@@ -30,6 +30,10 @@ class CarritoDetalleRespuesta(BaseModel):
     cantidad: int
     precio_unitario: Decimal
     subtotal: Decimal
+    # False si la variante se dio de baja después de agregarla: la línea se
+    # sigue mostrando (para que el cliente la quite) pero no suma al
+    # subtotal del carrito ni se puede comprar.
+    disponible: bool = True
 
 
 class CarritoRespuesta(BaseModel):
@@ -136,7 +140,7 @@ class VentaDetalleLinea(BaseModel):
 class VentaPresencialCrear(BaseModel):
     sucursal_id: int
     # Si viene reserva_id, el detalle se ignora: las líneas son las de la
-    # reserva marcadas seleccionada=True (ver ventas.service.registrar_venta).
+    # reserva marcadas seleccionada=True (ver ventas.politicas.registrar_venta).
     detalle: list[VentaDetalleLinea] = Field(default_factory=list)
     reserva_id: int | None = None
     cliente_id: int | None = None
@@ -147,6 +151,9 @@ class VentaDigitalCrear(BaseModel):
     cliente logueado, no de líneas sueltas en el body."""
 
     sucursal_id: int
+    # Lo que devolvió POST /envios/cotizar en el checkout. No es confiable
+    # (lo manda el cliente): CU-42 lo recalcula al crear el envío y lo
+    # rechaza si no coincide con la tarifa real de la zona.
     costo_envio: Decimal = Field(default=Decimal("0"), ge=0)
     reserva_id: int | None = None
 

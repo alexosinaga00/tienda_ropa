@@ -70,7 +70,7 @@ class EstadoVentaRepository:
 class VentaRepository:
     """No hereda de CRUDBase: `venta` no tiene columna `activo` y crear()
     maneja cabecera + detalle como parte de la misma operación (ver
-    ventas.service.registrar_venta)."""
+    ventas.politicas.registrar_venta)."""
 
     def _consulta_base(self):
         return select(Venta).options(selectinload(Venta.detalle))
@@ -108,6 +108,18 @@ class VentaRepository:
         return list(
             db.scalars(self._consulta_base().where(Venta.sucursal_id == sucursal_id).order_by(Venta.fecha.desc()))
         )
+
+    def existe_venta_vigente_de_reserva(self, db: Session, reserva_id: int) -> bool:
+        """True si la reserva ya tiene una venta que no está anulada
+        (pendiente de pago, pagada o entregada): una reserva se factura una
+        sola vez. Si esa venta se anuló, se puede volver a facturar."""
+        venta_id = db.scalar(
+            select(Venta.id)
+            .join(EstadoVenta, EstadoVenta.id == Venta.estado_id)
+            .where(Venta.reserva_id == reserva_id, EstadoVenta.codigo != "anulada")
+            .limit(1)
+        )
+        return venta_id is not None
 
     def crear(self, db: Session, venta: Venta) -> Venta:
         db.add(venta)
@@ -226,6 +238,19 @@ def _filas_a_dicts(db: Session, consulta: str, parametros: dict) -> list[dict]:
     return [dict(fila) for fila in filas]
 
 
+# Lo único que cuenta como vendido en los reportes: una venta
+# 'pendiente_pago' todavía no se cobró (ni tiene costo congelado, así que
+# sumaría margen 100 %) y una 'anulada' nunca se concretó o se reembolsó.
+# vw_ventas_detalle no trae el estado (es la vista documentada en el
+# esquema), así que se filtra acá, contra las tablas propias de `ventas`.
+ESTADOS_VENTA_EFECTIVA = ("pagada", "entregada")
+
+_CONDICION_VENTA_EFECTIVA = (
+    "venta_id IN (SELECT ve.id FROM venta ve JOIN estado_venta ev ON ev.id = ve.estado_id "
+    "WHERE ev.codigo IN (" + ", ".join(f"'{codigo}'" for codigo in ESTADOS_VENTA_EFECTIVA) + "))"
+)
+
+
 def _condiciones_ventas(
     desde: dt.date,
     hasta: dt.date,
@@ -236,7 +261,7 @@ def _condiciones_ventas(
     # hasta_exclusiva: `fecha` es timestamp, desde/hasta son solo fecha --
     # sin esto, las ventas del día `hasta` (con hora > 00:00) quedarían
     # afuera del rango.
-    condiciones = ["fecha >= :desde", "fecha < :hasta_exclusiva"]
+    condiciones = ["fecha >= :desde", "fecha < :hasta_exclusiva", _CONDICION_VENTA_EFECTIVA]
     parametros: dict = {"desde": desde, "hasta_exclusiva": hasta + dt.timedelta(days=1)}
     if sucursal_id is not None:
         condiciones.append("sucursal_id = :sucursal_id")
@@ -314,9 +339,14 @@ def por_canal(
 
 
 def por_sucursal(
-    db: Session, desde: dt.date, hasta: dt.date, categoria_id: int | None = None, canal: str | None = None
+    db: Session,
+    desde: dt.date,
+    hasta: dt.date,
+    categoria_id: int | None = None,
+    canal: str | None = None,
+    sucursal_id: int | None = None,
 ) -> list[dict]:
-    condiciones, parametros = _condiciones_ventas(desde, hasta, None, categoria_id, canal)
+    condiciones, parametros = _condiciones_ventas(desde, hasta, sucursal_id, categoria_id, canal)
     consulta = (
         "SELECT sucursal_id, sucursal, COUNT(DISTINCT venta_id) AS transacciones, SUM(subtotal) AS total_ventas "
         "FROM vw_ventas_detalle WHERE " + " AND ".join(condiciones) + " GROUP BY sucursal_id, sucursal ORDER BY sucursal_id"
@@ -325,8 +355,15 @@ def por_sucursal(
 
 
 def contar_ventas_con_reserva(db: Session, desde: dt.date, hasta: dt.date, sucursal_id: int | None = None) -> int:
-    condiciones = [Venta.reserva_id.is_not(None), Venta.fecha >= desde, Venta.fecha < hasta + dt.timedelta(days=1)]
+    condiciones = [
+        Venta.reserva_id.is_not(None),
+        Venta.fecha >= desde,
+        Venta.fecha < hasta + dt.timedelta(days=1),
+        EstadoVenta.codigo.in_(ESTADOS_VENTA_EFECTIVA),
+    ]
     if sucursal_id is not None:
         condiciones.append(Venta.sucursal_id == sucursal_id)
-    total = db.scalar(select(func.count(Venta.id)).where(*condiciones))
+    total = db.scalar(
+        select(func.count(Venta.id)).join(EstadoVenta, EstadoVenta.id == Venta.estado_id).where(*condiciones)
+    )
     return int(total or 0)

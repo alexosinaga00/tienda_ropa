@@ -330,40 +330,40 @@ def _host_de_la_base() -> str:
 
 
 def _obtener_o_crear_categoria(db, manifiesto: Manifiesto, nombre: str, padre_id: int | None) -> int:
-    from app.catalogo import service as catalogo_service
+    from app.catalogo.casos_uso.cu07_gestionar_catalogo_maestro import GestionarCategorias
     from app.catalogo.models import Categoria
     from app.catalogo.schemas import CategoriaCrear
 
     existente = db.query(Categoria).filter(Categoria.nombre.ilike(nombre), Categoria.activo.is_(True)).first()
     if existente:
         return existente.id
-    categoria = catalogo_service.crear_categoria(db, CategoriaCrear(nombre=nombre, categoria_padre_id=padre_id))
+    categoria = GestionarCategorias().crear(db, CategoriaCrear(nombre=nombre, categoria_padre_id=padre_id))
     manifiesto.agregar("categorias", categoria.id)
     return categoria.id
 
 
 def _obtener_o_crear_color(db, manifiesto: Manifiesto, nombre: str, hexa: str) -> int:
-    from app.catalogo import service as catalogo_service
+    from app.catalogo.casos_uso.cu07_gestionar_catalogo_maestro import GestionarColores
     from app.catalogo.models import Color
     from app.catalogo.schemas import ColorCrear
 
     existente = db.query(Color).filter(Color.nombre.ilike(nombre)).first()
     if existente:
         return existente.id
-    color = catalogo_service.crear_color(db, ColorCrear(nombre=nombre, codigo_hex=hexa))
+    color = GestionarColores().crear(db, ColorCrear(nombre=nombre, codigo_hex=hexa))
     manifiesto.agregar("colores", color.id)
     return color.id
 
 
 def _obtener_o_crear_temporada(db, manifiesto: Manifiesto, plan: PrendaPlan) -> int:
-    from app.catalogo import service as catalogo_service
+    from app.catalogo.casos_uso.cu07_gestionar_catalogo_maestro import GestionarTemporadas
     from app.catalogo.models import Temporada
     from app.catalogo.schemas import TemporadaCrear
 
     existente = db.query(Temporada).filter(Temporada.nombre == plan.temporada, Temporada.anio == plan.anio).first()
     if existente:
         return existente.id
-    temporada = catalogo_service.crear_temporada(
+    temporada = GestionarTemporadas().crear(
         db,
         TemporadaCrear(
             nombre=plan.temporada, anio=plan.anio, fecha_inicio=plan.fecha_inicio, fecha_fin=plan.fecha_fin
@@ -375,15 +375,17 @@ def _obtener_o_crear_temporada(db, manifiesto: Manifiesto, plan: PrendaPlan) -> 
 
 def cargar(planes: list[PrendaPlan]) -> None:
     import app.main  # noqa: F401  (registra todos los modelos y configura Cloudinary)
-    from app.catalogo import service as catalogo_service
+    from app.catalogo.casos_uso.cu08_gestionar_productos import GestionarProductos
     from app.catalogo.models import Producto, ProductoImagen, ProductoVariante, Talla
     from app.catalogo.schemas import ProductoCrear
     from app.core.config import get_settings
     from app.core.database import SessionLocal
-    from app.probador import service as probador_service
+    from app.probador.casos_uso.cu21_cargar_assets_anclajes import CargarAssetsAnclajes
     from app.probador.models import ActivoProbador
     from app.probador.schemas import AnclajesActualizar
 
+    cu_productos = GestionarProductos()
+    cu_assets = CargarAssetsAnclajes()
     settings = get_settings()
     if not (settings.cloudinary_cloud_name and settings.cloudinary_api_key and settings.cloudinary_api_secret):
         sys.exit("Faltan las variables CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET")
@@ -411,7 +413,7 @@ def cargar(planes: list[PrendaPlan]) -> None:
 
             producto = db.query(Producto).filter(Producto.codigo == plan.codigo).one_or_none()
             if producto is None:
-                producto = catalogo_service.crear_producto(
+                producto = cu_productos.crear(
                     db,
                     ProductoCrear(
                         codigo=plan.codigo,
@@ -428,7 +430,7 @@ def cargar(planes: list[PrendaPlan]) -> None:
                     creado_por=None,
                 )
                 manifiesto.agregar("productos", producto.id)
-                for variante in catalogo_service.listar_variantes_producto(db, producto.id):
+                for variante in cu_productos.listar_variantes(db, producto.id):
                     manifiesto.agregar("variantes", variante.id)
                 print(f"  producto creado id={producto.id}")
             else:
@@ -437,7 +439,7 @@ def cargar(planes: list[PrendaPlan]) -> None:
                 sys.exit(f"  {plan.codigo} quedó con admite_probador=false: revisar la categoría")
 
             if db.query(ProductoImagen).filter(ProductoImagen.producto_id == producto.id).count() == 0:
-                imagen, _ = catalogo_service.subir_imagen_producto(
+                imagen, _ = cu_productos.subir_imagen(
                     db, producto.id, plan.ruta_jpg.read_bytes(), "image/jpeg", color_id, es_principal=True
                 )
                 manifiesto.agregar("imagenes", imagen.id)
@@ -469,11 +471,11 @@ def cargar(planes: list[PrendaPlan]) -> None:
             if base is None:
                 png, imagen_png = preparar_png(plan.ruta_png.read_bytes())
                 anclajes = calcular_anclajes(imagen_png)
-                base, _ = probador_service.subir_asset(db, variante_base.id, "overlay_2d", png, "image/png", None)
+                base, _ = cu_assets.subir(db, variante_base.id, "overlay_2d", png, "image/png", None)
                 manifiesto.agregar("activos", base.id)
                 manifiesto.agregar("public_ids", base.url)
-                probador_service.guardar_anclajes(db, base.id, AnclajesActualizar.model_validate(anclajes))
-                base, _ = probador_service.validar_asset(db, base.id)
+                cu_assets.guardar_anclajes(db, base.id, AnclajesActualizar.model_validate(anclajes))
+                base, _ = cu_assets.validar(db, base.id)
                 print(f"  overlay subido y validado ({base.url}) anclajes={anclajes}")
             else:
                 print(f"  overlay ya existía en talla {TALLAS[0]}")
@@ -481,7 +483,7 @@ def cargar(planes: list[PrendaPlan]) -> None:
             for codigo_talla in TALLAS[1:]:
                 variante = variantes[tallas[codigo_talla]]
                 if overlay_de(variante.id) is None:
-                    copia = probador_service.clonar_asset_a_variante(db, base.id, variante.id)
+                    copia = cu_assets.clonar_a_variante(db, base.id, variante.id)
                     manifiesto.agregar("activos", copia.id)
                     print(f"  overlay asignado a talla {codigo_talla}")
     finally:

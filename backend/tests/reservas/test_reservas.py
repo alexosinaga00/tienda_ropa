@@ -420,3 +420,36 @@ def test_expirar_reservas_libera_stock_y_cambia_estado(client, admin_headers, cl
 
     detalle = client.get(f"/api/v1/reservas/{reserva['id']}", headers=cliente_headers).json()
     assert detalle["estado"] == "expirada"
+
+
+def test_expirar_reservas_una_inconsistente_no_frena_a_las_demas(
+    client, admin_headers, cliente_headers, contexto, db_session
+):
+    """Cada reserva vencida es su propia transacción: si una no se puede
+    liberar (menos stock reservado del que dice su detalle), se registra y
+    se sigue con el resto en vez de trabar la tarea para siempre."""
+    from sqlalchemy import update
+
+    from app.inventario.models import Stock
+    from app.reservas.politicas import expirar_reservas_vencidas
+
+    rota = client.post("/api/v1/reservas", json=_payload_reserva(contexto, cantidad=2), headers=cliente_headers).json()
+    sana = client.post("/api/v1/reservas", json=_payload_reserva(contexto, cantidad=1), headers=cliente_headers).json()
+    vencida = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    for reserva_id in (rota["id"], sana["id"]):
+        db_session.get(Reserva, reserva_id).fecha_expiracion = vencida
+    # Desfase: queda 1 unidad reservada en vez de 3 (la primera pide 2).
+    db_session.execute(
+        update(Stock)
+        .where(Stock.variante_id == contexto["variante_id"], Stock.sucursal_id == contexto["sucursal_id"])
+        .values(cantidad_reservada=1)
+    )
+    db_session.commit()
+
+    assert expirar_reservas_vencidas(db_session) == 1
+
+    estados = {
+        r["id"]: r["estado"] for r in client.get("/api/v1/reservas/mis-reservas", headers=cliente_headers).json()
+    }
+    assert estados[rota["id"]] == "pendiente"
+    assert estados[sana["id"]] == "expirada"

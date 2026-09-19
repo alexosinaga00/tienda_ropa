@@ -104,7 +104,7 @@ def test_cotizar_no_persiste_nada(client, db_session, cliente_headers, zona_1er_
     assert despues == antes == 0
 
 
-# ---- crear envío usa el costo ya fijado en la venta ------------------------------------
+# ---- crear envío: el costo de la venta tiene que coincidir con la tarifa real -----------
 
 
 def test_crear_envio_usa_costo_ya_fijado_en_la_venta(client, cliente_headers, contexto, zona_1er_anillo):
@@ -139,16 +139,50 @@ def test_crear_envio_usa_costo_ya_fijado_en_la_venta(client, cliente_headers, co
     assert segundo.status_code == 409
 
 
-# ---- máquina de estados del envío -------------------------------------------------------
+@pytest.mark.parametrize("costo_envio", ["0.01", "0.00"])
+def test_crear_envio_rechaza_costo_distinto_a_la_tarifa(
+    client, db_session, cliente_headers, contexto, zona_1er_anillo, costo_envio
+):
+    """El costo de envío de la venta lo manda el cliente: si no coincide con
+    la tarifa real de la zona, no hay envío (ni pagando de menos ni con una
+    compra registrada como retiro en sucursal)."""
+    from app.entregas.models import Envio
 
-
-def _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    assert float(zona_1er_anillo["tarifa_base"]) > 0
     direccion = _crear_direccion(client, cliente_headers, zona_1er_anillo["id"])
     client.post(
         "/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers
     )
     venta = client.post(
-        "/api/v1/ventas/digital", json={"sucursal_id": contexto["sucursal_id"]}, headers=cliente_headers
+        "/api/v1/ventas/digital",
+        json={"sucursal_id": contexto["sucursal_id"], "costo_envio": costo_envio},
+        headers=cliente_headers,
+    ).json()
+
+    respuesta = client.post(
+        "/api/v1/envios", json={"venta_id": venta["id"], "direccion_id": direccion["id"]}, headers=cliente_headers
+    )
+    # 400 y no 409: los clientes toman un 409 acá como "el envío ya existía".
+    assert respuesta.status_code == 400
+    assert "no coincide con la tarifa" in respuesta.json()["detail"]
+    assert db_session.query(Envio).filter(Envio.venta_id == venta["id"]).count() == 0
+
+
+# ---- máquina de estados del envío -------------------------------------------------------
+
+
+def _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    direccion = _crear_direccion(client, cliente_headers, zona_1er_anillo["id"])
+    cotizacion = client.post(
+        "/api/v1/envios/cotizar", json={"direccion_id": direccion["id"], "cantidad_prendas": 1}
+    ).json()
+    client.post(
+        "/api/v1/carrito", json={"variante_id": contexto["variante_id"], "cantidad": 1}, headers=cliente_headers
+    )
+    venta = client.post(
+        "/api/v1/ventas/digital",
+        json={"sucursal_id": contexto["sucursal_id"], "costo_envio": cotizacion["costo"]},
+        headers=cliente_headers,
     ).json()
     return client.post(
         "/api/v1/envios", json={"venta_id": venta["id"], "direccion_id": direccion["id"]}, headers=cliente_headers

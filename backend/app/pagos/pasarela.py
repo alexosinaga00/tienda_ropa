@@ -80,6 +80,14 @@ def _firmar(secreto: str, payload_crudo: bytes) -> str:
     return hmac.new(secreto.encode("utf-8"), payload_crudo, hashlib.sha256).hexdigest()
 
 
+def _firma_valida(secreto: str, payload_crudo: bytes, firma: str | None) -> bool:
+    """Sin secreto configurado no hay firma válida posible: un HMAC con
+    clave vacía lo puede calcular cualquiera."""
+    if not secreto or not firma:
+        return False
+    return hmac.compare_digest(_firmar(secreto, payload_crudo), firma)
+
+
 class LibelulaGateway(PasarelaBase):
     nombre = "libelula"
 
@@ -100,9 +108,7 @@ class LibelulaGateway(PasarelaBase):
         return "iniciado"
 
     def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
-        if not firma:
-            return False
-        return hmac.compare_digest(_firmar(self._secreto, payload_crudo), firma)
+        return _firma_valida(self._secreto, payload_crudo, firma)
 
     def interpretar_webhook(self, payload: dict) -> ResultadoWebhook:
         return ResultadoWebhook(id_transaccion=payload["id_transaccion"], estado=payload["estado"])
@@ -212,9 +218,7 @@ class PayPalGateway(PasarelaBase):
             raise RuntimeError(f"No se pudo consultar el estado en PayPal: {exc}") from exc
 
     def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
-        if not firma:
-            return False
-        return hmac.compare_digest(_firmar(self._webhook_secret, payload_crudo), firma)
+        return _firma_valida(self._webhook_secret, payload_crudo, firma)
 
     def interpretar_webhook(self, payload: dict) -> ResultadoWebhook:
         return ResultadoWebhook(id_transaccion=payload["id_transaccion"], estado=payload["estado"])
@@ -250,9 +254,7 @@ class QrOnlineGateway(PasarelaBase):
         return "iniciado"
 
     def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
-        if not firma:
-            return False
-        return hmac.compare_digest(_firmar(self._secreto, payload_crudo), firma)
+        return _firma_valida(self._secreto, payload_crudo, firma)
 
     def interpretar_webhook(self, payload: dict) -> ResultadoWebhook:
         return ResultadoWebhook(id_transaccion=payload["id_transaccion"], estado=payload["estado"])

@@ -45,7 +45,7 @@ class PromocionAlcance(Base):
     # (num_nonnulls(...) = 1 en docs/fashionstore_esquema.sql) se agrega a
     # mano en la migración solo para Postgres -- num_nonnulls no existe en
     # SQLite, que es lo que usan los tests. Acá también se valida en
-    # ventas.service antes de insertar.
+    # ventas.casos_uso.cu27_gestionar_promociones antes de insertar.
 
     id: Mapped[int] = mapped_column(primary_key=True)
     promocion_id: Mapped[int] = mapped_column(ForeignKey("promocion.id", ondelete="CASCADE"), nullable=False)

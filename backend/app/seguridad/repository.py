@@ -102,7 +102,7 @@ class ClienteRepository:
     def buscar_por_usuario(self, db: Session, usuario_id: int) -> Cliente | None:
         """Variante de obtener_por_usuario que no lanza si no existe, para
         que el caller decida si crea el perfil o lo reusa (ver
-        seguridad.service.registrar_cliente)."""
+        seguridad.casos_uso.cu01_registrar_cliente.RegistrarCliente.registrar)."""
         return db.scalar(select(Cliente).where(Cliente.usuario_id == usuario_id))
 
     def actualizar_perfil(

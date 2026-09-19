@@ -202,10 +202,12 @@ def verificar_precondiciones(db: Session) -> int:
 
 
 def seed_sucursales(db: Session, ciudad_id: int, ejecutar: bool, resumen: Resumen) -> dict[str, int | None]:
-    from app.organizacion import service as organizacion_service
+    from app.organizacion.casos_uso.cu05_gestionar_sucursales import GestionarSucursales
     from app.organizacion.models import Sucursal
+    from app.organizacion.politicas import obtener_horario_dia
     from app.organizacion.schemas import HorarioCrear, SucursalCrear
 
+    cu_sucursales = GestionarSucursales()
     ids: dict[str, int | None] = {}
     for s in SUCURSALES:
         sucursal = db.scalar(select(Sucursal).where(Sucursal.codigo == s.codigo))
@@ -214,7 +216,7 @@ def seed_sucursales(db: Session, ciudad_id: int, ejecutar: bool, resumen: Resume
         if sucursal is None:
             resumen.creado("sucursal")
             if ejecutar:
-                sucursal = organizacion_service.crear_sucursal(
+                sucursal = cu_sucursales.crear(
                     db,
                     SucursalCrear(
                         ciudad_id=ciudad_id, codigo=s.codigo, nombre=s.nombre, direccion=s.direccion,
@@ -229,13 +231,13 @@ def seed_sucursales(db: Session, ciudad_id: int, ejecutar: bool, resumen: Resume
         if s.es_deposito:
             continue
         for dia, (apertura, cierre) in HORARIO_TIENDA.items():
-            existe = sucursal is not None and organizacion_service.obtener_horario_dia(db, sucursal.id, dia)
+            existe = sucursal is not None and obtener_horario_dia(db, sucursal.id, dia)
             if existe:
                 resumen.existente("horario_sucursal")
                 continue
             resumen.creado("horario_sucursal")
             if ejecutar:
-                organizacion_service.crear_horario(
+                cu_sucursales.crear_horario(
                     db, sucursal.id, HorarioCrear(dia_semana=dia, hora_apertura=apertura, hora_cierre=cierre)
                 )
     return ids
@@ -245,12 +247,15 @@ def seed_staff(
     db: Session, sucursales: dict[str, int | None], password: str | None, ejecutar: bool, resumen: Resumen
 ) -> tuple[dict[str, int | None], dict[str, int | None]]:
     """Devuelve (usuario_id por email, empleado_id por email)."""
-    from app.organizacion import service as organizacion_service
+    from app.organizacion.casos_uso.cu06_gestionar_empleados import GestionarEmpleados
+    from app.organizacion.politicas import obtener_empleado_por_usuario
     from app.organizacion.schemas import EmpleadoCrear
-    from app.seguridad import service as seguridad_service
+    from app.seguridad.casos_uso.cu03_gestionar_usuarios_roles_permisos import GestionarUsuarios
     from app.seguridad.models import Usuario
     from app.seguridad.schemas import UsuarioCrear
 
+    cu_empleados = GestionarEmpleados()
+    cu_usuarios = GestionarUsuarios()
     usuarios: dict[str, int | None] = {}
     empleados: dict[str, int | None] = {}
     for s in STAFF:
@@ -258,7 +263,7 @@ def seed_staff(
         if usuario is None:
             resumen.creado("usuario")
             if ejecutar:
-                usuario = seguridad_service.crear_usuario(
+                usuario = cu_usuarios.crear(
                     db,
                     UsuarioCrear(nombre=s.nombre, apellido=s.apellido, email=s.email, telefono=s.telefono, password=password),
                 )
@@ -271,18 +276,18 @@ def seed_staff(
         if s.rol not in roles_actuales:
             resumen.creado("usuario_rol")
             if ejecutar:
-                seguridad_service.asignar_roles_usuario(db, usuario.id, [*roles_actuales, s.rol])
+                cu_usuarios.asignar_roles(db, usuario.id, [*roles_actuales, s.rol])
         else:
             resumen.existente("usuario_rol")
         usuarios[s.email] = usuario.id if usuario is not None else None
 
         if s.sucursal_codigo is None:
             continue
-        empleado = organizacion_service.obtener_empleado_por_usuario(db, usuario.id) if usuario is not None else None
+        empleado = obtener_empleado_por_usuario(db, usuario.id) if usuario is not None else None
         if empleado is None:
             resumen.creado("empleado")
             if ejecutar:
-                empleado = organizacion_service.crear_empleado(
+                empleado = cu_empleados.crear(
                     db,
                     EmpleadoCrear(
                         usuario_id=usuario.id,
@@ -301,10 +306,11 @@ def seed_staff(
 def seed_proveedores(
     db: Session, usuarios: dict[str, int | None], ejecutar: bool, resumen: Resumen
 ) -> dict[str, int | None]:
-    from app.abastecimiento import service as abastecimiento_service
+    from app.abastecimiento.casos_uso.cu11_gestionar_proveedores import GestionarProveedores
     from app.abastecimiento.models import Proveedor
     from app.abastecimiento.schemas import ProveedorCrear
 
+    cu_proveedores = GestionarProveedores()
     ids: dict[str, int | None] = {}
     for p in PROVEEDORES:
         proveedor = db.scalar(select(Proveedor).where(Proveedor.nit == p.nit))
@@ -313,7 +319,7 @@ def seed_proveedores(
         if proveedor is None:
             resumen.creado("proveedor")
             if ejecutar:
-                proveedor = abastecimiento_service.crear_proveedor(
+                proveedor = cu_proveedores.crear(
                     db,
                     ProveedorCrear(
                         nombre=p.nombre, nit=p.nit, contacto=p.contacto, telefono=p.telefono, email=p.email,
@@ -360,13 +366,14 @@ def planificar_compras(db: Session) -> dict[str, list[LineaCompra]]:
 def seed_producto_proveedor(
     db: Session, proveedores: dict[str, int | None], compras: dict[str, list[LineaCompra]], ejecutar: bool, resumen: Resumen
 ) -> None:
-    from app.abastecimiento import service as abastecimiento_service
+    from app.abastecimiento.casos_uso.cu11_gestionar_proveedores import GestionarProveedores
 
+    cu_proveedores = GestionarProveedores()
     dias_por_clave = {p.clave: p.dias_entrega for p in PROVEEDORES}
     for clave, lineas in compras.items():
         proveedor_id = proveedores[clave]
         ya_asociados = (
-            {pp.producto_id for pp in abastecimiento_service.listar_productos_proveedor(db, proveedor_id)}
+            {pp.producto_id for pp in cu_proveedores.listar_productos(db, proveedor_id)}
             if proveedor_id is not None
             else set()
         )
@@ -377,7 +384,7 @@ def seed_producto_proveedor(
                 continue
             resumen.creado("producto_proveedor")
             if ejecutar:
-                abastecimiento_service.agregar_producto_proveedor(
+                cu_proveedores.agregar_producto(
                     db, proveedor_id, producto_id, costo, dias_por_clave[clave]
                 )
 
@@ -392,7 +399,7 @@ def seed_stock(
     ejecutar: bool,
     resumen: Resumen,
 ) -> None:
-    from app.abastecimiento import service as abastecimiento_service
+    from app.abastecimiento.casos_uso.cu12_registrar_recepcion_mercaderia import RegistrarRecepcionMercaderia
     from app.abastecimiento.models import OrdenCompra, Recepcion
     from app.abastecimiento.schemas import (
         OrdenCompraCrear,
@@ -400,9 +407,11 @@ def seed_stock(
         RecepcionCrear,
         RecepcionDetalleCrear,
     )
-    from app.inventario import service as inventario_service
+    from app.inventario.casos_uso.cu14_consultar_inventario_global import ConsultarInventarioGlobal
     from app.inventario.models import Stock
 
+    cu_recepcion = RegistrarRecepcionMercaderia()
+    cu_inventario = ConsultarInventarioGlobal()
     admin_email = STAFF[0].email
     dias_por_clave = {p.clave: p.dias_entrega for p in PROVEEDORES}
 
@@ -427,7 +436,7 @@ def seed_stock(
                 if not ejecutar:
                     resumen.creado("recepcion")
                     continue
-                orden = abastecimiento_service.crear_orden_compra(
+                orden = cu_recepcion.ordenes_compra.crear(
                     db,
                     OrdenCompraCrear(
                         codigo=codigo_oc,
@@ -453,7 +462,7 @@ def seed_stock(
                 if not ejecutar:
                     resumen.creado("recepcion")
                     continue
-                orden = abastecimiento_service.enviar_orden_compra(db, orden.id)
+                orden = cu_recepcion.ordenes_compra.enviar(db, orden.id)
 
             if orden.estado in ("recibida", "anulada"):
                 resumen.existente("recepcion")
@@ -464,7 +473,7 @@ def seed_stock(
             # Recibe lo que falte de la orden (toda, salvo que alguien haya
             # cargado una recepción parcial a mano desde la app).
             recibido: dict[int, int] = defaultdict(int)
-            for rec in abastecimiento_service.listar_recepciones(db, orden.id):
+            for rec in cu_recepcion.listar(db, orden.id):
                 for linea in rec.detalle:
                     recibido[linea.variante_id] += linea.cantidad
             pendientes = [
@@ -479,7 +488,7 @@ def seed_stock(
             resumen.creado("recepcion")
             if not ejecutar or not pendientes:
                 continue
-            abastecimiento_service.crear_recepcion(
+            cu_recepcion.registrar(
                 db,
                 RecepcionCrear(
                     codigo=codigo_rc,
@@ -505,7 +514,7 @@ def seed_stock(
         resumen.creado("limites_stock", len(sin_limites))
         if ejecutar:
             for stock_id in sin_limites:
-                inventario_service.actualizar_limites_stock(db, stock_id, s.stock_minimo, s.stock_maximo)
+                cu_inventario.actualizar_limites(db, usuarios[admin_email], stock_id, s.stock_minimo, s.stock_maximo)
 
 
 # ---- Entrada ------------------------------------------------------------------

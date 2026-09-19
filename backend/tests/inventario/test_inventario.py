@@ -2,6 +2,9 @@ from decimal import Decimal
 
 import pytest
 
+from app.core.exceptions import ConflictoError
+from app.inventario.politicas import liberar_stock, reservar_stock
+
 
 @pytest.fixture()
 def variante_y_sucursal(client, admin_headers):
@@ -169,47 +172,36 @@ def test_saldo_post_coincide_con_suma_acumulada(client, admin_headers, variante_
 
 
 # ---- reservar_stock / liberar_stock -------------------------------------------
+# Son pasos internos de reservas y ventas (ya no hay endpoints sueltos para
+# moverlos a mano, BE-007): se prueban llamando directo a la política.
 
 
-def test_reservar_no_altera_cantidad_fisica(client, admin_headers, variante_y_sucursal):
+def test_reservar_no_altera_cantidad_fisica(client, admin_headers, db_session, variante_y_sucursal):
     variante_id, sucursal_id = variante_y_sucursal
     _registrar(client, admin_headers, variante_id, sucursal_id, cantidad=10, costo_unitario="10.00")
 
-    respuesta = client.post(
-        "/api/v1/inventario/reservas",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 4},
-        headers=admin_headers,
-    )
-    assert respuesta.status_code == 200
-    stock = respuesta.json()
-    assert stock["cantidad_fisica"] == 10
-    assert stock["cantidad_reservada"] == 4
-    assert stock["cantidad_disponible"] == 6
+    stock = reservar_stock(db_session, variante_id, sucursal_id, 4)
+    assert stock.cantidad_fisica == 10
+    assert stock.cantidad_reservada == 4
+    assert stock.cantidad_disponible == 6
 
 
-def test_no_se_puede_reservar_mas_de_lo_disponible(client, admin_headers, variante_y_sucursal):
+def test_no_se_puede_reservar_mas_de_lo_disponible(client, admin_headers, db_session, variante_y_sucursal):
     variante_id, sucursal_id = variante_y_sucursal
     _registrar(client, admin_headers, variante_id, sucursal_id, cantidad=10, costo_unitario="10.00")
 
-    respuesta = client.post(
-        "/api/v1/inventario/reservas",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 11},
-        headers=admin_headers,
-    )
-    assert respuesta.status_code == 409
+    with pytest.raises(ConflictoError):
+        reservar_stock(db_session, variante_id, sucursal_id, 11)
+    db_session.rollback()
 
     stock = client.get(f"/api/v1/inventario/stock/{variante_id}/{sucursal_id}", headers=admin_headers).json()
     assert stock["cantidad_reservada"] == 0
 
 
-def test_reservar_no_genera_movimiento(client, admin_headers, variante_y_sucursal):
+def test_reservar_no_genera_movimiento(client, admin_headers, db_session, variante_y_sucursal):
     variante_id, sucursal_id = variante_y_sucursal
     _registrar(client, admin_headers, variante_id, sucursal_id, cantidad=10, costo_unitario="10.00")
-    client.post(
-        "/api/v1/inventario/reservas",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 4},
-        headers=admin_headers,
-    )
+    reservar_stock(db_session, variante_id, sucursal_id, 4)
 
     kardex = client.get(
         f"/api/v1/inventario/movimientos?variante_id={variante_id}&sucursal_id={sucursal_id}", headers=admin_headers
@@ -217,41 +209,30 @@ def test_reservar_no_genera_movimiento(client, admin_headers, variante_y_sucursa
     assert len(kardex) == 1  # solo la recepción; la reserva no aparece acá
 
 
-def test_liberar_stock_decrementa_reservada(client, admin_headers, variante_y_sucursal):
+def test_liberar_stock_decrementa_reservada(client, admin_headers, db_session, variante_y_sucursal):
     variante_id, sucursal_id = variante_y_sucursal
     _registrar(client, admin_headers, variante_id, sucursal_id, cantidad=10, costo_unitario="10.00")
-    client.post(
-        "/api/v1/inventario/reservas",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 6},
-        headers=admin_headers,
-    )
+    reservar_stock(db_session, variante_id, sucursal_id, 6)
 
-    respuesta = client.post(
-        "/api/v1/inventario/liberaciones",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 2},
-        headers=admin_headers,
-    )
-    assert respuesta.status_code == 200
-    stock = respuesta.json()
-    assert stock["cantidad_reservada"] == 4
-    assert stock["cantidad_fisica"] == 10
+    stock = liberar_stock(db_session, variante_id, sucursal_id, 2)
+    assert stock.cantidad_reservada == 4
+    assert stock.cantidad_fisica == 10
 
 
-def test_no_se_puede_liberar_mas_de_lo_reservado(client, admin_headers, variante_y_sucursal):
+def test_no_se_puede_liberar_mas_de_lo_reservado(client, admin_headers, db_session, variante_y_sucursal):
     variante_id, sucursal_id = variante_y_sucursal
     _registrar(client, admin_headers, variante_id, sucursal_id, cantidad=10, costo_unitario="10.00")
-    client.post(
-        "/api/v1/inventario/reservas",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 3},
-        headers=admin_headers,
-    )
+    reservar_stock(db_session, variante_id, sucursal_id, 3)
 
-    respuesta = client.post(
-        "/api/v1/inventario/liberaciones",
-        json={"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 4},
-        headers=admin_headers,
-    )
-    assert respuesta.status_code == 409
+    with pytest.raises(ConflictoError):
+        liberar_stock(db_session, variante_id, sucursal_id, 4)
+
+
+def test_ya_no_hay_endpoints_para_reservar_o_liberar_a_mano(client, admin_headers, variante_y_sucursal):
+    variante_id, sucursal_id = variante_y_sucursal
+    payload = {"variante_id": variante_id, "sucursal_id": sucursal_id, "cantidad": 1}
+    assert client.post("/api/v1/inventario/reservas", json=payload, headers=admin_headers).status_code in (404, 405)
+    assert client.post("/api/v1/inventario/liberaciones", json=payload, headers=admin_headers).status_code in (404, 405)
 
 
 # ---- tipos de movimiento -------------------------------------------------------

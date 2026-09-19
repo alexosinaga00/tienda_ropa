@@ -4,7 +4,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import ParametrosPaginacion, parametros_paginacion
 from app.core.security import get_current_user, require_permission
-from app.ventas import service
+from app.ventas.casos_uso.cu23_gestionar_carrito import GestionarCarrito
+from app.ventas.casos_uso.cu24_realizar_compra_digital import RealizarCompraDigital
+from app.ventas.casos_uso.cu25_registrar_venta_presencial import RegistrarVentaPresencial
+from app.ventas.casos_uso.cu26_consultar_historial_compras import ConsultarHistorialCompras
+from app.ventas.casos_uso.cu27_gestionar_promociones import GestionarPromociones
+from app.ventas.casos_uso.cu28_consultar_ventas_sucursal import ConsultarVentasSucursal
+from app.ventas.casos_uso.cu40_registrar_devolucion import RegistrarDevolucion
+from app.ventas.politicas import mapa_codigos_estado
 from app.ventas.schemas import (
     CarritoDetalleActualizar,
     CarritoDetalleCrear,
@@ -30,9 +37,17 @@ presencial_requerido = Depends(require_permission(PERMISO_PRESENCIAL))
 staff_requerido = Depends(require_permission(PERMISO_STAFF))
 gestionar_requerido = Depends(require_permission(PERMISO_GESTIONAR))
 
+cu_gestionar_carrito = GestionarCarrito()
+cu_compra_digital = RealizarCompraDigital()
+cu_venta_presencial = RegistrarVentaPresencial()
+cu_historial_compras = ConsultarHistorialCompras()
+cu_gestionar_promociones = GestionarPromociones()
+cu_ventas_sucursal = ConsultarVentasSucursal()
+cu_registrar_devolucion = RegistrarDevolucion()
+
 
 def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
-    return VentaRespuesta.from_modelo(venta, service.mapa_codigos_estado(db))
+    return VentaRespuesta.from_modelo(venta, mapa_codigos_estado(db))
 
 
 # ---- /api/v1/carrito ---------------------------------------------------------------
@@ -42,14 +57,14 @@ carrito_router = APIRouter(prefix="/api/v1/carrito", tags=["carrito"], dependenc
 
 @carrito_router.get("", response_model=CarritoRespuesta)
 def obtener_mi_carrito(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> CarritoRespuesta:
-    return service.obtener_mi_carrito(db, usuario.id)
+    return cu_gestionar_carrito.obtener_mi_carrito(db, usuario.id)
 
 
 @carrito_router.post("", response_model=CarritoRespuesta, status_code=status.HTTP_201_CREATED)
 def agregar_al_carrito(
     datos: CarritoDetalleCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> CarritoRespuesta:
-    return service.agregar_al_carrito(db, usuario.id, datos)
+    return cu_gestionar_carrito.agregar(db, usuario.id, datos)
 
 
 @carrito_router.put("/{variante_id}", response_model=CarritoRespuesta)
@@ -59,19 +74,19 @@ def actualizar_linea_carrito(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CarritoRespuesta:
-    return service.actualizar_linea_carrito(db, usuario.id, variante_id, datos)
+    return cu_gestionar_carrito.actualizar_linea(db, usuario.id, variante_id, datos)
 
 
 @carrito_router.delete("/{variante_id}", response_model=CarritoRespuesta)
 def quitar_del_carrito(
     variante_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> CarritoRespuesta:
-    return service.quitar_del_carrito(db, usuario.id, variante_id)
+    return cu_gestionar_carrito.quitar(db, usuario.id, variante_id)
 
 
 @carrito_router.post("/aplicar-promocion", response_model=CarritoResumenRespuesta)
 def aplicar_promocion(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> CarritoResumenRespuesta:
-    return service.previsualizar_carrito(db, usuario.id)
+    return cu_gestionar_carrito.previsualizar(db, usuario.id)
 
 
 # ---- /api/v1/ventas -----------------------------------------------------------------
@@ -85,7 +100,7 @@ ventas_router = APIRouter(prefix="/api/v1/ventas", tags=["ventas"])
 def registrar_venta_digital(
     datos: VentaDigitalCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
-    venta = service.registrar_venta_digital(db, usuario.id, datos)
+    venta = cu_compra_digital.ejecutar(db, usuario.id, datos)
     return _venta_respuesta(db, venta)
 
 
@@ -98,27 +113,30 @@ def registrar_venta_digital(
 def registrar_venta_presencial(
     datos: VentaPresencialCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
-    venta = service.registrar_venta_presencial(db, usuario.id, datos)
+    venta = cu_venta_presencial.ejecutar(db, usuario.id, datos)
     return _venta_respuesta(db, venta)
 
 
 @ventas_router.get("/mis-compras", response_model=list[VentaRespuesta])
 def listar_mis_compras(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> list[VentaRespuesta]:
-    estados = service.mapa_codigos_estado(db)
-    return [VentaRespuesta.from_modelo(v, estados) for v in service.listar_mis_compras(db, usuario.id)]
+    estados = mapa_codigos_estado(db)
+    return [VentaRespuesta.from_modelo(v, estados) for v in cu_historial_compras.listar_mis_compras(db, usuario.id)]
 
 
 @ventas_router.get("/sucursal/{sucursal_id}", response_model=list[VentaRespuesta], dependencies=[staff_requerido])
-def listar_ventas_sucursal(sucursal_id: int, db: Session = Depends(get_db)) -> list[VentaRespuesta]:
-    estados = service.mapa_codigos_estado(db)
-    return [VentaRespuesta.from_modelo(v, estados) for v in service.listar_ventas_sucursal(db, sucursal_id)]
+def listar_ventas_sucursal(
+    sucursal_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[VentaRespuesta]:
+    estados = mapa_codigos_estado(db)
+    ventas = cu_ventas_sucursal.ejecutar(db, sucursal_id, usuario.id)
+    return [VentaRespuesta.from_modelo(v, estados) for v in ventas]
 
 
 @ventas_router.get("/{venta_id}/comprobante", response_model=VentaRespuesta)
 def obtener_comprobante(
     venta_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
-    venta = service.obtener_comprobante(db, venta_id, usuario.id)
+    venta = cu_historial_compras.obtener_comprobante(db, venta_id, usuario.id)
     return _venta_respuesta(db, venta)
 
 
@@ -131,7 +149,7 @@ devoluciones_router = APIRouter(prefix="/api/v1/devoluciones", tags=["devolucion
 def registrar_devolucion(
     datos: DevolucionCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> DevolucionRespuesta:
-    return service.registrar_devolucion(db, usuario.id, datos)
+    return cu_registrar_devolucion.ejecutar(db, usuario.id, datos)
 
 
 # ---- /api/v1/promociones -------------------------------------------------------------
@@ -145,33 +163,33 @@ def listar_promociones(
     paginacion: ParametrosPaginacion = Depends(parametros_paginacion),
     usuario=Depends(get_current_user),
 ) -> list[PromocionRespuesta]:
-    return service.listar_promociones(db, paginacion)
+    return cu_gestionar_promociones.listar(db, paginacion)
 
 
 @promociones_router.get("/{promocion_id}", response_model=PromocionRespuesta)
 def obtener_promocion(
     promocion_id: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)
 ) -> PromocionRespuesta:
-    return service.obtener_promocion(db, promocion_id)
+    return cu_gestionar_promociones.obtener(db, promocion_id)
 
 
 @promociones_router.post(
     "", response_model=PromocionRespuesta, status_code=status.HTTP_201_CREATED, dependencies=[gestionar_requerido]
 )
 def crear_promocion(datos: PromocionCrear, db: Session = Depends(get_db)) -> PromocionRespuesta:
-    return service.crear_promocion(db, datos)
+    return cu_gestionar_promociones.crear(db, datos)
 
 
 @promociones_router.put("/{promocion_id}", response_model=PromocionRespuesta, dependencies=[gestionar_requerido])
 def actualizar_promocion(
     promocion_id: int, datos: PromocionActualizar, db: Session = Depends(get_db)
 ) -> PromocionRespuesta:
-    return service.actualizar_promocion(db, promocion_id, datos)
+    return cu_gestionar_promociones.actualizar(db, promocion_id, datos)
 
 
 @promociones_router.delete("/{promocion_id}", response_model=PromocionRespuesta, dependencies=[gestionar_requerido])
 def desactivar_promocion(promocion_id: int, db: Session = Depends(get_db)) -> PromocionRespuesta:
-    return service.desactivar_promocion(db, promocion_id)
+    return cu_gestionar_promociones.desactivar(db, promocion_id)
 
 
 routers = [carrito_router, ventas_router, devoluciones_router, promociones_router]

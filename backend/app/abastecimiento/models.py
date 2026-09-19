@@ -92,8 +92,9 @@ class OrdenCompraDetalle(Base):
 
 
 # Única entrada de mercadería con costo. Sin esto no hay promedio ponderado
-# (ver abastecimiento.service.crear_recepcion, que llama a
-# inventario.service.registrar_movimiento por cada línea).
+# (ver abastecimiento.casos_uso.cu12_registrar_recepcion_mercaderia
+# .RegistrarRecepcionMercaderia.registrar, que llama a
+# inventario.politicas.actualizar_stock_operacion por cada línea).
 class Recepcion(Base):
     __tablename__ = "recepcion"
 

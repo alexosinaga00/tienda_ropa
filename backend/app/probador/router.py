@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
-from app.probador import service
+from app.probador.casos_uso.cu21_cargar_assets_anclajes import CargarAssetsAnclajes
+from app.probador.casos_uso.cu22_probar_prenda_modo_espejo import ProbarPrendaModoEspejo
+from app.probador.casos_uso.cu39_generar_prueba_realista_ia import GenerarPruebaRealistaIA
 from app.probador.schemas import (
     ActivoRespuesta,
     AnclajesActualizar,
@@ -20,6 +22,10 @@ from app.probador.schemas import (
 PERMISO_PROBADOR = "probador.gestionar"
 admin_requerido = Depends(require_permission(PERMISO_PROBADOR))
 
+cu_cargar_assets = CargarAssetsAnclajes()
+cu_modo_espejo = ProbarPrendaModoEspejo()
+cu_generar_ia = GenerarPruebaRealistaIA()
+
 router = APIRouter(prefix="/api/v1/probador/assets", tags=["probador"], dependencies=[admin_requerido])
 
 uso_router = APIRouter(prefix="/api/v1/probador", tags=["probador"])
@@ -29,7 +35,7 @@ uso_router = APIRouter(prefix="/api/v1/probador", tags=["probador"])
 def listar_assets(
     variante_id: int = Query(...), db: Session = Depends(get_db)
 ) -> list[ActivoRespuesta]:
-    activos = service.listar_assets(db, variante_id)
+    activos = cu_cargar_assets.listar(db, variante_id)
     return [ActivoRespuesta.from_modelo(a, url) for a, url in activos]
 
 
@@ -42,7 +48,7 @@ def subir_asset(
     db: Session = Depends(get_db),
 ) -> ActivoRespuesta:
     contenido = archivo.file.read()
-    activo, url = service.subir_asset(db, variante_id, tipo, contenido, archivo.content_type, usuario.id)
+    activo, url = cu_cargar_assets.subir(db, variante_id, tipo, contenido, archivo.content_type, usuario.id)
     return ActivoRespuesta.from_modelo(activo, url)
 
 
@@ -50,13 +56,13 @@ def subir_asset(
 def guardar_anclajes(
     activo_id: int, datos: AnclajesActualizar, db: Session = Depends(get_db)
 ) -> ActivoRespuesta:
-    activo, url = service.guardar_anclajes(db, activo_id, datos)
+    activo, url = cu_cargar_assets.guardar_anclajes(db, activo_id, datos)
     return ActivoRespuesta.from_modelo(activo, url)
 
 
 @router.put("/{activo_id}/validar", response_model=ActivoRespuesta)
 def validar_asset(activo_id: int, db: Session = Depends(get_db)) -> ActivoRespuesta:
-    activo, url = service.validar_asset(db, activo_id)
+    activo, url = cu_cargar_assets.validar(db, activo_id)
     return ActivoRespuesta.from_modelo(activo, url)
 
 
@@ -67,7 +73,7 @@ def validar_asset(activo_id: int, db: Session = Depends(get_db)) -> ActivoRespue
 def obtener_assets_uso(
     variante_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> AssetsVarianteRespuesta:
-    overlay, overlay_url, flatlay, flatlay_url = service.obtener_assets_uso(db, variante_id)
+    overlay, overlay_url, flatlay, flatlay_url = cu_modo_espejo.obtener_assets(db, variante_id)
     return AssetsVarianteRespuesta(
         overlay=ActivoRespuesta.from_modelo(overlay, overlay_url),
         flatlay=ActivoRespuesta.from_modelo(flatlay, flatlay_url) if flatlay else None,
@@ -83,7 +89,7 @@ def iniciar_generacion(
     db: Session = Depends(get_db),
 ) -> GeneracionIniciadaRespuesta:
     contenido = archivo.file.read()
-    generacion, desde_cache = service.iniciar_generacion(
+    generacion, desde_cache = cu_generar_ia.iniciar(
         db, usuario.id, variante_id, contenido, archivo.content_type, background_tasks
     )
     return GeneracionIniciadaRespuesta(
@@ -95,7 +101,7 @@ def iniciar_generacion(
 def consultar_generacion(
     generacion_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> GeneracionEstadoRespuesta:
-    generacion = service.consultar_generacion(db, usuario.id, generacion_id)
+    generacion = cu_generar_ia.consultar(db, usuario.id, generacion_id)
     return GeneracionEstadoRespuesta.model_validate(generacion)
 
 
@@ -103,7 +109,7 @@ def consultar_generacion(
 def registrar_sesion(
     datos: SesionCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> SesionRespuesta:
-    sesion = service.registrar_sesion(db, usuario.id, datos)
+    sesion = cu_modo_espejo.registrar_sesion(db, usuario.id, datos)
     return SesionRespuesta.model_validate(sesion)
 
 
@@ -111,7 +117,7 @@ def registrar_sesion(
 def recomendar_talla(
     datos: TallaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> TallaRecomendadaRespuesta:
-    return service.recomendar_talla(db, datos)
+    return cu_generar_ia.recomendar_talla(db, datos)
 
 
 routers = [router, uso_router]

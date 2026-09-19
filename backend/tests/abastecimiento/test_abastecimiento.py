@@ -327,3 +327,38 @@ def test_recepcion_contra_orden_en_borrador_falla(client, admin_headers, proveed
         codigo="REC-OC-3", orden_compra_id=orden["id"],
     )
     assert respuesta.status_code == 400
+
+
+# ---- Rol proveedor (tercero externo) ---------------------------------------------
+
+
+def test_rol_proveedor_no_accede_a_abastecimiento(client, admin_headers, db_session, proveedor, producto_sucursal):
+    """El rol proveedor no puede listar ni editar otros proveedores, ni
+    registrar recepciones: una recepción sube el stock y fija el costo
+    promedio de cualquier sucursal."""
+    from app.seguridad.repository import UsuarioRepository
+    from app.seguridad.schemas import UsuarioCrear
+    from tests.conftest import _login
+
+    usuario_repo = UsuarioRepository()
+    usuario = usuario_repo.crear(
+        db_session,
+        UsuarioCrear(nombre="Pro", apellido="Veedor", email="proveedor@example.com", password="claveSegura123"),
+    )
+    usuario_repo.asignar_roles(db_session, usuario, ["proveedor"])
+    headers = {"Authorization": f"Bearer {_login(client, 'proveedor@example.com', 'claveSegura123')}"}
+
+    assert client.get("/api/v1/proveedores", headers=headers).status_code == 403
+    assert client.put(f"/api/v1/proveedores/{proveedor['id']}", json={"nombre": "X"}, headers=headers).status_code == 403
+    assert client.get("/api/v1/ordenes-compra", headers=headers).status_code == 403
+
+    recepcion = _crear_recepcion(
+        client, headers, proveedor["id"], producto_sucursal["sucursal_id"], producto_sucursal["variante_id"],
+        codigo="REC-PROV", cantidad=500, costo="0.01",
+    )
+    assert recepcion.status_code == 403
+
+    variante_id = producto_sucursal["variante_id"]
+    sucursal_id = producto_sucursal["sucursal_id"]
+    stock = client.get(f"/api/v1/inventario/stock/{variante_id}/{sucursal_id}", headers=admin_headers)
+    assert stock.status_code == 404  # nunca se registró stock para esa variante/sucursal

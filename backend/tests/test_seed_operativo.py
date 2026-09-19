@@ -3,12 +3,13 @@ from decimal import Decimal
 from sqlalchemy import func, select
 
 from app.abastecimiento.models import OrdenCompra, ProductoProveedor, Proveedor, Recepcion
-from app.catalogo import service as catalogo_service
+from app.catalogo.casos_uso.cu07_gestionar_catalogo_maestro import GestionarCategorias, GestionarColores
+from app.catalogo.casos_uso.cu08_gestionar_productos import GestionarProductos
 from app.catalogo.models import Talla
 from app.catalogo.schemas import CategoriaCrear, ColorCrear, ProductoCrear
 from app.inventario.models import MovimientoInventario, Stock
 from app.organizacion.models import Empleado, HorarioSucursal, Sucursal
-from app.seguridad import service as seguridad_service
+from app.seguridad.politicas import permisos_de_usuario
 from app.seguridad.models import Usuario
 from scripts.seed_catalogo import seed as seed_catalogo
 from scripts.seed_operativo import seed as seed_operativo
@@ -18,17 +19,20 @@ PASSWORD = "claveSegura123"
 
 def _crear_productos(db):
     seed_catalogo(db)
+    cu_categorias = GestionarCategorias()
+    cu_colores = GestionarColores()
+    cu_productos = GestionarProductos()
     tallas = [t.id for t in db.scalars(select(Talla).where(Talla.codigo.in_(["L", "XL"])))]
-    padre = catalogo_service.crear_categoria(db, CategoriaCrear(nombre="Ropa superior"))
-    poleras = catalogo_service.crear_categoria(db, CategoriaCrear(nombre="Poleras", categoria_padre_id=padre.id))
-    chamarras = catalogo_service.crear_categoria(db, CategoriaCrear(nombre="Chamarras", categoria_padre_id=padre.id))
-    negro = catalogo_service.crear_color(db, ColorCrear(nombre="Negro", codigo_hex="#1A1A1A"))
+    padre = cu_categorias.crear(db, CategoriaCrear(nombre="Ropa superior"))
+    poleras = cu_categorias.crear(db, CategoriaCrear(nombre="Poleras", categoria_padre_id=padre.id))
+    chamarras = cu_categorias.crear(db, CategoriaCrear(nombre="Chamarras", categoria_padre_id=padre.id))
+    negro = cu_colores.crear(db, ColorCrear(nombre="Negro", codigo_hex="#1A1A1A"))
     for codigo, nombre, categoria, precio in [
         ("FS-1", "Polera Nike Basic (Negro)", poleras.id, "149.00"),
         ("FS-2", "Polo Puma Classic (Negro)", poleras.id, "189.00"),
         ("FS-3", "Chamarra Adidas Wind (Negro)", chamarras.id, "399.00"),
     ]:
-        catalogo_service.crear_producto(
+        cu_productos.crear(
             db,
             ProductoCrear(
                 codigo=codigo, nombre=nombre, categoria_id=categoria, genero="hombre",
@@ -84,7 +88,7 @@ def test_seed_operativo_crea_todo_consistente_e_idempotente(db_session):
 
     # El admin tiene todos los permisos; el cajero queda en su sucursal.
     admin = db_session.scalar(select(Usuario).where(Usuario.email == "admin@fashionstore.bo"))
-    assert len(seguridad_service.permisos_de_usuario(db_session, admin.id)) == 19
+    assert len(permisos_de_usuario(db_session, admin.id)) == 19
     cajero = db_session.scalar(select(Usuario).where(Usuario.email == "cajero.centro@fashionstore.bo"))
     empleado = db_session.scalar(select(Empleado).where(Empleado.usuario_id == cajero.id))
     centro = db_session.scalar(select(Sucursal).where(Sucursal.codigo == "SC-CENTRO"))

@@ -1,7 +1,8 @@
+import secrets
 from decimal import Decimal
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -76,13 +77,16 @@ class Settings(BaseSettings):
     tareas_intervalo_segundos: int = 300
 
     # Secretos para verificar la firma HMAC de los webhooks de pago (ver
-    # app/pagos/pasarela.py). Ambas pasarelas corren en modo sandbox sin
-    # credenciales reales todavía, así que estos valores por defecto son
-    # solo para desarrollo/pruebas -- en producción se sobreescriben por
-    # variable de entorno como cualquier otro secreto (regla 9).
-    libelula_webhook_secret: str = "sandbox-secret-libelula"
-    paypal_webhook_secret: str = "sandbox-secret-paypal"
-    qr_online_webhook_secret: str = "sandbox-secret-qr"
+    # app/pagos/pasarela.py). Sin valor por defecto (regla 9): un secreto
+    # escrito acá es público para cualquiera con el repo y permitiría
+    # firmar un webhook "aprobado". Sin configurar, el webhook de esa
+    # pasarela se rechaza siempre (mismo criterio que tareas_token).
+    libelula_webhook_secret: str = ""
+    paypal_webhook_secret: str = ""
+    # El QR online es simulado y su "webhook" lo firma y lo verifica este
+    # mismo backend dentro del mismo request (confirmar_pago_qr): si no se
+    # configura, alcanza con un secreto aleatorio por proceso.
+    qr_online_webhook_secret: str = Field(default_factory=lambda: secrets.token_hex(32))
 
     # Base para construir URLs absolutas hacia esta misma API (p. ej. la
     # pantalla pública de pago con QR, ver app/pagos/pasarela.py) desde
@@ -105,9 +109,10 @@ class Settings(BaseSettings):
 
     # Búsqueda por voz (paquete `inteligencia`, P6.1): Groq expone una API
     # HTTP compatible con OpenAI, sin SDK propio en requirements.txt (se
-    # llama con httpx, igual que probador/service.py llama a otras APIs
-    # externas). Sin groq_api_key configurada, el parser de voz falla y
-    # inteligencia.service cae directo al fallback de texto plano.
+    # llama con httpx, igual que probador/casos_uso/cu39_generar_prueba_realista_ia.py
+    # llama a otras APIs externas). Sin groq_api_key configurada, el parser
+    # de voz falla y inteligencia.casos_uso.cu37_buscar_comando_voz cae
+    # directo al fallback de texto plano.
     # `llama-3.3-70b-versatile` (el que sugiere el enunciado) ya no está
     # disponible en cuentas nuevas de Groq -- comprobado contra
     # GET /openai/v1/models con la key real de este proyecto. gpt-oss-20b
@@ -117,8 +122,8 @@ class Settings(BaseSettings):
     groq_modelo: str = "openai/gpt-oss-20b"
 
     # Peso promedio de una prenda (kg), para estimar el peso total de un
-    # pedido en entregas.service._peso_pedido() sin modelar el peso real de
-    # cada variante (fuera del alcance de P5.3).
+    # pedido en entregas.casos_uso.cu42_solicitar_envio_domicilio._peso_pedido()
+    # sin modelar el peso real de cada variante (fuera del alcance de P5.3).
     peso_promedio_prenda_kg: Decimal = Decimal("0.3")
 
 

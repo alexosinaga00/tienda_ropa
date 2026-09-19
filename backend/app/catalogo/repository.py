@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.crud_base import CRUDBase, CRUDBaseSinActivo
@@ -187,10 +187,19 @@ class ProductoRepository(CRUDBase[Producto, ProductoCrear, ProductoActualizar]):
             if filtros.color_id is not None:
                 consulta = consulta.where(ProductoVariante.color_id == filtros.color_id)
             if filtros.solo_disponibles:
-                # Proxy hasta que exista `inventario`: "disponible" acá solo
-                # significa que tiene alguna variante activa, no que haya
-                # stock real. TODO(P3.1): reemplazar por disponibilidad real.
-                consulta = consulta.where(ProductoVariante.activo.is_(True))
+                # Import diferido: inventario.politicas importa catalogo.politicas
+                # a nivel de módulo, que a su vez importa este mismo archivo
+                # (ProductoRepository) -- con el import acá arriba, cargar
+                # catalogo.repository primero rompería con un ImportError
+                # circular (mismo patrón que core/security.py).
+                from app.inventario import politicas as inventario_politicas
+
+                variantes_con_stock = inventario_politicas.listar_variantes_con_stock(
+                    db, sucursal_id=filtros.sucursal_id
+                )
+                consulta = consulta.where(
+                    ProductoVariante.activo.is_(True), ProductoVariante.id.in_(variantes_con_stock)
+                )
             consulta = consulta.distinct()
 
         consulta = consulta.order_by(Producto.id).offset(paginacion.offset).limit(paginacion.tamanio)
@@ -239,6 +248,10 @@ class VarianteRepository(CRUDBase[ProductoVariante, VarianteActualizar, Variante
                 ProductoVariante.color_id == color_id,
             )
         )
+
+    def buscar(self, db: Session, variante_id: int) -> ProductoVariante | None:
+        """Sin filtrar por `activo` (a diferencia de obtener())."""
+        return db.get(ProductoVariante, variante_id)
 
     def obtener_por_sku(self, db: Session, sku: str) -> ProductoVariante | None:
         return db.scalar(select(ProductoVariante).where(ProductoVariante.sku == sku))
@@ -370,9 +383,11 @@ class ImagenRepository:
         db.commit()
 
     def marcar_principal(self, db: Session, imagen: ProductoImagen) -> ProductoImagen:
-        db.query(ProductoImagen).filter(
-            ProductoImagen.producto_id == imagen.producto_id, ProductoImagen.id != imagen.id
-        ).update({"es_principal": False})
+        db.execute(
+            update(ProductoImagen)
+            .where(ProductoImagen.producto_id == imagen.producto_id, ProductoImagen.id != imagen.id)
+            .values(es_principal=False)
+        )
         imagen.es_principal = True
         db.commit()
         db.refresh(imagen)
