@@ -46,9 +46,15 @@ export class CheckoutService {
 
   readonly costoEnvio = computed(() => (this.tipoEntrega() === 'domicilio' ? (this.cotizacion()?.costo ?? 0) : 0));
 
+  // Para domicilio también hace falta la cotización de ESA dirección: sin
+  // ella costoEnvio valdría 0 y el backend rechaza el envío cuando el costo
+  // de la venta no coincide con la tarifa real de la zona (CU-42).
   readonly listoParaPagar = computed(() => {
     const estado = this.estado();
-    return estado.sucursalId !== null && (estado.tipoEntrega === 'retiro' || estado.direccionId !== null);
+    return (
+      estado.sucursalId !== null &&
+      (estado.tipoEntrega === 'retiro' || (estado.direccionId !== null && estado.cotizacion !== null))
+    );
   });
 
   elegirTipoEntrega(tipo: TipoEntrega): void {
@@ -65,7 +71,9 @@ export class CheckoutService {
   }
 
   elegirDireccion(direccionId: number): void {
-    this.estado.update((actual) => ({ ...actual, direccionId }));
+    // La cotización anterior era de otra dirección (otra zona): se descarta
+    // hasta que llegue la nueva.
+    this.estado.update((actual) => ({ ...actual, direccionId, cotizacion: null }));
   }
 
   fijarCotizacion(cotizacion: CotizacionEnvio): void {

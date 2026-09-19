@@ -68,7 +68,10 @@ export class CheckoutEntregaComponent implements OnInit {
     this.cotizando.set(true);
     this.direccionesService.cotizar({ direccion_id: direccionId, cantidad_prendas: this.totalPrendas() }).subscribe({
       next: (cotizacion) => {
-        this.checkoutService.fijarCotizacion(cotizacion);
+        // Si mientras tanto eligió otra dirección, esta cotización ya no aplica.
+        if (this.checkoutService.direccionId() === direccionId) {
+          this.checkoutService.fijarCotizacion(cotizacion);
+        }
         this.cotizando.set(false);
       },
       error: () => this.cotizando.set(false),

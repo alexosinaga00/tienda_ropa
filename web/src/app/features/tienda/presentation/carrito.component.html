@@ -23,11 +23,14 @@
               <div class="fs-caption">{{ [linea.tallaCodigo, linea.colorNombre].join(' · ') }}</div>
             }
             <div class="linea-precio fs-num">{{ linea.precio_unitario | number: '1.2-2' }}</div>
+            @if (!linea.disponible) {
+              <div class="linea-no-disponible">Ya no está disponible: quitala para continuar</div>
+            }
           </div>
           <div class="linea-cantidad">
             <button type="button" (click)="disminuir(linea.variante_id, linea.cantidad)">-</button>
             <span>{{ linea.cantidad }}</span>
-            <button type="button" (click)="aumentar(linea.variante_id, linea.cantidad)">+</button>
+            <button type="button" [disabled]="!linea.disponible" (click)="aumentar(linea.variante_id, linea.cantidad)">+</button>
           </div>
           <button type="button" class="linea-quitar" (click)="quitar(linea.variante_id)">Quitar</button>
         </div>
@@ -53,6 +56,6 @@
       </div>
     }
 
-    <button type="button" class="boton-continuar" (click)="continuar()">Continuar</button>
+    <button type="button" class="boton-continuar" [disabled]="hayNoDisponibles()" (click)="continuar()">Continuar</button>
   }
 </div>

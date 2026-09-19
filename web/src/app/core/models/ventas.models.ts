@@ -127,6 +127,8 @@ export interface CarritoDetalle {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  /** false: la prenda se dio de baja después de agregarla (no suma ni se puede comprar). */
+  disponible: boolean;
 }
 
 export interface Carrito {

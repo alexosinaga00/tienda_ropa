@@ -59,6 +59,12 @@
   font-size: 14px;
 }
 
+.linea-no-disponible {
+  color: var(--fs-error);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .linea-cantidad {
   display: flex;
   align-items: center;
@@ -72,6 +78,11 @@
     background: var(--fs-superficie);
     cursor: pointer;
     font-weight: 700;
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
   }
 }
 
@@ -121,5 +132,10 @@
 
   &:hover {
     background: var(--fs-acento-hover);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 }

@@ -1,5 +1,5 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { CarritoResumen } from '../../../core/models/ventas.models';
 import { CarritoService } from '../data/carrito.service';
@@ -19,6 +19,8 @@ export class CarritoComponent implements OnInit {
 
   protected readonly cargando = signal(true);
   protected readonly resumen = signal<CarritoResumen | null>(null);
+  /** El backend rechaza la compra mientras haya prendas dadas de baja en el carrito. */
+  protected readonly hayNoDisponibles = computed(() => this.carritoService.lineas().some((l) => !l.disponible));
 
   ngOnInit(): void {
     this.recargar();
@@ -63,6 +65,7 @@ export class CarritoComponent implements OnInit {
   }
 
   continuar(): void {
+    if (this.hayNoDisponibles()) return;
     this.checkoutService.reiniciar();
     this.router.navigate(['/checkout/entrega']);
   }
