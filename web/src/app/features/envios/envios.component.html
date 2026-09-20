@@ -1,0 +1,95 @@
+<p-confirmdialog />
+
+<h1>Envíos</h1>
+
+<div class="filtros">
+  <p-select
+    [options]="opcionesEstado"
+    optionLabel="label"
+    optionValue="value"
+    [ngModel]="filtroEstado()"
+    (ngModelChange)="cambiarFiltro($event)"
+  />
+  <p-button icon="pi pi-refresh" [text]="true" (onClick)="cargar()" />
+</div>
+
+<p-table [value]="filas()" [loading]="cargando()" styleClass="p-datatable-sm">
+  <ng-template #header>
+    <tr>
+      <th>Envío</th>
+      <th>Venta</th>
+      <th>Estado</th>
+      <th>Repartidor</th>
+      <th>Costo</th>
+      <th>Entregado el</th>
+      <th style="width: 16rem">Acciones</th>
+    </tr>
+  </ng-template>
+  <ng-template #body let-envio>
+    <tr>
+      <td>#{{ envio.id }}</td>
+      <td>#{{ envio.venta_id }}</td>
+      <td><p-tag [value]="etiquetaEstado(envio.estado)" [severity]="severidadEstado(envio.estado)" /></td>
+      <td>{{ envio.repartidor || '—' }}</td>
+      <td class="numero">Bs {{ envio.costo | number: '1.2-2' }}</td>
+      <td>{{ envio.fecha_entrega ? (envio.fecha_entrega | date: 'dd/MM/yyyy HH:mm') : '—' }}</td>
+      <td class="acciones">
+        @if (envio.estado === 'programado') {
+          <p-button label="Enviar" icon="pi pi-send" size="small" [text]="true" [disabled]="guardando()" (onClick)="abrirEnviar(envio)" />
+        }
+        @if (envio.estado === 'en_ruta') {
+          <p-button
+            label="Entregado"
+            icon="pi pi-check"
+            size="small"
+            [text]="true"
+            [disabled]="guardando()"
+            (onClick)="pedirConfirmacion(envio, 'entregado')"
+          />
+        }
+        @if (envio.estado === 'programado' || envio.estado === 'en_ruta') {
+          <p-button
+            label="Falló"
+            icon="pi pi-times"
+            size="small"
+            severity="danger"
+            [text]="true"
+            [disabled]="guardando()"
+            (onClick)="pedirConfirmacion(envio, 'fallido')"
+          />
+        }
+      </td>
+    </tr>
+  </ng-template>
+  <ng-template #emptymessage>
+    <tr>
+      <td colspan="7">Sin envíos.</td>
+    </tr>
+  </ng-template>
+</p-table>
+
+<div class="paginacion">
+  <p-button icon="pi pi-chevron-left" [text]="true" [disabled]="pagina() === 1" (onClick)="irAPaginaAnterior()" />
+  <span>Página {{ pagina() }}</span>
+  <p-button icon="pi pi-chevron-right" [text]="true" [disabled]="!hayPaginaSiguiente()" (onClick)="irAPaginaSiguiente()" />
+</div>
+
+<p-dialog
+  [header]="envioPorEnviar() ? 'Enviar el envío #' + envioPorEnviar()!.id : 'Enviar'"
+  [(visible)]="dialogoRutaVisible"
+  [modal]="true"
+  [style]="{ width: '400px' }"
+>
+  <div class="formulario">
+    <label for="repartidor">Repartidor (opcional)</label>
+    <input
+      id="repartidor"
+      pInputText
+      maxlength="80"
+      [ngModel]="repartidor()"
+      (ngModelChange)="repartidor.set($event)"
+      (keydown.enter)="confirmarEnviar()"
+    />
+    <p-button label="Poner en ruta" icon="pi pi-send" styleClass="w-full" (onClick)="confirmarEnviar()" />
+  </div>
+</p-dialog>

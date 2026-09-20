@@ -229,6 +229,11 @@ export const routes: Routes = [
           import('./features/promociones/promociones.component').then((m) => m.PromocionesComponent),
       },
       {
+        path: 'envios',
+        canActivate: [permisoGuard('entregas.gestionar')],
+        loadComponent: () => import('./features/envios/envios.component').then((m) => m.EnviosComponent),
+      },
+      {
         path: 'zonas-envio',
         canActivate: [permisoGuard('entregas.gestionar')],
         loadComponent: () =>

@@ -10,6 +10,23 @@
       {{ venta()!.costo_envio > 0 ? 'Envío a domicilio' : 'Retiro en sucursal' }}
     </p>
 
+    @if (envio(); as envio) {
+      <div class="fs-card seguimiento">
+        <div class="seguimiento-estado" [class]="'seguimiento-estado seguimiento-estado--' + envio.estado">
+          {{ etiquetaEnvio(envio.estado) }}
+        </div>
+        @if (envio.estado === 'entregado' && envio.fecha_entrega) {
+          <div class="fs-caption">Entregado el {{ fechaLocal(envio.fecha_entrega) | date: 'dd/MM/yyyy HH:mm' }}</div>
+        }
+        @if (envio.estado === 'fallido') {
+          <div class="fs-caption">No se pudo entregar tu pedido. Comunicate con la sucursal.</div>
+        }
+        @if (envio.repartidor) {
+          <div class="fs-caption">Repartidor: {{ envio.repartidor }}</div>
+        }
+      </div>
+    }
+
     <div class="lineas">
       @for (linea of lineas(); track linea.id) {
         <div class="fs-card linea">

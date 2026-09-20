@@ -4,6 +4,27 @@
   padding: var(--fs-espacio-6);
 }
 
+.seguimiento {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-espacio-1);
+  padding: var(--fs-espacio-4);
+  margin-top: var(--fs-espacio-4);
+}
+
+.seguimiento-estado {
+  font-weight: 600;
+  color: var(--fs-acento);
+
+  &--entregado {
+    color: var(--fs-exito);
+  }
+
+  &--fallido {
+    color: var(--fs-error);
+  }
+}
+
 .lineas {
   display: flex;
   flex-direction: column;

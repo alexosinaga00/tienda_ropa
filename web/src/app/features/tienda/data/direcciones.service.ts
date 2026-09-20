@@ -35,4 +35,9 @@ export class DireccionesService {
   crearEnvio(datos: EnvioCrear): Observable<Envio> {
     return this.http.post<Envio>(`${environment.apiUrl}/envios`, datos);
   }
+
+  /** Seguimiento del envío de una compra (dueño de la compra o personal). */
+  obtenerEnvioDeVenta(ventaId: number): Observable<Envio> {
+    return this.http.get<Envio>(`${environment.apiUrl}/envios/venta/${ventaId}`);
+  }
 }

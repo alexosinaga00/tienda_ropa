@@ -1,0 +1,36 @@
+h1 {
+  margin-bottom: var(--fs-espacio-4);
+}
+
+.filtros {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+  margin: var(--fs-espacio-4) 0;
+  flex-wrap: wrap;
+}
+
+.numero {
+  font-variant-numeric: tabular-nums;
+}
+
+.acciones {
+  display: flex;
+  gap: var(--fs-espacio-1);
+}
+
+.paginacion {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fs-espacio-2);
+  margin-top: var(--fs-espacio-3);
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.formulario {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-espacio-2);
+}

@@ -74,6 +74,7 @@ const GRUPOS_MENU: GrupoMenu[] = [
 const ITEMS_FIN: ItemMenu[] = [
   { etiqueta: 'Inventario', icono: 'pi pi-box', ruta: '/inventario', permiso: 'inventario.ver' },
   { etiqueta: 'Proveedores', icono: 'pi pi-truck', ruta: '/proveedores', permiso: 'abastecimiento.gestionar' },
+  { etiqueta: 'Envíos', icono: 'pi pi-map-marker', ruta: '/envios', permiso: 'entregas.gestionar' },
   { etiqueta: 'Zonas de envío', icono: 'pi pi-send', ruta: '/zonas-envio', permiso: 'entregas.gestionar' },
   { etiqueta: 'Probador', icono: 'pi pi-camera', ruta: '/probador', permiso: 'probador.gestionar' },
 ];

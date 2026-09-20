@@ -78,3 +78,8 @@ export interface Envio {
   fecha_entrega: string | null;
   repartidor: string | null;
 }
+
+export interface EnvioEstadoActualizar {
+  estado: EstadoEnvio;
+  repartidor?: string;
+}
