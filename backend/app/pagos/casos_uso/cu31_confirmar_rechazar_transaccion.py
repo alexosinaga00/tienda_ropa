@@ -31,8 +31,6 @@ from app.pagos.politicas import primera_transaccion, resolver_pago
 from app.pagos.repository import EstadoPagoRepository, PagoRepository, TransaccionPasarelaRepository
 from app.ventas.politicas import anular_venta, obtener_comprobante, obtener_venta
 
-_URL_RETORNO_SANDBOX = "https://fashionstore.example.com/pago/retorno"
-
 
 class ConfirmarRechazarTransaccion:
     def __init__(self) -> None:
@@ -164,8 +162,8 @@ class ConfirmarRechazarTransaccion:
                 fetch(window.location.pathname + '/confirmar', {{ method: 'POST' }})
                   .then((resp) => {{
                     if (!resp.ok) throw new Error('fallo');
+                    boton.textContent = 'Pago confirmado';
                     mensaje.textContent = '¡Pago confirmado! Ya podés volver a la aplicación.';
-                    setTimeout(() => {{ window.location.href = '{_URL_RETORNO_SANDBOX}'; }}, 1200);
                   }})
                   .catch(() => {{
                     boton.disabled = false;
