@@ -31,4 +31,8 @@ class Usuario {
   final bool activo;
   final List<String> roles;
   final List<String> permisos;
+
+  /// La app móvil es solo para clientes: el personal (administrador, encargado, cajero, proveedor) trabaja en el panel
+  /// web. Basta con tener el rol `cliente`, aunque tenga además otro.
+  bool get esCliente => roles.contains('cliente');
 }

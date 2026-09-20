@@ -3,6 +3,13 @@ import '../../../core/network/providers.dart';
 import '../data/auth_repository.dart';
 import 'auth_state.dart';
 
+const mensajeSoloClientes = 'Esta app es solo para clientes. Ingresá al panel web con tu cuenta de personal.';
+
+/// Se lanza cuando inicia sesión alguien sin el rol `cliente`: la sesión no se abre.
+class AccesoSoloClientesException implements Exception {
+  const AccesoSoloClientesException();
+}
+
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(dio: ref.watch(dioProvider), tokenStorage: ref.watch(tokenStorageProvider));
 });
@@ -38,6 +45,12 @@ class AuthController extends StateNotifier<AuthState> {
 
     try {
       final usuario = await _repository.obtenerUsuarioActual();
+      if (!usuario.esCliente) {
+        // Una sesión guardada de personal no se restaura: la app es solo para clientes.
+        await tokenStorage.limpiar();
+        state = const AuthState(estado: EstadoSesion.noAutenticado);
+        return;
+      }
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
     } catch (_) {
       await tokenStorage.limpiar();
@@ -50,7 +63,13 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       await _repository.login(email: email, password: password);
       final usuario = await _repository.obtenerUsuarioActual();
+      if (!usuario.esCliente) throw const AccesoSoloClientesException();
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+    } on AccesoSoloClientesException {
+      // Las credenciales eran correctas: se cierra la sesión que el login acaba de guardar y se explica por qué.
+      await _repository.logout();
+      state = const AuthState(estado: EstadoSesion.noAutenticado, error: mensajeSoloClientes);
+      rethrow;
     } catch (_) {
       state = const AuthState(
         estado: EstadoSesion.noAutenticado,
