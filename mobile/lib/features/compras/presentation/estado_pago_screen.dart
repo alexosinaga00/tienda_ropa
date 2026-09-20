@@ -191,6 +191,9 @@ class _EstadoPagoScreenState extends ConsumerState<EstadoPagoScreen> {
       final pago = siguiente.pago.valueOrNull;
       if (pago != null && (pago.aprobado || pago.rechazado) && previo?.pago.valueOrNull?.estado != pago.estado) {
         refrescarDespuesDeCompra(ref); // aprobado descuenta stock; rechazado lo libera y devuelve el carrito
+        // El pago ya se resolvió (p. ej. "Confirmar pago" de la pantalla QR):
+        // el WebView no hace falta más, sin depender de una URL de retorno.
+        if (!_webviewCerrado) setState(() => _webviewCerrado = true);
       }
     });
 

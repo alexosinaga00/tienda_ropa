@@ -111,6 +111,11 @@ class _AccionesPendienteState extends ConsumerState<_AccionesPendiente> {
             ),
             ListTile(
               leading: const Icon(Icons.qr_code_2),
+              title: const Text('QR'),
+              onTap: () => Navigator.pop(context, 'qr_online'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_outlined),
               title: const Text('Libélula'),
               onTap: () => Navigator.pop(context, 'libelula'),
             ),
