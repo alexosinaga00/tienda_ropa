@@ -28,7 +28,11 @@ import '../state/probador_providers.dart';
 /// `IndexedStack`, Flutter destruye por completo el widget que no está
 /// activo (y con él, la cámara o el polling que tuviera en curso).
 class ProbadorScreen extends StatefulWidget {
-  const ProbadorScreen({super.key});
+  const ProbadorScreen({this.varianteInicial, super.key});
+
+  /// La prenda (variante) que el cliente eligió en el detalle o en el carrito: el probador abre con ella puesta.
+  /// Sin ella (ícono del catálogo) abre con la primera de la lista.
+  final int? varianteInicial;
 
   @override
   State<ProbadorScreen> createState() => _ProbadorScreenState();
@@ -84,15 +88,20 @@ class _ProbadorScreenState extends State<ProbadorScreen> {
       // resultado) queda tapado detrás de la barra y parece que no existe.
       body: SafeArea(
         child: _modo == _ModoProbador.espejo
-            ? const _ModoEspejo()
-            : _ModoRealista(onUsarModoEspejo: () => setState(() => _modo = _ModoProbador.espejo)),
+            ? _ModoEspejo(varianteInicial: widget.varianteInicial)
+            : _ModoRealista(
+                onUsarModoEspejo: () => setState(() => _modo = _ModoProbador.espejo),
+                varianteInicial: widget.varianteInicial,
+              ),
       ),
     );
   }
 }
 
 class _ModoEspejo extends ConsumerStatefulWidget {
-  const _ModoEspejo();
+  const _ModoEspejo({this.varianteInicial});
+
+  final int? varianteInicial;
 
   @override
   ConsumerState<_ModoEspejo> createState() => _ModoEspejoState();
@@ -360,14 +369,14 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<List<PrendaProbador>>>(prendasProbadorProvider, (previous, next) {
+    ref.listen<AsyncValue<List<PrendaProbador>>>(prendasParaProbadorProvider(widget.varianteInicial), (previous, next) {
       next.whenData((prendas) {
         if (prendas.isNotEmpty && _prendaActual == null) {
           _elegirPrenda(prendas.first, esInicial: true);
         }
       });
     });
-    final asyncPrendas = ref.watch(prendasProbadorProvider);
+    final asyncPrendas = ref.watch(prendasParaProbadorProvider(widget.varianteInicial));
     return _cuerpo(asyncPrendas);
   }
 
@@ -553,9 +562,10 @@ enum _EstadoGeneracion { ninguna, enviando, enProceso, completado, fallido }
 /// consigna: desconectar internet a propósito tiene que degradar con
 /// elegancia, no colgarse).
 class _ModoRealista extends ConsumerStatefulWidget {
-  const _ModoRealista({required this.onUsarModoEspejo});
+  const _ModoRealista({required this.onUsarModoEspejo, this.varianteInicial});
 
   final VoidCallback onUsarModoEspejo;
+  final int? varianteInicial;
 
   @override
   ConsumerState<_ModoRealista> createState() => _ModoRealistaState();
@@ -579,6 +589,21 @@ class _ModoRealistaState extends ConsumerState<_ModoRealista> {
 
   bool get _puedeCapturar => _consentimiento && _prenda != null;
   bool get _puedeGenerar => _puedeCapturar && _fotoBytes != null && _estado == _EstadoGeneracion.ninguna;
+
+  @override
+  void initState() {
+    super.initState();
+    // Con una prenda inicial (elegida en el detalle o el carrito) el modo realista también empieza con ella, una
+    // sola vez. Sin ella sigue como siempre: el cliente elige la prenda en el selector.
+    final inicial = widget.varianteInicial;
+    if (inicial != null) {
+      ref.listenManual(prendasParaProbadorProvider(inicial), (previous, next) {
+        next.whenData((prendas) {
+          if (mounted && _prenda == null && prendas.isNotEmpty) setState(() => _prenda = prendas.first);
+        });
+      }, fireImmediately: true);
+    }
+  }
 
   @override
   void dispose() {
@@ -789,7 +814,7 @@ class _ModoRealistaState extends ConsumerState<_ModoRealista> {
       return _vistaProgreso();
     }
 
-    final asyncPrendas = ref.watch(prendasProbadorProvider);
+    final asyncPrendas = ref.watch(prendasParaProbadorProvider(widget.varianteInicial));
     return asyncPrendas.when(
       data: (prendas) => _vistaPreparacion(prendas),
       loading: () => const Center(child: CircularProgressIndicator(color: Colors.white)),

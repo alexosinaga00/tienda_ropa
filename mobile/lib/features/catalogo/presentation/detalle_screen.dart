@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../compras/state/carrito_controller.dart';
 import '../../favoritos/state/favoritos_controller.dart';
+import '../../probador/presentation/boton_probar_prenda.dart';
 import '../../reservas/models/item_reserva_temporal.dart';
 import '../../reservas/state/carrito_reserva_controller.dart';
 import '../../reservas/state/reservas_providers.dart';
@@ -135,6 +136,10 @@ class _Contenido extends ConsumerWidget {
                 _BotonAgregarCarrito(varianteId: variante.id),
                 const SizedBox(height: AppSpacing.sm),
                 _BotonAgregarReserva(detalle: detalle, variante: variante, tallaId: tallaId!, colorId: colorId!),
+                if (detalle.admiteProbador) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  BotonProbarPrenda(varianteId: variante.id, avisarSiNoHay: true),
+                ],
               ] else if (variante != null && !autenticado) ...[
                 _BotonIniciarSesionParaComprar(productoId: detalle.id),
               ],

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../probador/presentation/boton_probar_prenda.dart';
 import '../../reservas/state/reservas_providers.dart' show disponibilidadPorVarianteProvider, disponibleTotalProvider;
 import '../models/carrito.dart';
 import '../state/carrito_controller.dart';
@@ -262,9 +263,15 @@ class _TarjetaLineaState extends ConsumerState<_TarjetaLinea> {
                     ),
                   ],
                 ),
-                TextButton(
-                  onPressed: _actualizando ? null : () => _ejecutar(() => controller.quitar(linea.varianteId)),
-                  child: const Text('Quitar', style: TextStyle(fontSize: 12, color: AppColors.error)),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    BotonProbarPrenda(varianteId: linea.varianteId, compacto: true),
+                    TextButton(
+                      onPressed: _actualizando ? null : () => _ejecutar(() => controller.quitar(linea.varianteId)),
+                      child: const Text('Quitar', style: TextStyle(fontSize: 12, color: AppColors.error)),
+                    ),
+                  ],
                 ),
               ],
             ),

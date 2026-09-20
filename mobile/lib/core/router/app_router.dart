@@ -133,7 +133,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/favoritos', builder: (context, state) => const FavoritosScreen()),
-      GoRoute(path: '/probador', builder: (context, state) => const ProbadorScreen()),
+      GoRoute(
+        path: '/probador',
+        // `?variante=ID`: la prenda elegida en el detalle o en el carrito; sin él (ícono del catálogo) abre como siempre.
+        builder: (context, state) => ProbadorScreen(varianteInicial: _parseId(state.uri.queryParameters['variante'])),
+      ),
       GoRoute(path: '/reserva/confirmar', builder: (context, state) => const ConfirmarReservaScreen()),
       GoRoute(path: '/reservas', builder: (context, state) => const MisReservasScreen()),
       GoRoute(
