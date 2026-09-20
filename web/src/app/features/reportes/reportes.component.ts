@@ -5,14 +5,22 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { DatePickerModule } from 'primeng/datepicker';
+import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TabsModule } from 'primeng/tabs';
 import { environment } from '../../../environments/environment';
-import { fechaLocalIso } from '../../core/date-utils';
+import { fechaDesdeIso, fechaLocalIso } from '../../core/date-utils';
 import { Categoria } from '../../core/models/catalogo.models';
 import { Empleado, Sucursal } from '../../core/models/organizacion.models';
-import { DashboardReportes, ReporteInventario, ReporteReservas, ReporteVentas } from '../../core/models/reportes.models';
+import {
+  DashboardReportes,
+  ReporteInventario,
+  ReporteReservas,
+  ReporteVentas,
+  ReporteVozRespuesta,
+} from '../../core/models/reportes.models';
+import { VozService } from '../../core/voz.service';
 
 type PestaniaReportes = 'dashboard' | 'ventas' | 'inventario' | 'reservas';
 
@@ -32,6 +40,7 @@ const OPCIONES_CANAL = [
     ButtonModule,
     ChartModule,
     DatePickerModule,
+    InputTextModule,
     SelectModule,
     TableModule,
     TabsModule,
@@ -41,6 +50,7 @@ const OPCIONES_CANAL = [
 })
 export class ReportesComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly voz = inject(VozService);
 
   protected readonly opcionesCanal = OPCIONES_CANAL;
 
@@ -240,6 +250,68 @@ export class ReportesComponent implements OnInit {
 
   aplicarFiltros(): void {
     this.buscarPestaniaActual();
+  }
+
+  // ---- Preguntar a los reportes (CU-38) ---------------------------------------------------
+  // Se dicta o se escribe una pregunta; el backend la interpreta, la responde en español y
+  // devuelve los filtros que aplicó. Acá se muestran esos filtros y la pestaña del reporte,
+  // reutilizando las mismas búsquedas de siempre (no se dibuja `resultado` aparte).
+
+  protected readonly vozDisponible = this.voz.disponible;
+  protected readonly pregunta = signal('');
+  protected readonly escuchando = signal(false);
+  protected readonly preguntando = signal(false);
+  protected readonly respuestaVoz = signal<string | null>(null);
+  protected readonly errorVoz = signal<string | null>(null);
+
+  protected dictar(): void {
+    if (this.escuchando()) return;
+    this.errorVoz.set(null);
+    this.escuchando.set(true);
+    let hayTexto = false;
+    this.voz.escuchar().subscribe({
+      next: (texto) => {
+        hayTexto = true;
+        this.pregunta.set(texto);
+        this.preguntar(); // un comando de voz se envía solo; el texto queda visible
+      },
+      error: (error: Error) => {
+        this.escuchando.set(false);
+        this.errorVoz.set(error.message);
+      },
+      complete: () => {
+        this.escuchando.set(false);
+        if (!hayTexto) this.errorVoz.set('No se escuchó nada. Intentá de nuevo.');
+      },
+    });
+  }
+
+  protected preguntar(): void {
+    const texto = this.pregunta().trim();
+    if (texto === '' || this.preguntando()) return;
+    this.errorVoz.set(null);
+    this.preguntando.set(true);
+    this.http.post<ReporteVozRespuesta>(`${environment.apiUrl}/ia/reporte-voz`, { texto }).subscribe({
+      next: (resultado) => {
+        this.preguntando.set(false);
+        // Un backend anterior no manda `respuesta`: entonces solo se ajustan los filtros.
+        this.respuestaVoz.set(resultado.respuesta ?? null);
+        this.aplicarRespuesta(resultado);
+      },
+      // Los 403/429 del backend ya los muestra el manejo global de errores.
+      error: () => this.preguntando.set(false),
+    });
+  }
+
+  private aplicarRespuesta(resultado: ReporteVozRespuesta): void {
+    const filtros = resultado.filtros_aplicados;
+    this.filtroDesde.set(fechaDesdeIso(filtros.desde));
+    this.filtroHasta.set(fechaDesdeIso(filtros.hasta));
+    // El encargado ya viene con su sucursal: el backend le devuelve la propia.
+    if (!this.sucursalBloqueada()) this.filtroSucursalId.set(filtros.sucursal_id);
+    this.filtroCategoriaId.set(filtros.categoria_id);
+    this.filtroCanal.set(filtros.canal);
+    this.cambiarPestania(resultado.tipo_reporte);
   }
 
   private buscarPestaniaActual(): void {

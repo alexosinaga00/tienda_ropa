@@ -115,3 +115,38 @@ h3 {
     margin: 0;
   }
 }
+
+.pregunta {
+  padding: var(--fs-espacio-4);
+  margin: var(--fs-espacio-4) 0;
+}
+
+.pregunta-fila {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+}
+
+.pregunta-texto {
+  flex: 1;
+  min-width: 0;
+}
+
+.pregunta .ayuda {
+  margin: var(--fs-espacio-2) 0 0;
+}
+
+.pregunta-error {
+  margin: var(--fs-espacio-2) 0 0;
+  font-size: 13px;
+  color: var(--fs-error);
+}
+
+.pregunta-respuesta {
+  margin: var(--fs-espacio-3) 0 0;
+  padding: var(--fs-espacio-3);
+  border-left: 3px solid var(--fs-acento);
+  border-radius: var(--fs-radio-sm);
+  background: var(--fs-acento-suave);
+  line-height: 1.5;
+}

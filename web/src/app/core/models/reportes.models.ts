@@ -105,8 +105,19 @@ export interface DashboardReportes {
 
 // ---- Reporte por voz ----------------------------------------------------------------
 
+/** Los filtros que el backend realmente aplicó a la pregunta (ya resueltos a id). */
+export interface FiltrosReporteAplicados {
+  desde: string;
+  hasta: string;
+  sucursal_id: number | null;
+  categoria_id: number | null;
+  canal: 'digital' | 'presencial' | null;
+}
+
 export interface ReporteVozRespuesta {
-  tipo_reporte: string;
-  filtros_aplicados: Record<string, unknown>;
+  /** La pregunta contestada en español, con las cifras del reporte. */
+  respuesta: string;
+  tipo_reporte: 'ventas' | 'inventario' | 'reservas' | 'dashboard';
+  filtros_aplicados: FiltrosReporteAplicados;
   resultado: Record<string, unknown>;
 }

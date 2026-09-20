@@ -1,5 +1,47 @@
 <h1>Reportes</h1>
 
+<section class="fs-card pregunta" aria-label="Preguntá a los reportes">
+  <div class="pregunta-fila">
+    <input
+      pInputText
+      class="pregunta-texto"
+      maxlength="300"
+      placeholder="Preguntá o dictá: ¿cómo van las ventas de este mes?"
+      [ngModel]="pregunta()"
+      (ngModelChange)="pregunta.set($event)"
+      (keydown.enter)="preguntar()"
+      [disabled]="preguntando() || escuchando()"
+    />
+    <p-button
+      [icon]="escuchando() ? 'pi pi-spin pi-spinner' : 'pi pi-microphone'"
+      [outlined]="true"
+      ariaLabel="Dictar la pregunta"
+      [disabled]="!vozDisponible || preguntando()"
+      (onClick)="dictar()"
+    />
+    <p-button
+      label="Preguntar"
+      icon="pi pi-send"
+      [loading]="preguntando()"
+      [disabled]="pregunta().trim() === '' || escuchando()"
+      (onClick)="preguntar()"
+    />
+  </div>
+
+  @if (!vozDisponible) {
+    <p class="ayuda">Tu navegador no permite dictar (usá Chrome o Edge). Podés escribir la pregunta.</p>
+  }
+  @if (escuchando()) {
+    <p class="ayuda">Escuchando… hablá ahora.</p>
+  }
+  @if (errorVoz(); as error) {
+    <p class="pregunta-error" role="alert">{{ error }}</p>
+  }
+  @if (respuestaVoz(); as texto) {
+    <p class="pregunta-respuesta" role="status">{{ texto }}</p>
+  }
+</section>
+
 <div class="filtros">
   <p-select
     [options]="sucursales()"

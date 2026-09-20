@@ -8,3 +8,10 @@ export function fechaLocalIso(fecha: Date): string {
   const d = String(fecha.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/** Inversa de `fechaLocalIso`: '2026-09-20' -> esa fecha a medianoche LOCAL.
+ * `new Date('2026-09-20')` la lee como UTC y en Bolivia (UTC-4) muestra el día anterior. */
+export function fechaDesdeIso(iso: string): Date {
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  return new Date(anio, mes - 1, dia);
+}
