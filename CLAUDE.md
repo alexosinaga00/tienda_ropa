@@ -13,6 +13,8 @@ Proyecto académico, Sistemas II, UAGRM. Metodología PUDS, modelado UML 2.5.
   carrito/checkout y el probador AR, exclusivo de esta app)
 - Imágenes: Cloudinary
 - IA: Groq (búsqueda por voz y recomendador)
+- Chatbot: Botpress (widget en la web; el mismo bot en un WebView de la app móvil). Vive en la nube de
+  Botpress: sus flujos no están en el repo y el backend no tiene endpoint de chat.
 - Probador: google_mlkit_pose_detection (modo espejo) + Vertex AI (generativo)
 - Pagos: Libélula y PayPal, ambos en sandbox
 - Despliegue: Railway sin Docker, y Vercel para el Angular

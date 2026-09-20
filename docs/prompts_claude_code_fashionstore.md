@@ -955,10 +955,28 @@ Integrá el chatbot de Botpress solo en la web Angular.
   funciona la reserva, explicar cómo funciona el probador virtual,
   derivar a un humano.
 
-No integrar Botpress en Flutter.
+No integrar Botpress en Flutter.   <- REVISADO el 20/09/2026: ver la nota de abajo.
 ```
 
-**Revisar**: preguntale por una prenda que no existe. Si inventa una respuesta, ajustá el flujo para que consulte siempre la API antes de responder.
+> **Actualización (20/09/2026): el asistente también está en la app móvil.**
+>
+> Lo que se decidió y por qué: se probó que el bot de la web carga y responde dentro de un WebView de
+> Android (sin restricción de dominio en Botpress) y contesta con datos reales del catálogo, así que
+> llevarlo a la app costaba poco y no requiere backend, migración ni llaves nuevas.
+>
+> Cómo quedó: es el **mismo bot** (mismo `botId`/`clientId`), cargado en un WebView desde
+> `mobile/lib/features/asistente/`. El acceso es un ícono de burbuja en la barra del catálogo, visible
+> también para el invitado. Los flujos siguen viviendo en el panel de Botpress, no en este repositorio.
+>
+> Límites conocidos: el micrófono del chat no funciona en la app; los enlaces dentro de las respuestas
+> se bloquean; la conversación empieza de cero cada vez que se abre; el bot no sabe quién es el cliente
+> (no responde por sus pedidos); la interfaz del chat sigue el idioma del teléfono.
+>
+> Mantenimiento: las dos URLs de Botpress están duplicadas en `web/src/index.html` y en
+> `mobile/lib/features/asistente/models/pagina_asistente.dart`. Si el bot se vuelve a publicar y cambia
+> el archivo de configuración, hay que actualizarlas en los dos lugares.
+
+**Revisar**: preguntale por una prenda que no existe. Si inventa una respuesta, ajustá el flujo para que consulte siempre la API antes de responder. (Verificado en la app el 20/09/2026 con una prenda inexistente: respondió que no la encontró, sin inventar.)
 
 ---
 

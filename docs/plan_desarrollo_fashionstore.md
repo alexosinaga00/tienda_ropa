@@ -21,7 +21,7 @@ Sistemas II — S2-2026 · Período: 28/08/2026 → 22/09/2026
 | Probador IA | Modo realista: Vertex AI Virtual Try-On (opcional) |
 | Voz | STT nativo del dispositivo (`speech_to_text`) → Groq → JSON de filtros |
 | Recomendador | Groq (Llama) sobre historial + reglas |
-| Chatbot | Botpress, solo en la web Angular, al final |
+| Chatbot | Botpress: widget en la web Angular y, desde el 20/09, el mismo bot en la app móvil (WebView) |
 | Pagos | Libélula (nacional) + PayPal (internacional), ambos en sandbox |
 | Metodología | PUDS + UML 2.5 |
 | Alcance del probador | Prendas superiores masculinas |
@@ -455,6 +455,7 @@ Las consultas se apoyan en las vistas `vw_inventario_consolidado` y `vw_ventas_d
 ### Móvil Flutter
 - Botón de micrófono en el catálogo con retroalimentación visual de escucha y transcripción en pantalla.
 - Carrusel de recomendaciones en el home y en el detalle de prenda.
+- **Asistente** (chatbot de Botpress) en la app: ícono de burbuja en la barra del catálogo, entre la campana y el muñeco del probador. Es el mismo bot que la web, cargado en un WebView (`mobile/lib/features/asistente/`). Sin backend ni llaves nuevas. Decisión del 20/09, posterior al plan original (que lo dejaba solo en la web); ver la nota en P6.4 de `prompts_claude_code_fashionstore.md`.
 
 ### Criterio de cierre
 Decir "quiero una camisa de algodón azul de primavera" filtra el catálogo correctamente. El dashboard muestra datos reales.
