@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/recuperar_screen.dart';
 import '../../features/auth/presentation/registro_screen.dart';
+import '../../features/auth/presentation/restablecer_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
 import '../../features/catalogo/presentation/catalogo_screen.dart';
@@ -30,7 +32,7 @@ class _RefrescoDelRouter extends ChangeNotifier {
 
 final _refrescoDelRouterProvider = Provider<_RefrescoDelRouter>((ref) => _RefrescoDelRouter(ref));
 
-bool _esRutaAuth(String ruta) => ruta == '/login' || ruta == '/registro';
+bool _esRutaAuth(String ruta) => ruta == '/login' || ruta == '/registro' || ruta == '/recuperar' || ruta == '/restablecer';
 
 // El catálogo y el detalle de producto son públicos (igual que en el web,
 // que solo protege carrito/checkout/mis-compras/reservas con authGuard).
@@ -116,6 +118,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/registro', builder: (context, state) => const RegistroScreen()),
+      GoRoute(path: '/recuperar', builder: (context, state) => const RecuperarScreen()),
+      GoRoute(
+        path: '/restablecer',
+        builder: (context, state) => RestablecerScreen(token: state.uri.queryParameters['token']),
+      ),
       GoRoute(path: '/home', builder: (context, state) => const CatalogoScreen()),
       GoRoute(
         path: '/producto/:id',

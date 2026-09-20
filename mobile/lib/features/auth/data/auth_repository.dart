@@ -46,5 +46,15 @@ class AuthRepository {
     return Usuario.fromJson(respuesta.data!);
   }
 
+  /// POST /auth/recuperar. El backend responde siempre lo mismo, exista o no el correo. Devuelve el `token_dev`,
+  /// que solo viene con ENVIRONMENT=local (todavía no hay servicio de correo): en producción es null.
+  Future<String?> solicitarRecuperacion(String email) async {
+    final respuesta = await _dio.post<Map<String, dynamic>>('/auth/recuperar', data: {'email': email});
+    return respuesta.data?['token_dev'] as String?;
+  }
+
+  Future<void> confirmarRecuperacion({required String token, required String password}) async {
+    await _dio.post<Map<String, dynamic>>('/auth/recuperar/confirmar', data: {'token': token, 'password': password});
+  }
   Future<void> logout() => _tokenStorage.limpiar();
 }
