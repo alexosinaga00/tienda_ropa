@@ -14,6 +14,7 @@ import '../data/zonas_envio_repository.dart';
 import '../models/carrito.dart';
 import '../models/cotizacion_envio.dart';
 import '../models/direccion_cliente.dart';
+import '../models/envio.dart';
 import '../models/venta.dart';
 import '../models/zona_envio.dart';
 import 'carrito_controller.dart';
@@ -88,6 +89,11 @@ final sucursalesConStockCarritoProvider = FutureProvider.autoDispose<List<Sucurs
   return todasSucursales.where((s) => idsValidos.contains(s.id)).toList();
 });
 
+/// Seguimiento del envío de una compra (null si no tiene envío).
+final envioDeCompraProvider = FutureProvider.autoDispose.family<Envio?, int>(
+  (ref, ventaId) => ref.watch(enviosRepositoryProvider).obtenerPorVenta(ventaId),
+);
+
 /// Después de pagar, cancelar o reintentar una compra cambian el stock, el
 /// carrito (cancelar devuelve las prendas) y el estado de la compra.
 void refrescarDespuesDeCompra(WidgetRef ref) {
@@ -95,6 +101,7 @@ void refrescarDespuesDeCompra(WidgetRef ref) {
   ref.invalidate(disponibleTotalProvider);
   ref.invalidate(sucursalesConStockCarritoProvider);
   ref.invalidate(compraDetalleProvider);
+  ref.invalidate(envioDeCompraProvider);
   ref.read(carritoControllerProvider.notifier).cargar();
   ref.read(misComprasControllerProvider.notifier).cargar();
 }

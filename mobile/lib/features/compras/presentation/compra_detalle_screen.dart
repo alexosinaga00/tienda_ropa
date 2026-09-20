@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
+import '../models/envio.dart';
 import '../models/venta.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
@@ -23,54 +24,138 @@ class CompraDetalleScreen extends ConsumerWidget {
       body: asyncVenta.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
         error: (e, s) => const Center(child: Text('No se pudo cargar el comprobante.')),
-        data: (venta) => ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
+        data: (venta) => RefreshIndicator(
+          // El estado de la compra y del envío los cambia el personal: se vuelven a pedir al deslizar hacia abajo.
+          onRefresh: () async {
+            ref.invalidate(envioDeCompraProvider(ventaId));
+            ref.invalidate(compraDetalleProvider(ventaId));
+            await ref.read(compraDetalleProvider(ventaId).future);
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(venta.codigo, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          Chip(label: Text(etiquetasEstadoVenta[venta.estado] ?? venta.estado)),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal',
+                        style: const TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+
+              // Con la compra pendiente o anulada el envío no está en marcha.
+              if (venta.esEnvioADomicilio && (venta.estado == 'pagada' || venta.estado == 'entregada')) ...[
+                _SeguimientoEnvio(ventaId: venta.id),
+                const SizedBox(height: AppSpacing.md),
+              ],
+
+              for (final linea in venta.detalle) _TarjetaLinea(linea: linea),
+              const SizedBox(height: AppSpacing.md),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Column(
+                    children: [
+                      _FilaResumen('Subtotal', venta.subtotal),
+                      if (venta.descuento > 0) _FilaResumen('Descuento', -venta.descuento, color: AppColors.exito),
+                      if (venta.costoEnvio > 0) _FilaResumen('Envío', venta.costoEnvio),
+                      const Divider(),
+                      _FilaResumen('Total', venta.total, negrita: true),
+                    ],
+                  ),
+                ),
+              ),
+              if (venta.estado == 'pendiente_pago') ...[
+                const SizedBox(height: AppSpacing.lg),
+                _AccionesPendiente(venta: venta),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Seguimiento del envío a domicilio: en qué punto va (programado, en camino, entregado o no se pudo
+/// entregar), quién lo lleva y cuándo llegó. Si falla o la compra no tiene envío, no se muestra nada.
+class _SeguimientoEnvio extends ConsumerWidget {
+  const _SeguimientoEnvio({required this.ventaId});
+
+  final int ventaId;
+
+  static const _iconos = {
+    'programado': Icons.event_available_outlined,
+    'en_ruta': Icons.local_shipping_outlined,
+    'entregado': Icons.check_circle_outline,
+    'fallido': Icons.error_outline,
+  };
+
+  static String _dos(int n) => n.toString().padLeft(2, '0');
+
+  static String _formatear(DateTime f) => '${_dos(f.day)}/${_dos(f.month)}/${f.year} ${_dos(f.hour)}:${_dos(f.minute)}';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final envio = ref.watch(envioDeCompraProvider(ventaId)).valueOrNull;
+    if (envio == null) return const SizedBox.shrink();
+
+    final entregado = envio.estado == 'entregado';
+    final fallido = envio.estado == 'fallido';
+    final color = entregado ? AppColors.exito : (fallido ? AppColors.error : AppColors.acento);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(venta.codigo, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                        Chip(label: Text(etiquetasEstadoVenta[venta.estado] ?? venta.estado)),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
+            Icon(_iconos[envio.estado] ?? Icons.local_shipping_outlined, color: color, size: 28),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    etiquetasEstadoEnvio[envio.estado] ?? envio.estado,
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: color),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  if (entregado && envio.fechaEntrega != null)
                     Text(
-                      venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal',
+                      'Entregado el ${_formatear(envio.fechaEntrega!)}',
                       style: const TextStyle(color: AppColors.textoTenue, fontSize: 13),
                     ),
-                  ],
-                ),
+                  if (fallido)
+                    const Text(
+                      'No se pudo entregar tu pedido. Comunicate con la sucursal.',
+                      style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                    ),
+                  if (envio.repartidor != null && envio.repartidor!.isNotEmpty)
+                    Text(
+                      'Repartidor: ${envio.repartidor}',
+                      style: const TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-
-            for (final linea in venta.detalle) _TarjetaLinea(linea: linea),
-            const SizedBox(height: AppSpacing.md),
-
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Column(
-                  children: [
-                    _FilaResumen('Subtotal', venta.subtotal),
-                    if (venta.descuento > 0) _FilaResumen('Descuento', -venta.descuento, color: AppColors.exito),
-                    if (venta.costoEnvio > 0) _FilaResumen('Envío', venta.costoEnvio),
-                    const Divider(),
-                    _FilaResumen('Total', venta.total, negrita: true),
-                  ],
-                ),
-              ),
-            ),
-            if (venta.estado == 'pendiente_pago') ...[
-              const SizedBox(height: AppSpacing.lg),
-              _AccionesPendiente(venta: venta),
-            ],
           ],
         ),
       ),
