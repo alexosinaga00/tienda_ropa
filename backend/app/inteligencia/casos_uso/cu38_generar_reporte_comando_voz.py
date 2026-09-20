@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.catalogo import politicas as catalogo_politicas
 from app.core.deps import DIAS_PERIODO_POR_DEFECTO, ParametrosPeriodo
 from app.inteligencia.groq_cliente import obtener_parser_reporte_voz
+from app.inteligencia.politicas import redactar_respuesta_reporte
 from app.inteligencia.schemas import TIPOS_REPORTE_VALIDOS, ReporteVozRespuesta
 from app.organizacion import politicas as organizacion_politicas
 from app.reportes.casos_uso.cu33_consultar_reportes_ventas_inventario import ConsultarReportesVentasInventario
@@ -35,9 +36,10 @@ class GenerarReporteComandoVoz:
         en el router, no acá)."""
         filtros_voz = obtener_parser_reporte_voz().parsear(texto)
 
-        tipo_reporte = "dashboard"
-        if filtros_voz is not None and filtros_voz.tipo_reporte in TIPOS_REPORTE_VALIDOS:
-            tipo_reporte = filtros_voz.tipo_reporte
+        # Sin interpretación válida (Groq falló, sin API key o tipo desconocido)
+        # se muestra el dashboard y la respuesta lo avisa.
+        entendida = filtros_voz is not None and filtros_voz.tipo_reporte in TIPOS_REPORTE_VALIDOS
+        tipo_reporte = filtros_voz.tipo_reporte if entendida else "dashboard"
 
         hasta = filtros_voz.hasta if filtros_voz and filtros_voz.hasta else dt.date.today()
         desde = (
@@ -76,7 +78,25 @@ class GenerarReporteComandoVoz:
             "categoria_id": categoria_id,
             "canal": canal,
         }
+        # Nombres para la frase: el de la sucursal aplicada (puede ser la propia
+        # del encargado, no la que dictó) y la categoría tal como se dictó, solo
+        # si se resolvió a un id.
+        sucursal_nombre = (
+            organizacion_politicas.obtener_sucursal(db, sucursal_id).nombre if sucursal_id is not None else None
+        )
+        categoria_nombre = filtros_voz.categoria if filtros_voz and categoria_id is not None else None
+        respuesta = redactar_respuesta_reporte(
+            tipo_reporte=tipo_reporte,
+            entendida=entendida,
+            desde=periodo.desde,
+            hasta=periodo.hasta,
+            sucursal=sucursal_nombre,
+            categoria=categoria_nombre,
+            canal=canal,
+            resultado=resultado,
+        )
         return ReporteVozRespuesta(
+            respuesta=respuesta,
             tipo_reporte=tipo_reporte,
             filtros_aplicados=filtros_aplicados,
             resultado=resultado.model_dump(mode="json"),

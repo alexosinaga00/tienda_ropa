@@ -126,6 +126,8 @@ class FiltrosReporteVoz(BaseModel):
 
 
 class ReporteVozRespuesta(BaseModel):
+    # La pregunta contestada en español, con las cifras del reporte.
+    respuesta: str
     tipo_reporte: str
     filtros_aplicados: dict
     resultado: dict
