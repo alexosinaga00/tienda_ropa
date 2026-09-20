@@ -373,3 +373,94 @@ def test_consultar_un_envio_por_id_y_por_venta(client, admin_headers, cliente_he
     assert client.get(f"/api/v1/envios/{envio['id']}", headers=otro).status_code == 403
     assert client.get(f"/api/v1/envios/venta/{envio['venta_id']}", headers=otro).status_code == 403
     assert client.get("/api/v1/envios/99999", headers=admin_headers).status_code == 404
+
+
+# ---- aviso al cliente cuando cambia el estado del envío -----------------------------------
+
+
+def _notificaciones(client, headers):
+    return client.get("/api/v1/notificaciones", headers=headers).json()
+
+
+def _codigo_de_venta(client, headers, venta_id):
+    return client.get(f"/api/v1/ventas/{venta_id}/comprobante", headers=headers).json()["codigo"]
+
+
+def test_cada_estado_del_envio_le_avisa_al_cliente(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    codigo = _codigo_de_venta(client, cliente_headers, envio["venta_id"])
+    assert _notificaciones(client, cliente_headers) == []
+
+    assert _cambiar_estado(client, admin_headers, envio["id"], "en_ruta").status_code == 200
+    (en_camino,) = _notificaciones(client, cliente_headers)
+    assert en_camino["titulo"] == "Tu pedido está en camino"
+    assert codigo in en_camino["mensaje"]
+    assert en_camino["tipo"] == "envio"
+    assert en_camino["referencia_id"] == envio["venta_id"]  # la app abre la compra con este id
+    assert en_camino["leida"] is False
+
+    assert _cambiar_estado(client, admin_headers, envio["id"], "entregado").status_code == 200
+    titulos = [n["titulo"] for n in _notificaciones(client, cliente_headers)]
+    assert titulos == ["Tu pedido fue entregado", "Tu pedido está en camino"]  # la más reciente primero
+
+
+def test_un_envio_fallido_tambien_le_avisa_al_cliente(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+
+    assert _cambiar_estado(client, admin_headers, envio["id"], "fallido").status_code == 200
+
+    (aviso,) = _notificaciones(client, cliente_headers)
+    assert aviso["titulo"] == "No pudimos entregar tu pedido"
+    assert aviso["tipo"] == "envio"
+    assert aviso["referencia_id"] == envio["venta_id"]
+
+
+def test_el_aviso_del_envio_es_solo_del_dueno_de_la_compra(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    client.post(
+        "/api/v1/auth/registro",
+        json={"nombre": "Otro", "apellido": "Cliente", "email": "otro.aviso@example.com", "password": "claveSegura123"},
+    )
+    token = client.post("/api/v1/auth/login", json={"email": "otro.aviso@example.com", "password": "claveSegura123"})
+    otro = {"Authorization": f"Bearer {token.json()['access_token']}"}
+
+    _cambiar_estado(client, admin_headers, envio["id"], "en_ruta")
+
+    assert len(_notificaciones(client, cliente_headers)) == 1
+    assert _notificaciones(client, otro) == []
+    assert _notificaciones(client, admin_headers) == []  # el personal no recibe el aviso del cliente
+
+
+def test_un_cambio_rechazado_no_deja_ningun_aviso(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+
+    # Venta sin pagar: no se puede despachar (409), y el cliente no debe recibir "en camino".
+    assert _cambiar_estado(client, admin_headers, envio["id"], "en_ruta").status_code == 409
+    # Salto de estado inválido (409).
+    assert _cambiar_estado(client, admin_headers, envio["id"], "entregado").status_code == 409
+
+    assert _notificaciones(client, cliente_headers) == []
+
+
+def test_marcar_como_leida_la_notificacion_del_envio(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    _cambiar_estado(client, admin_headers, envio["id"], "en_ruta")
+    (aviso,) = _notificaciones(client, cliente_headers)
+
+    marcada = client.put(f"/api/v1/notificaciones/{aviso['id']}/leida", headers=cliente_headers)
+
+    assert marcada.status_code == 200
+    assert marcada.json()["leida"] is True
+    assert _notificaciones(client, cliente_headers)[0]["leida"] is True

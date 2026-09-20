@@ -30,7 +30,9 @@ class NotificacionRepository:
             db.scalars(
                 select(Notificacion)
                 .where(Notificacion.usuario_id == usuario_id)
-                .order_by(Notificacion.creado_en.desc())
+                # `id` desempata: dos avisos creados en el mismo instante (la misma transacción)
+                # comparten `creado_en` y sin esto su orden sería indeterminado.
+                .order_by(Notificacion.creado_en.desc(), Notificacion.id.desc())
             )
         )
 

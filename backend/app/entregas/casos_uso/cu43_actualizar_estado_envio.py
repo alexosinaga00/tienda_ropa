@@ -6,7 +6,9 @@ Precondición: el envío existe y su venta es de la sucursal del empleado
 tiene que estar pagada.
 Postcondición: el envío avanza desde programado hasta entregado o
 fallido. Al entregarse, la venta pasa a 'entregada' en la misma
-transacción; si falla, la venta no cambia (el personal decide después).
+transacción; si falla, la venta no cambia (el personal decide después). Al
+pasar a en ruta, entregado o fallido se le avisa al cliente con una notificación
+(tipo 'envio') en esa misma transacción.
 
 Caso de uso compuesto (entidad principal con operaciones relacionadas): además
 de actualizar el estado, expone las consultas de envíos que el personal y el
@@ -17,12 +19,14 @@ import datetime as dt
 
 from sqlalchemy.orm import Session
 
+from app.core import service as core_service
 from app.core.deps import ParametrosPaginacion
 from app.core.exceptions import ConflictoError, NoEncontradoError
 from app.entregas.models import Envio
 from app.entregas.repository import EnvioRepository
 from app.entregas.schemas import EnvioEstadoActualizar
 from app.organizacion import politicas as organizacion_politicas
+from app.seguridad import politicas as seguridad_politicas
 from app.ventas import politicas as ventas_politicas
 
 # programado -> en_ruta -> entregado | fallido. 'entregado' y 'fallido' son
@@ -37,6 +41,16 @@ _TRANSICIONES: dict[str, set[str]] = {
 # Estados que mueven mercadería: solo con la venta pagada. 'fallido' se
 # permite siempre, para poder cerrar el envío de una venta anulada.
 _ESTADOS_QUE_EXIGEN_VENTA_PAGADA = {"en_ruta", "entregado"}
+
+# Lo que se le avisa al cliente al cambiar el estado (título, mensaje con el código de la compra).
+_AVISOS_AL_CLIENTE: dict[str, tuple[str, str]] = {
+    "en_ruta": ("Tu pedido está en camino", "Tu compra {codigo} salió a reparto."),
+    "entregado": ("Tu pedido fue entregado", "Tu compra {codigo} ya llegó. ¡Gracias por comprar!"),
+    "fallido": (
+        "No pudimos entregar tu pedido",
+        "No se pudo entregar tu compra {codigo}. Comunicate con la sucursal.",
+    ),
+}
 
 
 class ActualizarEstadoEnvio:
@@ -72,9 +86,29 @@ class ActualizarEstadoEnvio:
             # Sin commit propio: envío y venta cambian en una sola transacción.
             ventas_politicas.marcar_venta_entregada(db, envio.venta_id, commit=False)
 
+        self._avisar_al_cliente(db, venta, datos.estado)
+
         db.commit()
         db.refresh(envio)
         return envio
+
+    def _avisar_al_cliente(self, db: Session, venta, estado: str) -> None:
+        """Notificación para el dueño de la compra, dentro de la misma transacción del cambio de
+        estado (`commit=False`): si algo falla, no queda ni el cambio ni el aviso."""
+        aviso = _AVISOS_AL_CLIENTE.get(estado)
+        if aviso is None or venta.cliente_id is None:
+            return  # las ventas presenciales no tienen cliente al que avisar
+        cliente = seguridad_politicas.obtener_cliente(db, venta.cliente_id)
+        titulo, mensaje = aviso
+        core_service.crear_notificacion(
+            db,
+            cliente.usuario_id,
+            titulo,
+            mensaje.format(codigo=venta.codigo),
+            tipo="envio",
+            referencia_id=venta.id,
+            commit=False,
+        )
 
     def listar(
         self,
