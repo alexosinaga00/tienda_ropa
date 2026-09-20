@@ -9,7 +9,8 @@ import '../state/carrito_controller.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
 
-const _metodos = {'libelula': 'Libélula', 'paypal': 'PayPal', 'qr_online': 'QR'};
+// QR primero y por defecto: Libélula es un simulador que nunca confirma el pago (ver backend/app/pagos/pasarela.py).
+const _metodos = {'qr_online': 'QR', 'paypal': 'PayPal', 'libelula': 'Libélula'};
 
 class PagoScreen extends ConsumerStatefulWidget {
   const PagoScreen({super.key});
@@ -19,7 +20,7 @@ class PagoScreen extends ConsumerStatefulWidget {
 }
 
 class _PagoScreenState extends ConsumerState<PagoScreen> {
-  String _metodo = 'libelula';
+  String _metodo = 'qr_online';
   bool _procesando = false;
 
   Future<void> _pagar() async {

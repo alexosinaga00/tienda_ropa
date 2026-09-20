@@ -190,14 +190,14 @@ class _AccionesPendienteState extends ConsumerState<_AccionesPendiente> {
               child: Text('¿Con qué querés pagar?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             ),
             ListTile(
-              leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: const Text('PayPal'),
-              onTap: () => Navigator.pop(context, 'paypal'),
-            ),
-            ListTile(
               leading: const Icon(Icons.qr_code_2),
               title: const Text('QR'),
               onTap: () => Navigator.pop(context, 'qr_online'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet_outlined),
+              title: const Text('PayPal'),
+              onTap: () => Navigator.pop(context, 'paypal'),
             ),
             ListTile(
               leading: const Icon(Icons.account_balance_outlined),

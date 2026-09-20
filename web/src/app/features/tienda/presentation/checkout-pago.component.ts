@@ -10,10 +10,11 @@ import { PagosService } from '../data/pagos.service';
 import { PedidosService } from '../data/pedidos.service';
 import { CheckoutService } from '../state/checkout.service';
 
+// QR primero y por defecto: Libélula es un simulador que nunca confirma el pago (ver backend/app/pagos/pasarela.py).
 const METODOS: { codigo: MetodoPagoPasarela; etiqueta: string }[] = [
-  { codigo: 'libelula', etiqueta: 'Libélula' },
-  { codigo: 'paypal', etiqueta: 'PayPal' },
   { codigo: 'qr_online', etiqueta: 'QR' },
+  { codigo: 'paypal', etiqueta: 'PayPal' },
+  { codigo: 'libelula', etiqueta: 'Libélula' },
 ];
 
 @Component({
@@ -32,7 +33,7 @@ export class CheckoutPagoComponent {
   private readonly router = inject(Router);
 
   protected readonly metodos = METODOS;
-  protected readonly metodo = signal<MetodoPagoPasarela>('libelula');
+  protected readonly metodo = signal<MetodoPagoPasarela>('qr_online');
   protected readonly procesando = signal(false);
   protected readonly error = signal<string | null>(null);
 
