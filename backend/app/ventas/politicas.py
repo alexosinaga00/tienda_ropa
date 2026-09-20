@@ -21,7 +21,8 @@ entera):
 
 confirmar_venta()/anular_venta() las dispara `pagos` (CU-29/CU-30/CU-31)
 al aprobar o rechazar el pago: ninguna de las dos es un caso de uso propio
-del catálogo. El resto de este archivo son consultas que otros paquetes
+del catálogo. marcar_venta_entregada() la dispara `entregas` (CU-43) cuando
+el envío llega a 'entregado'. El resto de este archivo son consultas que otros paquetes
 (`pagos`, `entregas`, `inteligencia`, `reportes`) necesitan sin tocar las
 tablas de ventas directamente.
 """
@@ -51,6 +52,8 @@ from app.ventas.repository import CarritoRepository, EstadoVentaRepository, Prom
 PERMISO_STAFF = "ventas.gestionar_sucursal"
 
 if TYPE_CHECKING:
+    from sqlalchemy import Select
+
     from app.catalogo.models import ProductoVariante
 
 estado_repo = EstadoVentaRepository()
@@ -301,6 +304,29 @@ def anular_venta(db: Session, venta_id: int, *, commit: bool = True, restaurar_c
     return venta
 
 
+def marcar_venta_entregada(db: Session, venta_id: int, *, commit: bool = True) -> Venta:
+    """Para que `entregas` (CU-43) cierre la venta cuando su envío llega a
+    'entregado'. Solo una venta 'pagada' puede entregarse; si ya estaba
+    'entregada' no hace nada (reintento inofensivo). Bloquea la fila igual
+    que confirmar_venta/anular_venta para serializar con ellas."""
+    venta = venta_repo.obtener_bloqueado(db, venta_id)
+    estado_actual = estado_repo.obtener(db, venta.estado_id)
+    if estado_actual.codigo == "entregada":
+        return venta
+    if estado_actual.codigo != "pagada":
+        raise DomainError(f"No se puede entregar una venta en estado '{estado_actual.codigo}'")
+
+    estado_entregada = estado_repo.obtener_por_codigo(db, "entregada")
+    venta.estado_id = estado_entregada.id
+
+    if commit:
+        db.commit()
+        db.refresh(venta)
+    else:
+        db.flush()
+    return venta
+
+
 def _restaurar_carrito(db: Session, venta: Venta) -> None:
     carrito = carrito_repo.obtener_o_crear(db, venta.cliente_id)
     for linea_venta in venta.detalle:
@@ -329,6 +355,13 @@ def listar_ventas_pendientes_vencidas(db: Session, minutos: int) -> list[int]:
     return list(
         db.scalars(select(Venta.id).where(Venta.estado_id == estado.id, Venta.fecha < limite).order_by(Venta.id))
     )
+
+
+def subconsulta_ventas_de_sucursal(sucursal_id: int) -> Select[tuple[int]]:
+    """Para que `entregas` (CU-43) filtre sus envíos por sucursal con
+    `Envio.venta_id.in_(...)` sin nombrar la tabla `venta`: la consulta se
+    arma acá, en su paquete."""
+    return select(Venta.id).where(Venta.sucursal_id == sucursal_id)
 
 
 def obtener_venta(db: Session, venta_id: int) -> Venta:

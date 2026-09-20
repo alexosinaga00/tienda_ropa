@@ -1,5 +1,8 @@
 import pytest
 
+from app.ventas.politicas import anular_venta, confirmar_venta
+from tests.conftest import crear_cajero, crear_staff
+
 
 @pytest.fixture()
 def zona_1er_anillo(client):
@@ -189,6 +192,19 @@ def _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anil
     ).json()
 
 
+def _pagar_venta(db_session, venta_id):
+    """Lo que hace `pagos` al aprobar el pago: la venta pasa a 'pagada'."""
+    confirmar_venta(db_session, venta_id)
+
+
+def _estado_venta(client, headers, venta_id):
+    return client.get(f"/api/v1/ventas/{venta_id}/comprobante", headers=headers).json()["estado"]
+
+
+def _cambiar_estado(client, headers, envio_id, estado, **extra):
+    return client.put(f"/api/v1/envios/{envio_id}/estado", json={"estado": estado, **extra}, headers=headers)
+
+
 def test_no_se_puede_saltar_directo_a_entregado(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
     envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
 
@@ -196,8 +212,11 @@ def test_no_se_puede_saltar_directo_a_entregado(client, admin_headers, cliente_h
     assert respuesta.status_code == 409
 
 
-def test_ciclo_completo_hasta_entregado(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+def test_ciclo_completo_hasta_entregado(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
     envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
 
     en_ruta = client.put(
         f"/api/v1/envios/{envio['id']}/estado",
@@ -217,3 +236,140 @@ def test_ciclo_completo_hasta_entregado(client, admin_headers, cliente_headers, 
     # 'entregado' es terminal
     otro = client.put(f"/api/v1/envios/{envio['id']}/estado", json={"estado": "en_ruta"}, headers=admin_headers)
     assert otro.status_code == 409
+
+
+def test_entregado_deja_la_venta_entregada(client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    assert _estado_venta(client, admin_headers, envio["venta_id"]) == "pagada"
+
+    assert _cambiar_estado(client, admin_headers, envio["id"], "en_ruta").status_code == 200
+    assert _estado_venta(client, admin_headers, envio["venta_id"]) == "pagada"  # en camino, todavía no llegó
+
+    assert _cambiar_estado(client, admin_headers, envio["id"], "entregado").status_code == 200
+    assert _estado_venta(client, admin_headers, envio["venta_id"]) == "entregada"
+
+
+def test_no_se_despacha_un_envio_de_una_venta_sin_pagar(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+
+    respuesta = _cambiar_estado(client, admin_headers, envio["id"], "en_ruta")
+    assert respuesta.status_code == 409
+    assert "pendiente_pago" in respuesta.json()["detail"]
+    assert client.get(f"/api/v1/envios/{envio['id']}", headers=admin_headers).json()["estado"] == "programado"
+
+
+def test_fallido_desde_en_ruta_no_toca_la_venta(client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    _cambiar_estado(client, admin_headers, envio["id"], "en_ruta")
+
+    respuesta = _cambiar_estado(client, admin_headers, envio["id"], "fallido")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "fallido"
+    assert respuesta.json()["fecha_entrega"] is None
+    assert _estado_venta(client, admin_headers, envio["venta_id"]) == "pagada"
+
+    # 'fallido' es terminal
+    assert _cambiar_estado(client, admin_headers, envio["id"], "en_ruta").status_code == 409
+    assert _cambiar_estado(client, admin_headers, envio["id"], "entregado").status_code == 409
+
+
+def test_fallido_desde_programado_y_con_la_venta_anulada(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    anular_venta(db_session, envio["venta_id"])
+
+    # Un envío de una venta anulada no se puede despachar, pero sí cerrar.
+    assert _cambiar_estado(client, admin_headers, envio["id"], "en_ruta").status_code == 409
+    respuesta = _cambiar_estado(client, admin_headers, envio["id"], "fallido")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "fallido"
+
+
+def test_actualizar_un_envio_inexistente_da_404(client, admin_headers):
+    assert _cambiar_estado(client, admin_headers, 99999, "en_ruta").status_code == 404
+
+
+def test_solo_el_personal_con_permiso_actualiza_envios(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    cajero = crear_cajero(client, admin_headers, db_session, sucursal_id=contexto["sucursal_id"])
+
+    assert _cambiar_estado(client, cliente_headers, envio["id"], "en_ruta").status_code == 403
+    assert _cambiar_estado(client, cajero, envio["id"], "en_ruta").status_code == 403  # sin entregas.gestionar
+    assert client.get("/api/v1/envios", headers=cliente_headers).status_code == 403
+
+
+def _otra_sucursal(client, admin_headers):
+    ciudad = client.post(
+        "/api/v1/ciudades", json={"nombre": "Cochabamba Entrega", "departamento": "Cochabamba"}, headers=admin_headers
+    ).json()
+    return client.post(
+        "/api/v1/sucursales",
+        json={"ciudad_id": ciudad["id"], "codigo": "SUC-ENT-B", "nombre": "Sucursal B", "direccion": "Av. 2"},
+        headers=admin_headers,
+    ).json()["id"]
+
+
+def _encargado(client, admin_headers, db_session, sucursal_id, email):
+    return crear_staff(
+        client, admin_headers, db_session, rol="encargado_sucursal", cargo="Encargado", sucursal_id=sucursal_id, email=email
+    )
+
+
+def test_el_encargado_solo_mueve_envios_de_su_sucursal(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    _pagar_venta(db_session, envio["venta_id"])
+    propio = _encargado(client, admin_headers, db_session, contexto["sucursal_id"], "enc.a@example.com")
+    ajeno = _encargado(client, admin_headers, db_session, _otra_sucursal(client, admin_headers), "enc.b@example.com")
+
+    assert _cambiar_estado(client, ajeno, envio["id"], "en_ruta").status_code == 403
+    assert _cambiar_estado(client, propio, envio["id"], "en_ruta", repartidor="Ana").status_code == 200
+    assert _cambiar_estado(client, propio, envio["id"], "entregado").status_code == 200
+
+
+def test_listar_envios_acotado_por_sucursal_y_por_estado(
+    client, db_session, admin_headers, cliente_headers, contexto, zona_1er_anillo
+):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+    propio = _encargado(client, admin_headers, db_session, contexto["sucursal_id"], "enc.a@example.com")
+    ajeno = _encargado(client, admin_headers, db_session, _otra_sucursal(client, admin_headers), "enc.b@example.com")
+
+    assert [e["id"] for e in client.get("/api/v1/envios", headers=propio).json()] == [envio["id"]]
+    assert client.get("/api/v1/envios", headers=ajeno).json() == []
+    # Pedir otra sucursal siendo de sucursal propia: 403, no un listado vacío.
+    assert client.get(f"/api/v1/envios?sucursal_id={contexto['sucursal_id']}", headers=ajeno).status_code == 403
+
+    # El administrador (alcance global) ve todo y puede filtrar.
+    assert [e["id"] for e in client.get("/api/v1/envios", headers=admin_headers).json()] == [envio["id"]]
+    por_sucursal = client.get(f"/api/v1/envios?sucursal_id={contexto['sucursal_id']}", headers=admin_headers)
+    assert [e["id"] for e in por_sucursal.json()] == [envio["id"]]
+    assert client.get("/api/v1/envios?estado=programado", headers=admin_headers).json() != []
+    assert client.get("/api/v1/envios?estado=en_ruta", headers=admin_headers).json() == []
+
+
+def test_consultar_un_envio_por_id_y_por_venta(client, admin_headers, cliente_headers, contexto, zona_1er_anillo):
+    envio = _crear_envio(client, admin_headers, cliente_headers, contexto, zona_1er_anillo)
+
+    for headers in (cliente_headers, admin_headers):
+        por_id = client.get(f"/api/v1/envios/{envio['id']}", headers=headers)
+        por_venta = client.get(f"/api/v1/envios/venta/{envio['venta_id']}", headers=headers)
+        assert por_id.status_code == 200 and por_venta.status_code == 200
+        assert por_id.json() == por_venta.json()
+        assert por_id.json()["estado"] == "programado"
+
+    client.post(
+        "/api/v1/auth/registro",
+        json={"nombre": "Otro", "apellido": "Cliente", "email": "otro@example.com", "password": "claveSegura123"},
+    )
+    token = client.post("/api/v1/auth/login", json={"email": "otro@example.com", "password": "claveSegura123"})
+    otro = {"Authorization": f"Bearer {token.json()['access_token']}"}
+    assert client.get(f"/api/v1/envios/{envio['id']}", headers=otro).status_code == 403
+    assert client.get(f"/api/v1/envios/venta/{envio['venta_id']}", headers=otro).status_code == 403
+    assert client.get("/api/v1/envios/99999", headers=admin_headers).status_code == 404

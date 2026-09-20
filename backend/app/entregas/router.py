@@ -16,6 +16,7 @@ from app.entregas.schemas import (
     EnvioCrear,
     EnvioEstadoActualizar,
     EnvioRespuesta,
+    EstadoEnvio,
     ZonaEnvioActualizar,
     ZonaEnvioCrear,
     ZonaEnvioRespuesta,
@@ -123,11 +124,34 @@ def crear_envio(
     return cu_solicitar_envio.crear_envio(db, usuario.id, datos)
 
 
+@envios_router.get("", response_model=list[EnvioRespuesta], dependencies=[gestionar_requerido])
+def listar_envios(
+    estado: EstadoEnvio | None = None,
+    sucursal_id: int | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    paginacion: ParametrosPaginacion = Depends(parametros_paginacion),
+) -> list[EnvioRespuesta]:
+    return cu_actualizar_estado.listar(db, usuario.id, paginacion, estado, sucursal_id)
+
+
+@envios_router.get("/venta/{venta_id}", response_model=EnvioRespuesta)
+def obtener_envio_de_venta(
+    venta_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> EnvioRespuesta:
+    return cu_actualizar_estado.obtener_por_venta(db, usuario.id, venta_id)
+
+
+@envios_router.get("/{envio_id}", response_model=EnvioRespuesta)
+def obtener_envio(envio_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> EnvioRespuesta:
+    return cu_actualizar_estado.obtener(db, usuario.id, envio_id)
+
+
 @envios_router.put("/{envio_id}/estado", response_model=EnvioRespuesta, dependencies=[gestionar_requerido])
 def actualizar_estado_envio(
     envio_id: int, datos: EnvioEstadoActualizar, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> EnvioRespuesta:
-    return cu_actualizar_estado.ejecutar(db, usuario.id, envio_id, datos)
+    return cu_actualizar_estado.actualizar_estado(db, usuario.id, envio_id, datos)
 
 
 routers = [zonas_router, direcciones_router, envios_router]

@@ -652,7 +652,7 @@ def seed_operacion(
         pasos = {"programado": [], "en_ruta": ["en_ruta"], "entregado": ["en_ruta", "entregado"],
                  "fallido": ["en_ruta", "fallido"]}[destino]
         for paso in pasos:
-            cu_actualizar_estado_envio.ejecutar(
+            cu_actualizar_estado_envio.actualizar_estado(
                 db, ctx.admin_usuario_id, envio_id, EnvioEstadoActualizar(estado=paso, repartidor=repartidores[i % 2])
             )
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core.crud_base import CRUDBase
+from app.core.deps import ParametrosPaginacion
 from app.core.exceptions import NoEncontradoError
 from app.entregas.models import DireccionCliente, Envio, ReglaTarifaEnvio, ZonaEnvio
 from app.entregas.schemas import (
@@ -58,6 +59,30 @@ class EnvioRepository:
         if envio is None:
             raise NoEncontradoError("Envío no encontrado")
         return envio
+
+    def obtener_bloqueado(self, db: Session, envio_id: int) -> Envio:
+        """Con la fila bloqueada: dos actualizaciones de estado simultáneas
+        del mismo envío se serializan en vez de pisarse."""
+        envio = db.scalar(select(Envio).where(Envio.id == envio_id).with_for_update())
+        if envio is None:
+            raise NoEncontradoError("Envío no encontrado")
+        return envio
+
+    def listar(
+        self,
+        db: Session,
+        paginacion: ParametrosPaginacion,
+        *,
+        estado: str | None = None,
+        ventas_de_sucursal: Select[tuple[int]] | None = None,
+    ) -> list[Envio]:
+        consulta = select(Envio)
+        if estado is not None:
+            consulta = consulta.where(Envio.estado == estado)
+        if ventas_de_sucursal is not None:
+            consulta = consulta.where(Envio.venta_id.in_(ventas_de_sucursal))
+        consulta = consulta.order_by(Envio.id.desc()).offset(paginacion.offset).limit(paginacion.tamanio)
+        return list(db.scalars(consulta))
 
     def obtener_por_venta(self, db: Session, venta_id: int) -> Envio | None:
         return db.scalar(select(Envio).where(Envio.venta_id == venta_id))

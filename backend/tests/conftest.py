@@ -121,22 +121,30 @@ def cliente_headers(client):
     return {"Authorization": f"Bearer {token}"}
 
 
-def crear_cajero(client, admin_headers, db_session, *, sucursal_id: int, email: str = "cajero@example.com"):
+def crear_staff(
+    client, admin_headers, db_session, *, rol: str, cargo: str, sucursal_id: int, email: str
+):
     """No es un fixture (necesita `sucursal_id`, que cada test arma
-    distinto): un helper que los tests de ventas llaman directo. Devuelve
-    los headers del cajero ya logueado, con su fila en `empleado`."""
+    distinto): un helper que los tests llaman directo. Devuelve los headers
+    del empleado ya logueado, con su rol y su fila en `empleado`."""
     usuario_repo = UsuarioRepository()
     usuario = usuario_repo.crear(
         db_session,
-        UsuarioCrear(nombre="Caja", apellido="Ero", email=email, password="claveSegura123"),
+        UsuarioCrear(nombre="Staff", apellido="Prueba", email=email, password="claveSegura123"),
     )
-    usuario_repo.asignar_roles(db_session, usuario, ["cajero"])
+    usuario_repo.asignar_roles(db_session, usuario, [rol])
 
     client.post(
         "/api/v1/empleados",
-        json={"usuario_id": usuario.id, "sucursal_id": sucursal_id, "cargo": "Cajero"},
+        json={"usuario_id": usuario.id, "sucursal_id": sucursal_id, "cargo": cargo},
         headers=admin_headers,
     )
 
     token = _login(client, email, "claveSegura123")
     return {"Authorization": f"Bearer {token}"}
+
+
+def crear_cajero(client, admin_headers, db_session, *, sucursal_id: int, email: str = "cajero@example.com"):
+    return crear_staff(
+        client, admin_headers, db_session, rol="cajero", cargo="Cajero", sucursal_id=sucursal_id, email=email
+    )
