@@ -91,6 +91,11 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
         actions: [
           if (autenticado) const BotonNotificaciones(),
           IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: 'Asistente',
+            onPressed: () => context.push('/asistente'),
+          ),
+          IconButton(
             icon: const Icon(Icons.accessibility_new_outlined),
             tooltip: 'Probador virtual',
             onPressed: () => context.push('/probador'),

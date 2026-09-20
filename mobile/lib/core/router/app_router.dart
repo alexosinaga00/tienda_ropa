@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
+import '../../features/asistente/presentation/asistente_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/recuperar_screen.dart';
 import '../../features/auth/presentation/registro_screen.dart';
@@ -35,10 +36,10 @@ final _refrescoDelRouterProvider = Provider<_RefrescoDelRouter>((ref) => _Refres
 
 bool _esRutaAuth(String ruta) => ruta == '/login' || ruta == '/registro' || ruta == '/recuperar' || ruta == '/restablecer';
 
-// El catálogo y el detalle de producto son públicos (igual que en el web,
-// que solo protege carrito/checkout/mis-compras/reservas con authGuard).
+// El catálogo, el detalle de producto y el asistente son públicos (igual que
+// en el web, que solo protege carrito/checkout/mis-compras/reservas con authGuard).
 // Todo lo demás cae en la rama "protegida" del redirect de abajo.
-bool _esRutaPublicaParaInvitado(String ruta) => ruta == '/home' || ruta.startsWith('/producto/');
+bool _esRutaPublicaParaInvitado(String ruta) => ruta == '/home' || ruta == '/asistente' || ruta.startsWith('/producto/');
 
 /// Un path parameter que debería ser numérico (id de producto/reserva/pago/
 /// compra) puede llegar mal formado desde un deep link, notificación push o
@@ -135,6 +136,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/favoritos', builder: (context, state) => const FavoritosScreen()),
       GoRoute(path: '/notificaciones', builder: (context, state) => const NotificacionesScreen()),
+      GoRoute(path: '/asistente', builder: (context, state) => const AsistenteScreen()),
       GoRoute(
         path: '/probador',
         // `?variante=ID`: la prenda elegida en el detalle o en el carrito; sin él (ícono del catálogo) abre como siempre.
