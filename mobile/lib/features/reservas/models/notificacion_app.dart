@@ -1,3 +1,5 @@
+import '../../../core/utils/fecha_servidor.dart';
+
 class NotificacionApp {
   const NotificacionApp({
     required this.id,
@@ -16,7 +18,7 @@ class NotificacionApp {
     tipo: json['tipo'] as String?,
     referenciaId: json['referencia_id'] as int?,
     leida: json['leida'] as bool,
-    creadoEn: DateTime.parse(json['creado_en'] as String),
+    creadoEn: fechaDelServidor(json['creado_en'] as String),
   );
 
   final int id;
@@ -26,4 +28,14 @@ class NotificacionApp {
   final int? referenciaId;
   final bool leida;
   final DateTime creadoEn;
+
+  NotificacionApp conLeida(bool valor) => NotificacionApp(
+    id: id,
+    titulo: titulo,
+    mensaje: mensaje,
+    tipo: tipo,
+    referenciaId: referenciaId,
+    leida: valor,
+    creadoEn: creadoEn,
+  );
 }

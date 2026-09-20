@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../notificaciones/state/notificaciones_controller.dart';
 import '../models/reserva.dart';
 import '../state/reservas_providers.dart';
 
@@ -56,23 +57,16 @@ class MisReservasScreen extends ConsumerWidget {
   }
 }
 
-class _BannerNotificaciones extends ConsumerStatefulWidget {
+class _BannerNotificaciones extends ConsumerWidget {
   const _BannerNotificaciones();
 
   @override
-  ConsumerState<_BannerNotificaciones> createState() => _BannerNotificacionesState();
-}
-
-class _BannerNotificacionesState extends ConsumerState<_BannerNotificaciones> {
-  final Set<int> _descartadas = {};
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final asyncNotificaciones = ref.watch(notificacionesProvider);
     return asyncNotificaciones.maybeWhen(
       data: (notificaciones) {
         final pendientes = notificaciones
-            .where((n) => n.tipo == 'reserva_preparada' && !n.leida && !_descartadas.contains(n.id))
+            .where((n) => n.tipo == 'reserva_preparada' && !n.leida)
             .toList();
         if (pendientes.isEmpty) return const SizedBox.shrink();
         return Column(
@@ -100,7 +94,7 @@ class _BannerNotificacionesState extends ConsumerState<_BannerNotificaciones> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, size: 18),
-                      onPressed: () => setState(() => _descartadas.add(notificacion.id)),
+                      onPressed: () => ref.read(notificacionesProvider.notifier).marcarLeida(notificacion.id),
                     ),
                   ],
                 ),

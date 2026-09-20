@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../compras/state/carrito_controller.dart';
+import '../../notificaciones/presentation/boton_notificaciones.dart';
 import '../../recomendador/presentation/carrusel_recomendaciones.dart';
 import '../../recomendador/state/recomendador_providers.dart';
 import '../../voz/presentation/voz_boton.dart';
@@ -88,6 +89,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
       appBar: AppBar(
         title: const Text('FashionStore'),
         actions: [
+          if (autenticado) const BotonNotificaciones(),
           IconButton(
             icon: const Icon(Icons.accessibility_new_outlined),
             tooltip: 'Probador virtual',

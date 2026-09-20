@@ -18,6 +18,7 @@ import '../../features/compras/presentation/estado_pago_screen.dart';
 import '../../features/compras/presentation/mis_compras_screen.dart';
 import '../../features/compras/presentation/pago_screen.dart';
 import '../../features/favoritos/presentation/favoritos_screen.dart';
+import '../../features/notificaciones/presentation/notificaciones_screen.dart';
 import '../../features/probador/presentation/probador_screen.dart';
 import '../../features/reservas/presentation/confirmar_reserva_screen.dart';
 import '../../features/reservas/presentation/mis_reservas_screen.dart';
@@ -133,6 +134,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/favoritos', builder: (context, state) => const FavoritosScreen()),
+      GoRoute(path: '/notificaciones', builder: (context, state) => const NotificacionesScreen()),
       GoRoute(
         path: '/probador',
         // `?variante=ID`: la prenda elegida en el detalle o en el carrito; sin él (ícono del catálogo) abre como siempre.

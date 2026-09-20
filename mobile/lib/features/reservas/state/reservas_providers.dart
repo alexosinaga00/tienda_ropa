@@ -8,7 +8,6 @@ import '../data/notificaciones_repository.dart';
 import '../data/reservas_repository.dart';
 import '../models/disponibilidad_sucursal.dart';
 import '../models/horario_sucursal.dart';
-import '../models/notificacion_app.dart';
 import '../models/reserva.dart';
 import 'carrito_reserva_controller.dart';
 
@@ -41,10 +40,6 @@ final disponibleTotalProvider = FutureProvider.autoDispose.family<int, int>((ref
   final lista = await ref.watch(disponibilidadPorVarianteProvider(varianteId).future);
   return lista.fold<int>(0, (total, d) => total + d.cantidadDisponible);
 });
-
-final notificacionesProvider = FutureProvider<List<NotificacionApp>>(
-  (ref) => ref.watch(notificacionesRepositoryProvider).listar(),
-);
 
 /// El punto que pide revisar el enunciado: de todas las sucursales, solo
 /// las que tienen disponible AL MENOS 1 unidad de CADA variante del
