@@ -15,6 +15,21 @@ bool _esRutaPublica(String path) {
   return _rutasPublicas.any((ruta) => path.contains(ruta));
 }
 
+/// Una URL ABSOLUTA que no apunta a nuestra API es de un tercero (Cloudinary,
+/// para el overlay del probador). `options.path` en ese caso es la URL
+/// entera, que no contiene ninguno de los prefijos de `_rutasPublicas`, así
+/// que sin esta comprobación `_esRutaPublica` devolvía false y el
+/// interceptor le adjuntaba el JWT del cliente a una petición dirigida a
+/// res.cloudinary.com. Mismo criterio que usa el interceptor de la web
+/// (auth.interceptor.ts: descarta lo que no empieza por environment.apiUrl).
+bool _esUrlExterna(String path) {
+  if (!path.startsWith('http://') && !path.startsWith('https://')) return false;
+  return !path.startsWith(ApiConfig.baseUrl);
+}
+
+/// Cuándo NO corresponde mandar el JWT ni intentar refrescar la sesión.
+bool _sinSesion(String path) => _esUrlExterna(path) || _esRutaPublica(path);
+
 /// Cliente Dio con JWT automático y refresh transparente en 401.
 ///
 /// [onSesionExpirada] se llama cuando el refresh también falla (el refresh
@@ -73,7 +88,7 @@ Dio buildDio({
   dio.interceptors.add(
     InterceptorsWrapper(
       onRequest: (options, handler) async {
-        if (!_esRutaPublica(options.path)) {
+        if (!_sinSesion(options.path)) {
           final token = await tokenStorage.leerAccessToken();
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -85,7 +100,10 @@ Dio buildDio({
         final esNoAutorizado = error.response?.statusCode == 401;
         final yaReintentado = error.requestOptions.extra['reintentado'] == true;
 
-        if (!esNoAutorizado || _esRutaPublica(error.requestOptions.path) || yaReintentado) {
+        // `_sinSesion` y no `_esRutaPublica`: si Cloudinary respondiera 401,
+        // esto intentaba refrescar el token y, al fallar, cerraba la sesión
+        // del cliente por un error de un tercero.
+        if (!esNoAutorizado || _sinSesion(error.requestOptions.path) || yaReintentado) {
           handler.next(error);
           return;
         }
