@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
+from app.core.rate_limit import limiter
 from app.main import app
 from app.abastecimiento import models as _abastecimiento_models  # noqa: F401  (registra las tablas)
 from app.catalogo import models as _catalogo_models  # noqa: F401  (registra las tablas)
@@ -37,6 +38,19 @@ from scripts.seed_pagos import seed as seed_pagos
 from scripts.seed_reservas import seed as seed_reservas
 from scripts.seed_seguridad import seed as seed_seguridad
 from scripts.seed_ventas import seed as seed_ventas
+
+
+@pytest.fixture(autouse=True)
+def _limpiar_limite_de_trafico():
+    """Todas las pruebas comparten la IP del cliente de pruebas, así que
+    comparten el balde del limiter: sin esto, las fixtures que hacen login
+    agotan el límite de /auth/login y el resto de la suite recibe 429 en vez
+    del token. Se resetea por prueba para que cada una arranque con el balde
+    vacío, sin desactivar el limiter (queda activo y se comporta como en
+    producción dentro de cada prueba)."""
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 @pytest.fixture()

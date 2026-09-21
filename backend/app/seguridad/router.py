@@ -49,14 +49,24 @@ cu_recuperar_contrasena = RecuperarContrasena()
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
+# `registro` y `login` son los dos endpoints públicos más atacables del
+# sistema (creación masiva de cuentas y fuerza bruta de contraseñas), y el
+# RNF02 pide límite de tráfico en los endpoints públicos. Agravante propio
+# de `login`: bcrypt hace cada intento caro en CPU, así que sin límite es
+# también un vector de agotamiento de recursos.
+# `request: Request` no se usa en el cuerpo pero es obligatorio: slowapi lo
+# necesita en la firma para resolver la IP del cliente (mismo motivo que en
+# `recuperar`, más abajo).
 @auth_router.post("/registro", response_model=UsuarioRespuesta, status_code=status.HTTP_201_CREATED)
-def registro(datos: RegistroRequest, db: Session = Depends(get_db)) -> UsuarioRespuesta:
+@limiter.limit("5/minute")
+def registro(request: Request, datos: RegistroRequest, db: Session = Depends(get_db)) -> UsuarioRespuesta:
     usuario = cu_registrar_cliente.registrar(db, datos)
     return UsuarioRespuesta.from_modelo(usuario)
 
 
 @auth_router.post("/login", response_model=TokenRespuesta)
-def login(datos: LoginRequest, db: Session = Depends(get_db)) -> TokenRespuesta:
+@limiter.limit("10/minute")
+def login(request: Request, datos: LoginRequest, db: Session = Depends(get_db)) -> TokenRespuesta:
     return cu_iniciar_sesion.ejecutar(db, datos)
 
 
