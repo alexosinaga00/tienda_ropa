@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:camera/camera.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -109,22 +110,80 @@ class _ModoEspejo extends ConsumerStatefulWidget {
 
 enum _EstadoPermiso { pidiendo, concedido, denegado, denegadoPermanente }
 
+/// Qué decirle a la persona cuando no hay una pose utilizable. Antes había
+/// un solo cartel, "Acércate a la cámara", para todas las causas: con este
+/// encuadre de medio cuerpo, en el caso más frecuente -estar demasiado
+/// cerca, con los hombros fuera de cuadro- el consejo era el contrario.
+/// `ninguna` es además el estado inicial: hasta la primera detección no se
+/// muestra nada, en vez de recibir a la persona con un cartel de error
+/// antes de que la cámara haya entregado un solo cuadro.
+enum _GuiaEncuadre {
+  ninguna(''),
+  sinPersona('No te veo. Ponete frente a la cámara, en un lugar con buena luz.'),
+  demasiadoCerca('Alejate un poco: tienen que verse los dos hombros.'),
+  dePerfil('Ponete de frente a la cámara.');
+
+  const _GuiaEncuadre(this.mensaje);
+
+  final String mensaje;
+}
+
+/// Lo único que cambia al ritmo de la detección: los dos hombros ya
+/// suavizados (en coordenadas del buffer de la cámara) y la geometría con
+/// la que `trasladarX`/`trasladarY` tienen que traducirlos al canvas.
+/// Viaja junto para que el painter no pueda quedarse con una mitad vieja.
+class _PoseOverlay {
+  const _PoseOverlay({
+    required this.hombroIzq,
+    required this.hombroDer,
+    required this.tamanioImagen,
+    required this.rotacion,
+  });
+
+  final Offset hombroIzq;
+  final Offset hombroDer;
+  final Size tamanioImagen;
+  final InputImageRotation rotacion;
+}
+
 class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObserver {
   final _detectorPose = PoseDetector(options: PoseDetectorOptions(mode: PoseDetectionMode.stream));
   final _repaintKey = GlobalKey();
 
-  static const _umbralLikelihood = 0.6;
-  static const _factorSuavizado = 0.3;
+  // Histéresis: enganchar la pose cuesta más que quedarse enganchado. Con
+  // un umbral único, un solo cuadro flojo (un brazo que cruza por delante,
+  // un parpadeo de luz) bastaba para esconder la prenda y reiniciar el
+  // suavizado: de ahí salía el parpadeo, y después ~6 detecciones más para
+  // volver a enganchar.
+  static const _umbralEntrada = 0.6;
+  static const _umbralSalida = 0.45;
+
+  /// Cuánto se retiene la última pose buena antes de soltar la prenda.
+  static const _retencion = Duration(milliseconds: 300);
+
+  /// Media móvil exponencial por detección. Estaba en 0.3: tras 6
+  /// detecciones todavía faltaba un 12% del recorrido, que a 10-15 fps son
+  /// 0,4-0,6 s de retraso visible. Con 0.5 baja a ~0,2 s.
+  static const _factorSuavizado = 0.5;
+
+  /// Ancho máximo al que se decodifica el overlay. Ver `_elegirPrenda`.
+  static const _anchoMaximoOverlay = 1280;
 
   CameraController? _controller;
   CameraDescription? _camaraFrontal;
   _EstadoPermiso _estadoPermiso = _EstadoPermiso.pidiendo;
   bool _procesandoFrame = false;
+  bool _iniciandoCamara = false;
   String? _errorCamara;
 
-  Size? _tamanioImagenCamara;
-  InputImageRotation _rotacion = InputImageRotation.rotation0deg;
-  bool _poseValida = false;
+  /// Lo único que cambia al ritmo de la detección. Va en un `ValueNotifier`
+  /// -y no en el `State`- para que cada detección repinte SOLO el overlay:
+  /// antes, el `setState` de `_detectar` reconstruía la vista previa, el
+  /// selector de prendas y el botón de captura 10-15 veces por segundo.
+  final _poseOverlay = ValueNotifier<_PoseOverlay?>(null);
+  var _guia = _GuiaEncuadre.ninguna;
+  bool _hayPose = false;
+  DateTime? _ultimaPoseValida;
   // Coordenadas suavizadas de los hombros, en el sistema de coordenadas
   // del buffer de la cámara (antes de trasladarX/Y): la suavización va acá
   // porque ese sistema no cambia de tamaño entre frames, a diferencia del
@@ -147,13 +206,24 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState estado) {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
     if (estado == AppLifecycleState.inactive || estado == AppLifecycleState.paused) {
+      final controller = _controller;
+      if (controller == null || !controller.value.isInitialized) return;
       controller.dispose();
       _controller = null;
+      // Sin este setState la pantalla se queda con el último cuadro
+      // congelado hasta que algo más la reconstruya.
+      if (mounted) setState(() {});
     } else if (estado == AppLifecycleState.resumed) {
-      _iniciarCamara();
+      // OJO: la guarda de `_controller == null` NO puede ir al principio
+      // del método. Al pausar dejamos `_controller` en null, así que esa
+      // guarda hacía que este `resumed` no se ejecutara NUNCA: la cámara no
+      // volvía y la pantalla quedaba en el spinner para siempre. Pasaba al
+      // salir y volver a la app, y también al aceptar el permiso de galería
+      // que pide el botón de captura.
+      if (_controller == null && _estadoPermiso == _EstadoPermiso.concedido) {
+        _iniciarCamara();
+      }
     }
   }
 
@@ -171,6 +241,11 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
   }
 
   Future<void> _iniciarCamara() async {
+    // Dos arranques solapados dejan una cámara huérfana y la pantalla
+    // colgada: puede pasar con un inactive/resumed rápido, o tocando dos
+    // veces "Reintentar".
+    if (_iniciandoCamara) return;
+    _iniciandoCamara = true;
     if (mounted) setState(() => _errorCamara = null);
     try {
       final camaras = await availableCameras();
@@ -207,6 +282,8 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
       setState(
         () => _errorCamara = 'No se pudo iniciar la cámara. Cerrá otras apps que puedan estar usándola e intentá de nuevo.',
       );
+    } finally {
+      _iniciandoCamara = false;
     }
   }
 
@@ -222,29 +299,79 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
     final poses = await _detectorPose.processImage(inputImage);
     if (!mounted) return;
 
+    final metadata = inputImage.metadata!;
     final pose = poses.isNotEmpty ? poses.first : null;
     final hombroIzq = pose?.landmarks[PoseLandmarkType.leftShoulder];
     final hombroDer = pose?.landmarks[PoseLandmarkType.rightShoulder];
+    // Umbral asimétrico: 0.6 para enganchar, 0.45 para soltar.
+    final umbral = _hayPose ? _umbralSalida : _umbralEntrada;
     final valido =
-        hombroIzq != null &&
-        hombroDer != null &&
-        hombroIzq.likelihood >= _umbralLikelihood &&
-        hombroDer.likelihood >= _umbralLikelihood;
+        hombroIzq != null && hombroDer != null && hombroIzq.likelihood >= umbral && hombroDer.likelihood >= umbral;
 
-    setState(() {
-      _tamanioImagenCamara = inputImage.metadata!.size;
-      _rotacion = inputImage.metadata!.rotation;
-      _poseValida = valido;
-      if (valido) {
-        _hombroIzqSuavizado = _suavizar(_hombroIzqSuavizado, Offset(hombroIzq.x, hombroIzq.y));
-        _hombroDerSuavizado = _suavizar(_hombroDerSuavizado, Offset(hombroDer.x, hombroDer.y));
-      } else {
-        // Se reinicia (no se congela) para que, cuando vuelva a detectarse
-        // una pose válida, no arranque suavizando desde una posición vieja.
-        _hombroIzqSuavizado = null;
-        _hombroDerSuavizado = null;
-      }
-    });
+    if (valido) {
+      _hombroIzqSuavizado = _suavizar(_hombroIzqSuavizado, Offset(hombroIzq.x, hombroIzq.y));
+      _hombroDerSuavizado = _suavizar(_hombroDerSuavizado, Offset(hombroDer.x, hombroDer.y));
+      _hayPose = true;
+      _ultimaPoseValida = DateTime.now();
+      // Sin setState: el ValueNotifier repinta el overlay y nada más.
+      _poseOverlay.value = _PoseOverlay(
+        hombroIzq: _hombroIzqSuavizado!,
+        hombroDer: _hombroDerSuavizado!,
+        tamanioImagen: metadata.size,
+        rotacion: metadata.rotation,
+      );
+      _mostrarGuia(_GuiaEncuadre.ninguna);
+      return;
+    }
+
+    if (_hayPose) {
+      // Retención: la prenda no se suelta al primer cuadro malo, se queda
+      // donde estaba. Recién al pasar `_retencion` desaparece.
+      final ultima = _ultimaPoseValida;
+      if (ultima != null && DateTime.now().difference(ultima) < _retencion) return;
+      _hayPose = false;
+      // El suavizado se reinicia (no se congela) para que, cuando vuelva a
+      // detectarse una pose válida, no arranque desde una posición vieja.
+      _hombroIzqSuavizado = null;
+      _hombroDerSuavizado = null;
+      _poseOverlay.value = null;
+    }
+    _mostrarGuia(_evaluarEncuadre(pose, hombroIzq, hombroDer, metadata));
+  }
+
+  /// Qué guía mostrar cuando no hay una pose utilizable.
+  _GuiaEncuadre _evaluarEncuadre(
+    Pose? pose,
+    PoseLandmark? hombroIzq,
+    PoseLandmark? hombroDer,
+    InputImageMetadata metadata,
+  ) {
+    if (pose == null || hombroIzq == null || hombroDer == null) return _GuiaEncuadre.sinPersona;
+
+    // ML Kit devuelve SIEMPRE los 33 landmarks cuando encuentra una pose:
+    // los que no ve, los extrapola (por eso no alcanza con mirar si el
+    // landmark existe). Que la posición extrapolada caiga fuera del cuadro
+    // es justamente la señal de "estás demasiado cerca"; dentro del cuadro
+    // pero con poca confianza es, casi siempre, estar de perfil.
+    // Las dimensiones van en el marco YA ROTADO, igual que las coordenadas
+    // que devuelve ML Kit: misma convención que trasladarX/trasladarY.
+    final vertical =
+        metadata.rotation == InputImageRotation.rotation90deg ||
+        metadata.rotation == InputImageRotation.rotation270deg;
+    final rotado = vertical && !Platform.isIOS;
+    final ancho = rotado ? metadata.size.height : metadata.size.width;
+    final alto = rotado ? metadata.size.width : metadata.size.height;
+    bool fuera(PoseLandmark l) => l.x < 0 || l.y < 0 || l.x > ancho || l.y > alto;
+
+    if (fuera(hombroIzq) || fuera(hombroDer)) return _GuiaEncuadre.demasiadoCerca;
+    return _GuiaEncuadre.dePerfil;
+  }
+
+  /// El cartel es de los pocos cambios que sí necesitan reconstruir, pero
+  /// solo cuando cambia de estado: no una vez por detección.
+  void _mostrarGuia(_GuiaEncuadre guia) {
+    if (guia == _guia || !mounted) return;
+    setState(() => _guia = guia);
   }
 
   Offset _suavizar(Offset? anterior, Offset nuevo) {
@@ -309,7 +436,17 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
     setState(() => _cargandoImagen = true);
     try {
       final bytes = await ref.read(probadorRepositoryProvider).obtenerImagenOverlay(prenda.assets.overlay);
-      final codec = await ui.instantiateImageCodec(bytes);
+      // El backend acepta PNG de hasta 3MB sin redimensionar (CU-21), así
+      // que un overlay puede venir de 2000px de ancho: son ~20MB de textura
+      // que después hay que minificar en CADA repintado. Se decodifica a un
+      // ancho acotado. No cambia en nada cómo queda puesta la prenda: los
+      // anclajes son fracciones 0..1 y el painter escala contra el tamaño
+      // de la imagen ya decodificada, no contra el ancho_px del backend.
+      final anchoOriginal = prenda.assets.overlay.anchoPx ?? 0;
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: anchoOriginal > _anchoMaximoOverlay ? _anchoMaximoOverlay : null,
+      );
       final frame = await codec.getNextFrame();
       if (!mounted) return;
       setState(() {
@@ -362,6 +499,7 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _poseOverlay.dispose();
     _controller?.dispose();
     _detectorPose.close();
     super.dispose();
@@ -416,21 +554,22 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
               child: Center(
                 child: CameraPreview(
                   controller,
-                  child: CustomPaint(
-                    painter: _OverlayPainter(
-                      imagenPrenda: _imagenPrenda,
-                      activo: _prendaActual?.assets.overlay,
-                      hombroIzqImg: _poseValida ? _hombroIzqSuavizado : null,
-                      hombroDerImg: _poseValida ? _hombroDerSuavizado : null,
-                      tamanioImagen: _tamanioImagenCamara,
-                      rotacion: _rotacion,
-                      direccionLente: _camaraFrontal?.lensDirection ?? CameraLensDirection.front,
+                  // RepaintBoundary propio: el overlay se repinta a su
+                  // ritmo sin arrastrar la capa de la vista previa.
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: _OverlayPainter(
+                        imagenPrenda: _imagenPrenda,
+                        activo: _prendaActual?.assets.overlay,
+                        pose: _poseOverlay,
+                        direccionLente: _camaraFrontal?.lensDirection ?? CameraLensDirection.front,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-            if (!_poseValida) _mensajeAcercate(),
+            if (_guia != _GuiaEncuadre.ninguna) _mensajeGuia(_guia.mensaje),
             asyncPrendas.when(
               data: (prendas) => prendas.isEmpty ? _mensajeSinPrendas() : _selectorPrendas(prendas),
               loading: () => const SizedBox.shrink(),
@@ -460,7 +599,7 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
     );
   }
 
-  Widget _mensajeAcercate() {
+  Widget _mensajeGuia(String texto) {
     return Positioned(
       top: AppSpacing.xl,
       left: AppSpacing.md,
@@ -468,7 +607,7 @@ class _ModoEspejoState extends ConsumerState<_ModoEspejo> with WidgetsBindingObs
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.sm),
         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(AppRadius.base)),
-        child: const Text('Acércate a la cámara', textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
+        child: Text(texto, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
       ),
     );
   }
@@ -1049,19 +1188,17 @@ class _OverlayPainter extends CustomPainter {
   _OverlayPainter({
     required this.imagenPrenda,
     required this.activo,
-    required this.hombroIzqImg,
-    required this.hombroDerImg,
-    required this.tamanioImagen,
-    required this.rotacion,
+    required this.pose,
     required this.direccionLente,
-  });
+  }) : super(repaint: pose);
 
   final ui.Image? imagenPrenda;
   final ActivoProbador? activo;
-  final Offset? hombroIzqImg;
-  final Offset? hombroDerImg;
-  final Size? tamanioImagen;
-  final InputImageRotation rotacion;
+
+  /// La pose ya suavizada, como `Listenable`: al pasarla por `repaint:`,
+  /// una detección nueva repinta este painter sin reconstruir un solo
+  /// widget. Por eso `_detectar` ya no llama a setState.
+  final ValueListenable<_PoseOverlay?> pose;
   final CameraLensDirection direccionLente;
 
   // Factor de ajuste entre el ancho detectado de hombros y el ancho total
@@ -1073,39 +1210,34 @@ class _OverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final imagen = imagenPrenda;
     final anclajes = activo?.anclajes;
-    final anchoAssetPx = activo?.anchoPx;
-    final altoAssetPx = activo?.altoPx;
-    final izqImg = hombroIzqImg;
-    final derImg = hombroDerImg;
-    final tamanioImg = tamanioImagen;
+    final p = pose.value;
 
-    if (imagen == null ||
-        anclajes == null ||
-        anchoAssetPx == null ||
-        altoAssetPx == null ||
-        anchoAssetPx <= 0 ||
-        altoAssetPx <= 0 ||
-        izqImg == null ||
-        derImg == null ||
-        tamanioImg == null) {
-      return;
-    }
+    if (imagen == null || anclajes == null || p == null) return;
+
+    // El tamaño del asset sale de la imagen REALMENTE decodificada, no de
+    // ancho_px/alto_px del backend. Como los anclajes son fracciones 0..1,
+    // la transformación es invariante a la escala de decodificación (la
+    // escala y anclaMedioPx se compensan exactamente), así que decodificar
+    // más chico en `_elegirPrenda` no mueve ni achica la prenda. Con el
+    // ancho_px del backend, en cambio, la achicaría por ese mismo factor.
+    final anchoAssetPx = imagen.width.toDouble();
+    final altoAssetPx = imagen.height.toDouble();
 
     final pIzq = Offset(
-      trasladarX(izqImg.dx, size, tamanioImg, rotacion, direccionLente),
-      trasladarY(izqImg.dy, size, tamanioImg, rotacion, direccionLente),
+      trasladarX(p.hombroIzq.dx, size, p.tamanioImagen, p.rotacion, direccionLente),
+      trasladarY(p.hombroIzq.dy, size, p.tamanioImagen, p.rotacion, direccionLente),
     );
     final pDer = Offset(
-      trasladarX(derImg.dx, size, tamanioImg, rotacion, direccionLente),
-      trasladarY(derImg.dy, size, tamanioImg, rotacion, direccionLente),
+      trasladarX(p.hombroDer.dx, size, p.tamanioImagen, p.rotacion, direccionLente),
+      trasladarY(p.hombroDer.dy, size, p.tamanioImagen, p.rotacion, direccionLente),
     );
 
     final transform = calcularTransformOverlay(
       pIzq: pIzq,
       pDer: pDer,
       anclajes: anclajes,
-      anchoAssetPx: anchoAssetPx.toDouble(),
-      altoAssetPx: altoAssetPx.toDouble(),
+      anchoAssetPx: anchoAssetPx,
+      altoAssetPx: altoAssetPx,
       factorAncho: _factorAncho,
     );
     if (transform == null) return;
@@ -1119,15 +1251,26 @@ class _OverlayPainter extends CustomPainter {
     // negativa, la prenda gira/escala alrededor de su esquina superior
     // izquierda y termina corrida en vez de centrada en el cuerpo.
     canvas.translate(-transform.anclaMedioPx.dx, -transform.anclaMedioPx.dy);
-    canvas.drawImage(imagen, Offset.zero, Paint()..filterQuality = FilterQuality.high);
+    // `medium` y no `high`: acá siempre se MINIFICA (el overlay decodificado
+    // es más grande que lo que ocupa en pantalla), y para minificar el
+    // muestreo con mipmaps de `medium` es más barato que el cúbico de
+    // `high` sin verse peor.
+    canvas.drawImage(imagen, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _OverlayPainter oldDelegate) {
+    // `pose` va por `repaint:`, así que el movimiento de los hombros -y con
+    // él el tamaño de imagen y la rotación, que ahora viajan adentro- ya
+    // dispara el repintado por su cuenta. Acá quedan las entradas que solo
+    // cambian al reconstruir el widget: antes faltaban `activo` y
+    // `direccionLente`, y el bug estaba tapado porque el setState global
+    // repintaba todo igual.
     return oldDelegate.imagenPrenda != imagenPrenda ||
-        oldDelegate.hombroIzqImg != hombroIzqImg ||
-        oldDelegate.hombroDerImg != hombroDerImg;
+        oldDelegate.activo != activo ||
+        oldDelegate.direccionLente != direccionLente ||
+        oldDelegate.pose != pose;
   }
 }
 
