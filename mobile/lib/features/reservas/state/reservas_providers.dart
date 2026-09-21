@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../catalogo/models/referencia.dart';
 import '../../catalogo/state/catalogo_providers.dart';
 import '../data/disponibilidad_repository.dart';
@@ -65,15 +66,18 @@ final sucursalesDisponiblesProvider = FutureProvider<List<SucursalRef>>((ref) as
 });
 
 class MisReservasController extends StateNotifier<AsyncValue<List<Reserva>>> {
-  MisReservasController(this._ref) : super(const AsyncValue.loading()) {
-    cargar();
+  MisReservasController(this._ref, {required this.activo})
+    : super(activo ? const AsyncValue.loading() : const AsyncValue.data([])) {
+    if (activo) cargar();
   }
 
   final Ref _ref;
+  final bool activo;
 
   ReservasRepository get _repo => _ref.read(reservasRepositoryProvider);
 
   Future<void> cargar() async {
+    if (!activo) return;
     state = const AsyncValue.loading();
     try {
       state = AsyncValue.data(await _repo.misReservas());
@@ -88,6 +92,9 @@ class MisReservasController extends StateNotifier<AsyncValue<List<Reserva>>> {
   }
 }
 
-final misReservasControllerProvider = StateNotifierProvider<MisReservasController, AsyncValue<List<Reserva>>>(
-  (ref) => MisReservasController(ref),
-);
+/// Una instancia por sesión: las reservas de un cliente no pueden quedar a la
+/// vista del siguiente que entre en el mismo teléfono.
+final misReservasControllerProvider = StateNotifierProvider<MisReservasController, AsyncValue<List<Reserva>>>((ref) {
+  final autenticado = ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  return MisReservasController(ref, activo: autenticado);
+});

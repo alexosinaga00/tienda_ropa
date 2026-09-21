@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../catalogo/models/referencia.dart';
 import '../../catalogo/models/variante_lookup.dart';
 import '../../catalogo/state/catalogo_providers.dart';
@@ -36,9 +37,15 @@ final ventasRepositoryProvider = Provider<VentasRepository>((ref) => VentasRepos
 
 final pagosRepositoryProvider = Provider<PagosRepository>((ref) => PagosRepository(ref.watch(dioProvider)));
 
-final misDireccionesProvider = FutureProvider<List<DireccionCliente>>(
-  (ref) => ref.watch(direccionesRepositoryProvider).misDirecciones(),
-);
+/// Se rehace por sesión: son dato personal y, además, el selector de
+/// direcciones del checkout las ofrece como destino de envío -- sin esto, al
+/// siguiente cliente del mismo teléfono le aparecían las del anterior.
+/// Sin sesión no consulta: quedaría en 401.
+final misDireccionesProvider = FutureProvider<List<DireccionCliente>>((ref) async {
+  final autenticado = ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  if (!autenticado) return const <DireccionCliente>[];
+  return ref.watch(direccionesRepositoryProvider).misDirecciones();
+});
 
 final zonasEnvioProvider = FutureProvider<List<ZonaEnvio>>((ref) => ref.watch(zonasEnvioRepositoryProvider).listar());
 

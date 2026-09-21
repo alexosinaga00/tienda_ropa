@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/cotizacion_envio.dart';
 import '../models/pago.dart';
 import '../models/venta.dart';
@@ -84,6 +85,11 @@ class CheckoutController extends StateNotifier<CheckoutState> {
   void reiniciar() => state = const CheckoutState();
 }
 
-final checkoutControllerProvider = StateNotifierProvider<CheckoutController, CheckoutState>(
-  (ref) => CheckoutController(),
-);
+/// Una instancia por sesión: el wizard no es autoDispose a propósito (tiene
+/// que sobrevivir la navegación entre pantallas del checkout), así que sin
+/// esto un cierre de sesión dejaba la dirección y la venta a medio confirmar
+/// del cliente anterior.
+final checkoutControllerProvider = StateNotifierProvider<CheckoutController, CheckoutState>((ref) {
+  ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  return CheckoutController();
+});

@@ -1,15 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../auth/state/auth_controller.dart';
 import '../models/carrito.dart';
 import 'compras_providers.dart';
 
 class CarritoController extends StateNotifier<AsyncValue<Carrito>> {
-  CarritoController(this._ref) : super(const AsyncValue.loading()) {
-    cargar();
+  // Sin sesión queda en `loading` y no consulta: `Carrito` no tiene una
+  // versión vacía que no sea inventarle un id y un cliente que no existen,
+  // y las pantallas que lo muestran están detrás del login igual.
+  CarritoController(this._ref, {required this.activo}) : super(const AsyncValue.loading()) {
+    if (activo) cargar();
   }
 
   final Ref _ref;
+  final bool activo;
 
   Future<void> cargar() async {
+    if (!activo) return;
     state = const AsyncValue.loading();
     try {
       state = AsyncValue.data(await _conExhibicion(await _ref.read(carritoRepositoryProvider).obtener()));
@@ -53,6 +59,9 @@ class CarritoController extends StateNotifier<AsyncValue<Carrito>> {
   }
 }
 
-final carritoControllerProvider = StateNotifierProvider<CarritoController, AsyncValue<Carrito>>(
-  (ref) => CarritoController(ref),
-);
+/// Una instancia por sesión: el carrito de un cliente no puede quedar a la
+/// vista (ni comprable) para el siguiente que entre en el mismo teléfono.
+final carritoControllerProvider = StateNotifierProvider<CarritoController, AsyncValue<Carrito>>((ref) {
+  final autenticado = ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  return CarritoController(ref, activo: autenticado);
+});
