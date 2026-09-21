@@ -31,6 +31,14 @@ class RolRepository(CRUDBase[Rol, RolCrear, RolActualizar]):
         db.refresh(rol)
         return rol
 
+    def listar_permisos(self, db: Session) -> list[Permiso]:
+        """El catálogo completo de permisos, para que la pantalla de roles
+        pueda ofrecerlos como casillas. Ordenado por módulo y código para que
+        salga agrupado sin que el cliente tenga que ordenarlo. No se pagina:
+        son pocos y fijos, y una página parcial dejaría permisos fuera de la
+        vista sin que se note."""
+        return list(db.scalars(select(Permiso).order_by(Permiso.modulo, Permiso.codigo)))
+
 
 class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
     def __init__(self) -> None:

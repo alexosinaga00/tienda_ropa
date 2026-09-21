@@ -3,8 +3,11 @@
 <app-tabla-generica
   endpoint="/roles"
   [columnas]="columnas"
+  accionExtraIcono="pi pi-key"
+  accionExtraEtiqueta="Permisos del rol"
   (crear)="abrirCrear()"
   (editar)="abrirEditar($event)"
+  (accionExtra)="abrirPermisos($event)"
 />
 
 <p-dialog header="Rol" [(visible)]="dialogoVisible" [modal]="true" [style]="{ width: '360px' }">
@@ -17,4 +20,58 @@
 
     <p-button type="submit" label="Guardar" styleClass="w-full" />
   </form>
+</p-dialog>
+
+<!-- RF03: qué permisos concede cada rol. El backend resuelve los permisos
+     contra la base en cada petición, no contra el token, así que lo que se
+     guarde acá se aplica sin que el usuario vuelva a iniciar sesión. -->
+<p-dialog
+  [header]="'Permisos de ' + (rolPermisos()?.nombre ?? '')"
+  [(visible)]="dialogoPermisos"
+  [modal]="true"
+  [style]="{ width: '620px' }"
+>
+  @if (!grupos().length) {
+    <p class="fs-caption">Cargando permisos…</p>
+  } @else {
+    <p class="fs-caption permisos-ayuda">
+      Lo que quede tildado es exactamente lo que va a poder hacer el rol: lo que destildes se le quita.
+    </p>
+
+    <div class="permisos-grid">
+      @for (grupo of grupos(); track grupo.modulo) {
+        <section class="permisos-modulo">
+          <button type="button" class="permisos-modulo-titulo" (click)="alternarModulo(grupo)">
+            <i class="pi" [class.pi-check-square]="moduloCompleto(grupo)" [class.pi-stop]="!moduloCompleto(grupo)"></i>
+            {{ grupo.modulo }}
+          </button>
+
+          @for (permiso of grupo.permisos; track permiso.id) {
+            <label class="permisos-item">
+              <input
+                type="checkbox"
+                [checked]="estaMarcado(permiso.codigo)"
+                (change)="alternarPermiso(permiso.codigo)"
+              />
+              <span>
+                <code>{{ permiso.codigo }}</code>
+                @if (permiso.descripcion) {
+                  <small>{{ permiso.descripcion }}</small>
+                }
+              </span>
+            </label>
+          }
+        </section>
+      }
+    </div>
+
+    <div class="permisos-pie">
+      <span class="fs-caption fs-num">{{ seleccionados().size }} permisos seleccionados</span>
+      <p-button
+        label="Guardar permisos"
+        [loading]="guardandoPermisos()"
+        (onClick)="guardarPermisos()"
+      />
+    </div>
+  }
 </p-dialog>

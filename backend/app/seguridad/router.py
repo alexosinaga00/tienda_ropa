@@ -20,6 +20,7 @@ from app.seguridad.schemas import (
     ClientePerfilActualizar,
     ClientePerfilRespuesta,
     LoginRequest,
+    PermisoRespuesta,
     RecuperarConfirmarRequest,
     RecuperarRequest,
     RecuperarRespuesta,
@@ -150,6 +151,25 @@ def asignar_permisos(
     return cu_gestionar_roles.asignar_permisos(db, rol_id, datos.codigos_permiso)
 
 
+# ---- /api/v1/permisos --------------------------------------------------------
+# Router propio y no GET /roles/permisos: ese path chocaría con
+# /roles/{rol_id}, que ya existe, y quedaría dependiendo del orden en que se
+# declaran las rutas.
+
+permisos_router = APIRouter(prefix="/api/v1/permisos", tags=["permisos"])
+
+
+@permisos_router.get(
+    "", response_model=list[PermisoRespuesta],
+    dependencies=[Depends(require_permission(PERMISO_ROLES))],
+)
+def listar_permisos(db: Session = Depends(get_db)) -> list[PermisoRespuesta]:
+    """El catálogo de permisos que se pueden asignar a un rol. Lo consume la
+    pantalla de roles para pintar las casillas (RF03). Mismo permiso que
+    exige asignar_permisos: quien no puede asignarlos tampoco necesita verlos."""
+    return [PermisoRespuesta.model_validate(p) for p in cu_gestionar_roles.listar_permisos(db)]
+
+
 # ---- /api/v1/usuarios --------------------------------------------------------
 
 usuarios_router = APIRouter(prefix="/api/v1/usuarios", tags=["usuarios"])
@@ -230,4 +250,4 @@ def actualizar_perfil(
     return ClientePerfilRespuesta.from_modelo(cliente)
 
 
-routers = [auth_router, roles_router, usuarios_router, clientes_router]
+routers = [auth_router, roles_router, permisos_router, usuarios_router, clientes_router]

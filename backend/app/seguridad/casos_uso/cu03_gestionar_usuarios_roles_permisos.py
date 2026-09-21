@@ -14,7 +14,7 @@ su propia clase CRUD pequeña.
 from sqlalchemy.orm import Session
 
 from app.core.deps import ParametrosPaginacion
-from app.seguridad.models import Rol, Usuario
+from app.seguridad.models import Permiso, Rol, Usuario
 from app.seguridad.repository import RolRepository, UsuarioRepository
 from app.seguridad.schemas import RolActualizar, RolCrear, UsuarioActualizar, UsuarioCrear
 
@@ -62,3 +62,9 @@ class GestionarRolesPermisos:
     def asignar_permisos(self, db: Session, rol_id: int, codigos_permiso: list[str]) -> Rol:
         rol = self._repo.obtener(db, rol_id)
         return self._repo.asignar_permisos(db, rol, codigos_permiso)
+
+    def listar_permisos(self, db: Session) -> list[Permiso]:
+        """El catálogo de permisos disponibles. Sin esto, `asignar_permisos`
+        no tenía de dónde sacar los códigos válidos desde una interfaz: es la
+        mitad de lectura de la misma operación del CU."""
+        return self._repo.listar_permisos(db)
