@@ -32,7 +32,7 @@
         </th>
       }
       @if (!soloLectura) {
-        <th style="width: 6rem">Acciones</th>
+        <th [style.width]="accionExtraIcono ? '9rem' : '6rem'">Acciones</th>
       }
     </tr>
   </ng-template>
@@ -60,6 +60,15 @@
       }
       @if (!soloLectura) {
         <td>
+          @if (accionExtraIcono) {
+            <p-button
+              [icon]="accionExtraIcono"
+              [ariaLabel]="accionExtraEtiqueta"
+              [text]="true"
+              size="small"
+              (onClick)="accionExtra.emit(fila)"
+            />
+          }
           <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="editar.emit(fila)" />
           <p-button icon="pi pi-trash" [text]="true" size="small" severity="danger" (onClick)="confirmarEliminar(fila)" />
         </td>

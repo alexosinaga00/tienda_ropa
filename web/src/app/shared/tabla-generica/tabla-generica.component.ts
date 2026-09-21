@@ -52,8 +52,15 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
   @Input() tamanioPagina = 20;
   @Input() soloLectura = false;
 
+  /** Acción propia de una pantalla, además de editar y borrar (por ejemplo,
+   * "permisos" en roles). Es opcional: sin icono no se dibuja el botón, así
+   * que las pantallas que ya usan esta tabla no cambian en nada. */
+  @Input() accionExtraIcono?: string;
+  @Input() accionExtraEtiqueta = 'Acción';
+
   @Output() crear = new EventEmitter<void>();
   @Output() editar = new EventEmitter<T>();
+  @Output() accionExtra = new EventEmitter<T>();
 
   @ViewChild('tabla') tabla!: Table;
 
