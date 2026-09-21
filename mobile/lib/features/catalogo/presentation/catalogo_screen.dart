@@ -245,47 +245,99 @@ class _ChipsFiltrosVoz extends ConsumerWidget {
   }
 }
 
-class _Contenido extends StatelessWidget {
+class _Contenido extends ConsumerWidget {
   const _Contenido({required this.estado, required this.scrollController});
 
   final CatalogoState estado;
   final ScrollController scrollController;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (estado.cargandoPrimeraPagina) {
       return const Center(child: CircularProgressIndicator(color: AppColors.acento));
     }
 
+    Future<void> recargar() => ref.read(catalogoControllerProvider.notifier).cargarPrimeraPagina();
+
+    // Todos los estados van envueltos en el RefreshIndicator, no solo la
+    // grilla: el de error decía "deslizá para reintentar" pero no había
+    // RefreshIndicator ni nada desplazable de dónde agarrarse, así que el
+    // gesto que pedía no existía y la pantalla principal quedaba sin salida
+    // al abrir la app sin internet. Va además un botón explícito, que no
+    // depende de que el usuario adivine el gesto.
     if (estado.error && estado.items.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(AppSpacing.xl),
-          child: Text('No se pudo cargar el catálogo. Deslizá para reintentar.', textAlign: TextAlign.center),
-        ),
+      return RefreshIndicator(
+        onRefresh: recargar,
+        color: AppColors.acento,
+        child: _MensajeDesplazable(texto: 'No se pudo cargar el catálogo.', onReintentar: recargar),
       );
     }
 
     if (estado.items.isEmpty) {
-      return const Center(child: Text('No se encontraron prendas.', style: TextStyle(color: AppColors.textoTenue)));
+      return RefreshIndicator(
+        onRefresh: recargar,
+        color: AppColors.acento,
+        child: const _MensajeDesplazable(texto: 'No se encontraron prendas.'),
+      );
     }
 
-    return GridView.builder(
-      controller: scrollController,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: AppSpacing.md,
-        crossAxisSpacing: AppSpacing.md,
-        childAspectRatio: 0.68,
+    return RefreshIndicator(
+      onRefresh: recargar,
+      color: AppColors.acento,
+      child: GridView.builder(
+        controller: scrollController,
+        padding: const EdgeInsets.all(AppSpacing.md),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: AppSpacing.md,
+          crossAxisSpacing: AppSpacing.md,
+          childAspectRatio: 0.68,
+        ),
+        itemCount: estado.items.length + (estado.hayMas ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index >= estado.items.length) {
+            return const Center(child: CircularProgressIndicator(color: AppColors.acento));
+          }
+          return _TarjetaProducto(item: estado.items[index]);
+        },
       ),
-      itemCount: estado.items.length + (estado.hayMas ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index >= estado.items.length) {
-          return const Center(child: CircularProgressIndicator(color: AppColors.acento));
-        }
-        return _TarjetaProducto(item: estado.items[index]);
-      },
+    );
+  }
+}
+
+/// Un mensaje centrado que igual se puede arrastrar: sin algo desplazable, el
+/// RefreshIndicator no tiene de dónde agarrarse cuando el contenido no llena
+/// la pantalla, que es justo el caso de los estados de error y vacío.
+class _MensajeDesplazable extends StatelessWidget {
+  const _MensajeDesplazable({required this.texto, this.onReintentar});
+
+  final String texto;
+  final Future<void> Function()? onReintentar;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(texto, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textoTenue)),
+                  if (onReintentar != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    OutlinedButton(onPressed: () => onReintentar!(), child: const Text('Reintentar')),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
