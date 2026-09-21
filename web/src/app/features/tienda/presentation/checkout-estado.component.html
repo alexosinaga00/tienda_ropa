@@ -18,6 +18,17 @@
         {{ reintentando() ? 'Reintentando...' : 'Reintentar' }}
       </button>
     </div>
+  } @else if (errorConsulta()) {
+    <div class="panel">
+      <span class="pi pi-exclamation-triangle icono icono--error"></span>
+      <h1>No pudimos consultar el estado</h1>
+      <p class="fs-caption">
+        Falló la conexión al consultar el pago, así que dejamos de reintentar. Tu pago puede haberse
+        procesado igual: revisalo en "Mis compras" antes de volver a pagar.
+      </p>
+      <button type="button" class="boton-continuar" (click)="volverAConsultar()">Volver a consultar</button>
+      <a class="auth-enlace" routerLink="/mis-compras">Ver mis compras</a>
+    </div>
   } @else if (agotado()) {
     <div class="panel">
       <span class="pi pi-hourglass icono"></span>

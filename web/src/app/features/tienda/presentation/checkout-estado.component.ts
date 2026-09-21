@@ -6,6 +6,11 @@ import { CheckoutService } from '../state/checkout.service';
 
 const INTERVALO_MS = 3000;
 const MAX_INTENTOS = 20;
+// Corte propio, y más corto, para las consultas que fallan: varios errores
+// seguidos son la red o el backend caídos, no una pasarela lenta. Sin un
+// corte en la rama de error el intervalo seguía disparando para siempre y
+// el interceptor apilaba un aviso cada 3 segundos.
+const MAX_INTENTOS_ERROR = 5;
 
 @Component({
   selector: 'app-checkout-estado',
@@ -25,9 +30,13 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
   protected readonly cargando = signal(true);
   protected readonly agotado = signal(false);
   protected readonly reintentando = signal(false);
+  // Distinto de `agotado`: ahí la pasarela no confirmó, acá no pudimos ni
+  // preguntarle. Mostrarlos igual ocultaba que la consulta estaba fallando.
+  protected readonly errorConsulta = signal(false);
 
   private intervalo?: ReturnType<typeof setInterval>;
   private intentos = 0;
+  private intentosError = 0;
 
   ngOnInit(): void {
     this.iniciarPolling();
@@ -72,8 +81,16 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Vuelve a arrancar el sondeo después de que se cortó por errores. */
+  volverAConsultar(): void {
+    this.errorConsulta.set(false);
+    this.iniciarPolling();
+  }
+
   private iniciarPolling(): void {
     clearInterval(this.intervalo);
+    this.intentosError = 0;
+    this.errorConsulta.set(false);
     this.consultarAhora();
     this.intervalo = setInterval(() => this.consultar(), INTERVALO_MS);
   }
@@ -82,6 +99,10 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
     this.pagosService.obtenerEstado(this.pagoId()).subscribe({
       next: (pago) => {
         this.cargando.set(false);
+        // Una consulta buena corta la racha: solo interesan los errores
+        // seguidos, no uno suelto en medio de una espera larga.
+        this.intentosError = 0;
+        this.errorConsulta.set(false);
         this.pago.set(pago);
         if (pago.estado === 'aprobado' || pago.estado === 'rechazado') {
           this.detener();
@@ -93,7 +114,14 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
           this.detener();
         }
       },
-      error: () => this.cargando.set(false),
+      error: () => {
+        this.cargando.set(false);
+        this.intentosError += 1;
+        if (this.intentosError >= MAX_INTENTOS_ERROR) {
+          this.errorConsulta.set(true);
+          this.detener();
+        }
+      },
     });
   }
 
