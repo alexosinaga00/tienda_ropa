@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core import storage
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.deps import hoy_utc
 from app.core.exceptions import DomainError, PermisoDenegadoError
 from app.catalogo import politicas as catalogo_politicas
 from app.probador.casos_uso.cu22_probar_prenda_modo_espejo import ProbarPrendaModoEspejo
@@ -174,9 +175,12 @@ class GenerarPruebaRealistaIA:
         _, overlay_url, _, flatlay_url = self._modo_espejo.obtener_assets(db, variante_id)
         imagen_prenda_url = flatlay_url or overlay_url
 
-        # "por día" = desde la medianoche del servidor, no una ventana
-        # rodante de 24hs -- así el límite se resetea a una hora predecible.
-        inicio_dia = dt.datetime.combine(dt.date.today(), dt.time.min)
+        # "por día" = desde la medianoche UTC, no una ventana rodante de
+        # 24hs -- así el límite se resetea a una hora predecible. Tiene que
+        # ser UTC y no la fecha local del proceso porque `creado_en` se graba
+        # en UTC: con un servidor en otra zona, el corte del día no coincide
+        # con el de los datos y el cupo se resetea a destiempo.
+        inicio_dia = dt.datetime.combine(hoy_utc(), dt.time.min)
         usadas_hoy = self._generaciones.contar_desde(db, cliente.id, inicio_dia)
         if usadas_hoy >= LIMITE_GENERACIONES_DIARIAS:
             raise DomainError(

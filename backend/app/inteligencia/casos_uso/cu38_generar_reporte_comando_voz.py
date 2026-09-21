@@ -17,7 +17,7 @@ import datetime as dt
 from sqlalchemy.orm import Session
 
 from app.catalogo import politicas as catalogo_politicas
-from app.core.deps import DIAS_PERIODO_POR_DEFECTO, ParametrosPeriodo
+from app.core.deps import DIAS_PERIODO_POR_DEFECTO, ParametrosPeriodo, hoy_utc
 from app.inteligencia.groq_cliente import obtener_parser_reporte_voz
 from app.inteligencia.politicas import redactar_respuesta_reporte
 from app.inteligencia.schemas import TIPOS_REPORTE_VALIDOS, ReporteVozRespuesta
@@ -41,7 +41,7 @@ class GenerarReporteComandoVoz:
         entendida = filtros_voz is not None and filtros_voz.tipo_reporte in TIPOS_REPORTE_VALIDOS
         tipo_reporte = filtros_voz.tipo_reporte if entendida else "dashboard"
 
-        hasta = filtros_voz.hasta if filtros_voz and filtros_voz.hasta else dt.date.today()
+        hasta = filtros_voz.hasta if filtros_voz and filtros_voz.hasta else hoy_utc()
         desde = (
             filtros_voz.desde
             if filtros_voz and filtros_voz.desde
