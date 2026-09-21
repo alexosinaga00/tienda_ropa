@@ -56,13 +56,21 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return throwError(() => error);
       }
 
-      return authService.refrescarTokensCompartido().pipe(
-        switchMap((tokens) => next(agregarToken(req, tokens.access_token))),
-        catchError((errorRefresh) => {
-          authService.logout();
-          return throwError(() => errorRefresh);
-        }),
-      );
+      // El catchError va DENTRO del pipe del refresh y ANTES del switchMap:
+      // solo debe cerrar la sesión si falla el refresh. Encadenado después
+      // del switchMap atrapaba también los errores de la request
+      // reintentada, así que un refresh exitoso seguido de un 403/409/500
+      // por cualquier otra causa deslogueaba al usuario en medio de un
+      // checkout o de una venta en caja.
+      return authService
+        .refrescarTokensCompartido()
+        .pipe(
+          catchError((errorRefresh) => {
+            authService.logout();
+            return throwError(() => errorRefresh);
+          }),
+        )
+        .pipe(switchMap((tokens) => next(agregarToken(req, tokens.access_token))));
     }),
   );
 };
