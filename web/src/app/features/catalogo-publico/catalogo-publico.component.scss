@@ -81,6 +81,136 @@
   margin-bottom: var(--fs-espacio-3);
 }
 
+.fila-busqueda {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--fs-espacio-4);
+}
+
+// Base común de los botones de esta pantalla: solo cambian color, radio y
+// relleno, así que lo repetido va una sola vez.
+.boton-filtros,
+.boton-limpiar,
+.boton-mas,
+.boton-reintentar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fs-espacio-2);
+  font-family: inherit;
+  font-weight: 600;
+  border: 1px solid var(--fs-borde);
+  background: transparent;
+  cursor: pointer;
+}
+
+// Los dos secundarios, chicos y de esquina suave.
+.boton-limpiar,
+.boton-reintentar {
+  font-size: 14px;
+  padding: var(--fs-espacio-2) var(--fs-espacio-3);
+  border-radius: var(--fs-radio-sm);
+}
+
+.boton-filtros {
+  font-size: 14px;
+  padding: var(--fs-espacio-2) var(--fs-espacio-4);
+  border-radius: 999px;
+  background: var(--fs-superficie);
+  color: var(--fs-texto);
+
+  &:hover,
+  &.activo {
+    border-color: var(--fs-acento);
+    color: var(--fs-acento);
+  }
+}
+
+.globo-filtros {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--fs-acento);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.panel-filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--fs-espacio-3);
+  align-items: end;
+  padding: var(--fs-espacio-4);
+  margin-bottom: var(--fs-espacio-6);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+  background: var(--fs-superficie);
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--fs-espacio-1);
+  }
+
+  select,
+  input {
+    font-family: inherit;
+    font-size: 14.5px;
+    padding: var(--fs-espacio-2) var(--fs-espacio-3);
+    border: 1px solid var(--fs-borde);
+    border-radius: var(--fs-radio-sm);
+    background: var(--fs-fondo);
+    color: var(--fs-texto);
+    outline: none;
+    width: 100%;
+
+    &:focus {
+      border-color: var(--fs-acento);
+    }
+  }
+}
+
+.boton-limpiar {
+  color: var(--fs-texto-tenue);
+
+  &:hover {
+    border-color: var(--fs-acento);
+    color: var(--fs-acento);
+  }
+}
+
+.paginacion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+  padding: var(--fs-espacio-6) 0 0;
+}
+
+.boton-mas {
+  font-size: 15px;
+  padding: var(--fs-espacio-3) var(--fs-espacio-6);
+  border-radius: 999px;
+  border-color: var(--fs-acento);
+  color: var(--fs-acento);
+
+  &:hover:not(:disabled) {
+    background: var(--fs-acento);
+    color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
 .buscador {
   display: flex;
   align-items: center;
@@ -89,7 +219,7 @@
   border-radius: 999px;
   padding: var(--fs-espacio-2) var(--fs-espacio-4);
   max-width: 360px;
-  margin-bottom: var(--fs-espacio-6);
+  flex: 1 1 260px;
   background: var(--fs-superficie);
   color: var(--fs-texto-tenue);
 
@@ -118,15 +248,8 @@
 }
 
 .boton-reintentar {
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  padding: var(--fs-espacio-2) var(--fs-espacio-3);
-  border-radius: var(--fs-radio-sm);
-  border: 1px solid var(--fs-acento);
+  border-color: var(--fs-acento);
   color: var(--fs-acento);
-  background: transparent;
-  cursor: pointer;
 }
 
 .grid {

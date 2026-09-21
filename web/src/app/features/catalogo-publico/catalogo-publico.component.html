@@ -39,15 +39,119 @@
     </div>
   }
 
-  <div class="buscador">
-    <span class="pi pi-search"></span>
-    <input
-      type="text"
-      placeholder="Buscá por nombre, categoría o estilo"
-      [(ngModel)]="texto"
-      (ngModelChange)="onBuscar()"
-    />
+  <div class="fila-busqueda">
+    <div class="buscador">
+      <span class="pi pi-search"></span>
+      <input
+        type="text"
+        placeholder="Buscá por nombre, categoría o estilo"
+        [(ngModel)]="texto"
+        (ngModelChange)="onBuscar()"
+      />
+    </div>
+    <button type="button" class="boton-filtros" [class.activo]="panelFiltros()" (click)="alternarPanelFiltros()">
+      <span class="pi pi-sliders-h"></span>
+      Filtros
+      @if (contarFiltros(); as puestos) {
+        <span class="globo-filtros fs-num">{{ puestos }}</span>
+      }
+    </button>
   </div>
+
+  @if (panelFiltros()) {
+    <div class="panel-filtros">
+      @if (tallas().length) {
+        <label>
+          <span class="fs-caption">Talla</span>
+          <select [ngModel]="tallaId()" (ngModelChange)="aplicarFiltro('talla', $event)">
+            <option value="">Todas</option>
+            @for (talla of tallas(); track talla.id) {
+              <option [value]="talla.id">{{ talla.codigo }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      @if (colores().length) {
+        <label>
+          <span class="fs-caption">Color</span>
+          <select [ngModel]="colorId()" (ngModelChange)="aplicarFiltro('color', $event)">
+            <option value="">Todos</option>
+            @for (color of colores(); track color.id) {
+              <option [value]="color.id">{{ color.nombre }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      @if (materiales().length) {
+        <label>
+          <span class="fs-caption">Material</span>
+          <select [ngModel]="materialId()" (ngModelChange)="aplicarFiltro('material', $event)">
+            <option value="">Todos</option>
+            @for (material of materiales(); track material.id) {
+              <option [value]="material.id">{{ material.nombre }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      @if (temporadas().length) {
+        <label>
+          <span class="fs-caption">Temporada</span>
+          <select [ngModel]="temporadaId()" (ngModelChange)="aplicarFiltro('temporada', $event)">
+            <option value="">Todas</option>
+            @for (temporada of temporadas(); track temporada.id) {
+              <option [value]="temporada.id">{{ temporada.nombre }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      <label>
+        <span class="fs-caption">Género</span>
+        <select [ngModel]="genero()" (ngModelChange)="aplicarFiltro('genero', $event)">
+          <option value="">Todos</option>
+          @for (g of generos; track g.valor) {
+            <option [value]="g.valor">{{ g.etiqueta }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        <span class="fs-caption">Precio desde</span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          placeholder="Bs"
+          class="fs-num"
+          [(ngModel)]="precioMin"
+          (ngModelChange)="onPrecioCambiado()"
+        />
+      </label>
+
+      <label>
+        <span class="fs-caption">Precio hasta</span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          placeholder="Bs"
+          class="fs-num"
+          [(ngModel)]="precioMax"
+          (ngModelChange)="onPrecioCambiado()"
+        />
+      </label>
+
+      @if (contarFiltros()) {
+        <button type="button" class="boton-limpiar" (click)="limpiarFiltros()">
+          <span class="pi pi-times"></span>
+          Limpiar filtros
+        </button>
+      }
+    </div>
+  }
 
   @if (cargando()) {
     <p class="fs-caption estado">Cargando catálogo…</p>
@@ -78,6 +182,17 @@
           </div>
         </a>
       }
+    </div>
+
+    <div class="paginacion">
+      @if (hayMas()) {
+        <button type="button" class="boton-mas" [disabled]="cargandoMas()" (click)="cargarMas()">
+          {{ cargandoMas() ? 'Cargando…' : 'Ver más prendas' }}
+        </button>
+      } @else {
+        <p class="fs-caption estado">Estás viendo todo el catálogo.</p>
+      }
+      <p class="fs-caption estado fs-num">{{ productos().length }} prendas a la vista</p>
     </div>
   }
 </div>
