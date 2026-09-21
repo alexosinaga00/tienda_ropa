@@ -1,0 +1,74 @@
+.horarios-ayuda {
+  margin: 0 0 var(--fs-espacio-3);
+}
+
+.horarios-lista {
+  display: flex;
+  flex-direction: column;
+}
+
+.horarios-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-espacio-3);
+  padding: var(--fs-espacio-2) 0;
+  border-bottom: 1px solid var(--fs-borde);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &.cerrado {
+    color: var(--fs-texto-tenue);
+  }
+}
+
+.horarios-dia {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  input {
+    accent-color: var(--fs-acento);
+  }
+}
+
+.horarios-rango {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+
+  input {
+    font-family: var(--fs-fuente-ui);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    padding: var(--fs-espacio-1) var(--fs-espacio-2);
+    border: 1px solid var(--fs-borde);
+    border-radius: var(--fs-radio-sm);
+    background: var(--fs-superficie);
+    color: var(--fs-texto);
+
+    &:focus {
+      outline: none;
+      border-color: var(--fs-acento);
+    }
+  }
+}
+
+.horarios-aviso {
+  margin: var(--fs-espacio-3) 0 0;
+  font-size: 13px;
+  color: var(--fs-error);
+}
+
+.horarios-pie {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--fs-espacio-4);
+  padding-top: var(--fs-espacio-3);
+  border-top: 1px solid var(--fs-borde);
+}

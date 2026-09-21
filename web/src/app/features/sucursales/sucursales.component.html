@@ -3,8 +3,11 @@
 <app-tabla-generica
   endpoint="/sucursales"
   [columnas]="columnas"
+  accionExtraIcono="pi pi-clock"
+  accionExtraEtiqueta="Horarios de atención"
   (crear)="abrirCrear()"
   (editar)="abrirEditar($event)"
+  (accionExtra)="abrirHorarios($event)"
 />
 
 <p-dialog header="Sucursal" [(visible)]="dialogoVisible" [modal]="true" [style]="{ width: '400px' }">
@@ -45,4 +48,61 @@
 
     <p-button type="submit" label="Guardar" styleClass="w-full" />
   </form>
+</p-dialog>
+
+<!-- RF06: horarios de atención por día. De estos horarios depende además la
+     validación de la franja de una reserva, así que lo que se cargue acá
+     cambia qué reservas acepta la tienda pública. -->
+<p-dialog
+  [header]="'Horarios de ' + (sucursalHorarios()?.nombre ?? '')"
+  [(visible)]="dialogoHorarios"
+  [modal]="true"
+  [style]="{ width: '540px' }"
+>
+  @if (cargandoHorarios()) {
+    <p class="fs-caption">Cargando horarios…</p>
+  } @else {
+    <p class="fs-caption horarios-ayuda">
+      Destildar un día lo deja cerrado y <strong>borra</strong> su horario: no se puede deshacer.
+    </p>
+
+    <div class="horarios-lista">
+      @for (fila of filas(); track fila.dia_semana) {
+        <div class="horarios-fila" [class.cerrado]="!fila.abierto">
+          <label class="horarios-dia">
+            <input type="checkbox" [checked]="fila.abierto" (change)="alternarDia(fila.dia_semana)" />
+            {{ fila.nombre }}
+          </label>
+
+          @if (fila.abierto) {
+            <div class="horarios-rango">
+              <input
+                type="time"
+                [value]="fila.hora_apertura"
+                (change)="cambiarHora(fila.dia_semana, 'hora_apertura', $any($event.target).value)"
+              />
+              <span class="fs-caption">a</span>
+              <input
+                type="time"
+                [value]="fila.hora_cierre"
+                (change)="cambiarHora(fila.dia_semana, 'hora_cierre', $any($event.target).value)"
+              />
+            </div>
+          } @else {
+            <span class="fs-caption">Cerrado</span>
+          }
+        </div>
+      }
+    </div>
+
+    @if (diasInvalidos().length) {
+      <p class="horarios-aviso">
+        El cierre tiene que ser posterior a la apertura: {{ diasInvalidos().join(', ') }}.
+      </p>
+    }
+
+    <div class="horarios-pie">
+      <p-button label="Guardar horarios" [loading]="guardandoHorarios()" (onClick)="guardarHorarios()" />
+    </div>
+  }
 </p-dialog>
