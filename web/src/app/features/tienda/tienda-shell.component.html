@@ -2,29 +2,44 @@
   <div class="tienda-nav-inner">
     <a class="tienda-logo" routerLink="/catalogo">FashionStore</a>
 
-    <div class="tienda-nav-derecha">
-      <a class="tienda-carrito" routerLink="/reserva/confirmar" aria-label="Ver reserva">
-        <span class="pi pi-calendar"></span>
-        @if (reservaCarritoService.cantidad() > 0) {
-          <span class="tienda-carrito__badge">{{ reservaCarritoService.cantidad() }}</span>
-        }
-      </a>
+    <div class="tienda-nav-grupo">
+      <div class="tienda-nav-iconos">
+        <a class="tienda-carrito" routerLink="/reserva/confirmar" aria-label="Ver reserva">
+          <span class="pi pi-calendar"></span>
+          @if (reservaCarritoService.cantidad() > 0) {
+            <span class="tienda-carrito__badge">{{ reservaCarritoService.cantidad() }}</span>
+          }
+        </a>
 
-      <a class="tienda-carrito" routerLink="/carrito" aria-label="Ver carrito">
-        <span class="pi pi-shopping-bag"></span>
-        @if (carritoService.cantidadLineas() > 0) {
-          <span class="tienda-carrito__badge">{{ carritoService.cantidadLineas() }}</span>
-        }
-      </a>
+        <a class="tienda-carrito" routerLink="/carrito" aria-label="Ver carrito">
+          <span class="pi pi-shopping-bag"></span>
+          @if (carritoService.cantidadLineas() > 0) {
+            <span class="tienda-carrito__badge">{{ carritoService.cantidadLineas() }}</span>
+          }
+        </a>
 
-      @if (authService.estaAutenticado()) {
-        <a class="tienda-enlace" routerLink="/mis-reservas">Mis reservas</a>
-        <a class="tienda-enlace" routerLink="/mis-compras">Mis compras</a>
-        <button type="button" class="tienda-enlace tienda-enlace--boton" (click)="cerrarSesion()">Salir</button>
-      } @else {
-        <a class="tienda-enlace" routerLink="/login">Iniciar sesión</a>
-        <a class="tienda-enlace tienda-enlace--relleno" routerLink="/registro">Registrarse</a>
-      }
+        <button
+          type="button"
+          class="tienda-menu-boton"
+          (click)="alternarMenu()"
+          [attr.aria-expanded]="menuAbierto()"
+          aria-controls="tienda-menu"
+          [attr.aria-label]="menuAbierto() ? 'Cerrar menú' : 'Abrir menú'"
+        >
+          <span class="pi" [class.pi-bars]="!menuAbierto()" [class.pi-times]="menuAbierto()"></span>
+        </button>
+      </div>
+
+      <div class="tienda-nav-derecha" id="tienda-menu" [class.abierto]="menuAbierto()">
+        @if (authService.estaAutenticado()) {
+          <a class="tienda-enlace" routerLink="/mis-reservas">Mis reservas</a>
+          <a class="tienda-enlace" routerLink="/mis-compras">Mis compras</a>
+          <button type="button" class="tienda-enlace tienda-enlace--boton" (click)="cerrarSesion()">Salir</button>
+        } @else {
+          <a class="tienda-enlace" routerLink="/login">Iniciar sesión</a>
+          <a class="tienda-enlace tienda-enlace--relleno" routerLink="/registro">Registrarse</a>
+        }
+      </div>
     </div>
   </div>
 </nav>

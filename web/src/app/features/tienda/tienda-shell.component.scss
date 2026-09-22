@@ -16,6 +16,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+}
+
+.tienda-nav-grupo {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-4);
 }
 
 .tienda-logo {
@@ -27,10 +34,60 @@
   text-decoration: none;
 }
 
+.tienda-nav-iconos {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-4);
+}
+
+.tienda-menu-boton {
+  display: none;
+  background: none;
+  border: none;
+  padding: var(--fs-espacio-1);
+  font-size: 20px;
+  color: var(--fs-texto);
+  cursor: pointer;
+}
+
 .tienda-nav-derecha {
   display: flex;
   align-items: center;
   gap: var(--fs-espacio-4);
+}
+
+@media (max-width: 760px) {
+  .tienda-menu-boton {
+    display: block;
+  }
+
+  // El menú de sesión se despliega debajo de la barra en vez de compartir
+  // la fila con el logo y los íconos -ahí no entraba ni "Mis compras".
+  .tienda-nav-derecha {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 1px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--fs-espacio-1);
+    background: var(--fs-superficie);
+    border: 1px solid var(--fs-borde);
+    border-radius: 0 0 var(--fs-radio-md) var(--fs-radio-md);
+    padding: var(--fs-espacio-3) var(--fs-espacio-4);
+    box-shadow: 0 12px 24px rgba(28, 23, 19, 0.12);
+    z-index: 20;
+
+    &.abierto {
+      display: flex;
+    }
+  }
+
+  .tienda-enlace {
+    text-align: center;
+  }
 }
 
 .tienda-carrito {

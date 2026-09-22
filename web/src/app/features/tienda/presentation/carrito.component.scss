@@ -95,6 +95,32 @@
   cursor: pointer;
 }
 
+.linea-acciones {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-3);
+  flex-shrink: 0;
+}
+
+// En un celular angosto, foto+nombre ya ocupan toda la fila (el nombre
+// truncado no deja lugar para la cantidad y "Quitar" al lado): esos dos
+// pasan a una segunda fila, alineados con el nombre.
+@media (max-width: 480px) {
+  .linea {
+    flex-wrap: wrap;
+  }
+
+  .linea-info {
+    flex-basis: calc(100% - 56px - var(--fs-espacio-3));
+  }
+
+  .linea-acciones {
+    flex-basis: 100%;
+    justify-content: space-between;
+    padding-inline-start: calc(56px + var(--fs-espacio-3));
+  }
+}
+
 .resumen {
   padding: var(--fs-espacio-4);
   margin-bottom: var(--fs-espacio-4);

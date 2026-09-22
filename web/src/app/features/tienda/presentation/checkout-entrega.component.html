@@ -86,7 +86,7 @@
   </button>
 </div>
 
-<p-dialog header="Nueva dirección" [(visible)]="dialogoVisible" [modal]="true" [style]="{ width: '400px' }">
+<p-dialog header="Nueva dirección" [(visible)]="dialogoVisible" [modal]="true" [style]="{ width: '400px', maxWidth: '92vw' }">
   <form [formGroup]="formulario" (ngSubmit)="guardarDireccion()" class="formulario">
     <label for="alias">Alias (opcional)</label>
     <input id="alias" pInputText formControlName="alias" placeholder="Casa, oficina..." />

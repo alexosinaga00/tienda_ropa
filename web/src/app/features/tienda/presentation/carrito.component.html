@@ -27,12 +27,14 @@
               <div class="linea-no-disponible">Ya no está disponible: quitala para continuar</div>
             }
           </div>
-          <div class="linea-cantidad">
-            <button type="button" (click)="disminuir(linea.variante_id, linea.cantidad)">-</button>
-            <span>{{ linea.cantidad }}</span>
-            <button type="button" [disabled]="!linea.disponible" (click)="aumentar(linea.variante_id, linea.cantidad)">+</button>
+          <div class="linea-acciones">
+            <div class="linea-cantidad">
+              <button type="button" (click)="disminuir(linea.variante_id, linea.cantidad)">-</button>
+              <span>{{ linea.cantidad }}</span>
+              <button type="button" [disabled]="!linea.disponible" (click)="aumentar(linea.variante_id, linea.cantidad)">+</button>
+            </div>
+            <button type="button" class="linea-quitar" (click)="quitar(linea.variante_id)">Quitar</button>
           </div>
-          <button type="button" class="linea-quitar" (click)="quitar(linea.variante_id)">Quitar</button>
         </div>
       }
     </div>

@@ -59,6 +59,15 @@
   @media (max-width: 860px) {
     flex-direction: column;
     align-items: stretch;
+
+    // flex-basis sigue el eje principal: los `46ch`/`380px` de acá abajo
+    // son un ancho pensado para la fila de escritorio, pero en columna
+    // (celular) se interpretan como ALTO -y dejaban un hueco enorme entre
+    // el texto y las tarjetas, cada uno estirado a esa medida como si
+    // fuera su alto mínimo.
+    > * {
+      flex-basis: auto;
+    }
   }
 }
 
