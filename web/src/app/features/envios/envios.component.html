@@ -33,31 +33,33 @@
       <td>{{ envio.repartidor || '—' }}</td>
       <td class="numero">Bs {{ envio.costo | number: '1.2-2' }}</td>
       <td>{{ envio.fecha_entrega ? (envio.fecha_entrega | date: 'dd/MM/yyyy HH:mm') : '—' }}</td>
-      <td class="acciones">
-        @if (envio.estado === 'programado') {
-          <p-button label="Enviar" icon="pi pi-send" size="small" [text]="true" [disabled]="guardando()" (onClick)="abrirEnviar(envio)" />
-        }
-        @if (envio.estado === 'en_ruta') {
-          <p-button
-            label="Entregado"
-            icon="pi pi-check"
-            size="small"
-            [text]="true"
-            [disabled]="guardando()"
-            (onClick)="pedirConfirmacion(envio, 'entregado')"
-          />
-        }
-        @if (envio.estado === 'programado' || envio.estado === 'en_ruta') {
-          <p-button
-            label="Falló"
-            icon="pi pi-times"
-            size="small"
-            severity="danger"
-            [text]="true"
-            [disabled]="guardando()"
-            (onClick)="pedirConfirmacion(envio, 'fallido')"
-          />
-        }
+      <td>
+        <div class="acciones">
+          @if (envio.estado === 'programado') {
+            <p-button label="Enviar" icon="pi pi-send" size="small" [text]="true" [disabled]="guardando()" (onClick)="abrirEnviar(envio)" />
+          }
+          @if (envio.estado === 'en_ruta') {
+            <p-button
+              label="Entregado"
+              icon="pi pi-check"
+              size="small"
+              [text]="true"
+              [disabled]="guardando()"
+              (onClick)="pedirConfirmacion(envio, 'entregado')"
+            />
+          }
+          @if (envio.estado === 'programado' || envio.estado === 'en_ruta') {
+            <p-button
+              label="Falló"
+              icon="pi pi-times"
+              size="small"
+              severity="danger"
+              [text]="true"
+              [disabled]="guardando()"
+              (onClick)="pedirConfirmacion(envio, 'fallido')"
+            />
+          }
+        </div>
       </td>
     </tr>
   </ng-template>
