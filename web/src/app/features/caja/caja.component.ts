@@ -10,10 +10,12 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { environment } from '../../../environments/environment';
+import { AuthService } from '../../core/auth.service';
 import { fechaLocalIso } from '../../core/date-utils';
 import { VarianteBusqueda } from '../../core/models/catalogo.models';
 import { Empleado } from '../../core/models/organizacion.models';
 import { MetodoPagoCaja, Pago, PagoCajaRequest, PagoCajaRespuesta } from '../../core/models/pagos.models';
+import { FilaVentasPorSucursal, ReporteVentas } from '../../core/models/reportes.models';
 import { Reserva } from '../../core/models/reservas.models';
 import { DevolucionCrear, Venta, VentaPresencialCrear } from '../../core/models/ventas.models';
 
@@ -53,6 +55,7 @@ const OPCIONES_METODO_PAGO: { label: string; value: MetodoPagoCaja }[] = [
 export class CajaComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly messageService = inject(MessageService);
+  private readonly authService = inject(AuthService);
 
   @ViewChild('inputBusqueda') private inputBusqueda?: ElementRef<HTMLInputElement>;
   @ViewChild('inputMontoRecibido') private inputMontoRecibido?: ElementRef<HTMLInputElement>;
@@ -63,6 +66,12 @@ export class CajaComponent implements OnInit {
   protected readonly sucursalId = signal<number | null>(null);
   protected readonly cargandoSucursal = signal(true);
   protected readonly noEsEmpleado = signal(false);
+
+  // ---- Resumen para el administrador (sin sucursal propia = alcance global) ----
+  private readonly esAdministrador = computed(() => this.authService.roles().includes('administrador'));
+  protected readonly vistaResumenGlobal = signal(false);
+  protected readonly cargandoResumen = signal(false);
+  protected readonly resumenPorSucursal = signal<FilaVentasPorSucursal[]>([]);
 
   protected readonly fase = signal<FaseVenta>('armando');
 
@@ -125,6 +134,14 @@ export class CajaComponent implements OnInit {
     this.http.get<Empleado>(`${environment.apiUrl}/empleados/yo`).subscribe({
       next: (empleado) => {
         this.cargandoSucursal.set(false);
+        // Un administrador sin ficha de sucursal es alcance global, no un
+        // error de configuración (ver organizacion.politicas.sucursal_asignada
+        // en el backend) -- no puede cobrar sin elegir una sucursal, pero sí
+        // puede ver cómo le está yendo a cada una.
+        if (empleado.sucursal_id === null && this.esAdministrador()) {
+          this.cargarResumenGlobal();
+          return;
+        }
         this.sucursalId.set(empleado.sucursal_id);
         if (empleado.sucursal_id === null) {
           this.messageService.add({
@@ -142,9 +159,31 @@ export class CajaComponent implements OnInit {
       },
       error: () => {
         this.cargandoSucursal.set(false);
+        if (this.esAdministrador()) {
+          this.cargarResumenGlobal();
+          return;
+        }
         this.noEsEmpleado.set(true);
       },
     });
+  }
+
+  /** `/reportes/ventas` ya agrega por sucursal del lado del servidor (CU-33)
+   * y con alcance global trae todas en una sola consulta -- nada de pedir
+   * sucursal por sucursal y sumar acá. */
+  private cargarResumenGlobal(): void {
+    this.vistaResumenGlobal.set(true);
+    this.cargandoResumen.set(true);
+    const hoy = fechaLocalIso(new Date());
+    this.http
+      .get<ReporteVentas>(`${environment.apiUrl}/reportes/ventas`, { params: { desde: hoy, hasta: hoy } })
+      .subscribe({
+        next: (reporte) => {
+          this.cargandoResumen.set(false);
+          this.resumenPorSucursal.set(reporte.por_sucursal);
+        },
+        error: () => this.cargandoResumen.set(false),
+      });
   }
 
   private enfocarBusqueda(): void {

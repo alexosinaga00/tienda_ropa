@@ -6,6 +6,33 @@
   <p class="ayuda">Tu usuario no tiene un registro de empleado: no podés operar la caja.</p>
 } @else if (sucursalId() === null) {
   <p class="ayuda">No tenés una sucursal asignada. Pedile a un administrador que te la asigne.</p>
+} @else if (vistaResumenGlobal()) {
+  <p class="ayuda">
+    Como administrador no tenés una sucursal propia, así que no podés cobrar acá -- este es el resumen de cómo
+    le está yendo hoy a cada una.
+  </p>
+
+  <p-table [value]="resumenPorSucursal()" [loading]="cargandoResumen()" styleClass="p-datatable-sm">
+    <ng-template #header>
+      <tr>
+        <th>Sucursal</th>
+        <th>Ventas de hoy</th>
+        <th>Total</th>
+      </tr>
+    </ng-template>
+    <ng-template #body let-fila>
+      <tr>
+        <td>{{ fila.sucursal }}</td>
+        <td>{{ fila.transacciones }}</td>
+        <td>Bs {{ fila.total_ventas | number: '1.2-2' }}</td>
+      </tr>
+    </ng-template>
+    <ng-template #emptymessage>
+      <tr>
+        <td colspan="3">Todavía no hay ventas hoy en ninguna sucursal.</td>
+      </tr>
+    </ng-template>
+  </p-table>
 } @else {
   <p class="atajos">
     <strong>Atajos:</strong> Enter agrega el producto (o navega los resultados con ↑ ↓) · F2 va al código de
