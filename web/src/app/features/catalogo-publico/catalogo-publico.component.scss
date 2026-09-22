@@ -52,12 +52,163 @@
 
 .hero {
   padding: var(--fs-espacio-8) 0 var(--fs-espacio-6);
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-8);
+
+  @media (max-width: 860px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.hero-texto {
+  flex: 1 1 46ch;
   max-width: 46ch;
 
   h1 {
     font-size: clamp(28px, 4.4vw, 40px);
     line-height: 1.1;
     text-wrap: balance;
+  }
+}
+
+// Ocupa el espacio que antes quedaba vacío al lado del texto: en vez de una
+// foto (no hay ninguna que represente mejor el probador que su propio
+// flujo), son los 3 pasos reales -escalonados, como si aparecieran uno
+// después del otro- de cómo funciona.
+.hero-pasos {
+  flex: 1 1 380px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-espacio-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  @media (max-width: 860px) {
+    margin-top: var(--fs-espacio-2);
+  }
+}
+
+.hero-paso {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-3);
+  background: var(--fs-superficie);
+  border-radius: var(--fs-radio-md);
+  padding: var(--fs-espacio-3) var(--fs-espacio-4);
+  box-shadow: 0 10px 24px rgba(28, 23, 19, 0.08);
+  animation: fs-paso-aparecer 0.6s ease-out both;
+
+  &:nth-child(1) {
+    margin-inline-end: 15%;
+  }
+  &:nth-child(2) {
+    margin-inline-start: 8%;
+    margin-inline-end: 7%;
+    animation-delay: 0.16s;
+  }
+  &:nth-child(3) {
+    margin-inline-start: 15%;
+    animation-delay: 0.32s;
+  }
+}
+
+.hero-paso-numero {
+  font-family: var(--fs-fuente-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 30px;
+  color: var(--fs-acento-suave);
+  width: 36px;
+  flex: none;
+}
+
+.hero-paso-icono {
+  font-size: 20px;
+  color: var(--fs-acento);
+  flex: none;
+}
+
+.hero-paso-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  strong {
+    font-size: 14.5px;
+    font-weight: 700;
+  }
+
+  small {
+    font-size: 12.5px;
+    color: var(--fs-texto-tenue);
+  }
+}
+
+.hero-paso--camara {
+  position: relative;
+}
+
+.hero-paso-punto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fs-exito);
+  margin-inline-start: auto;
+  flex: none;
+  animation: fs-paso-pulso 1.8s ease-in-out infinite;
+}
+
+.hero-paso--final {
+  background: #241c18;
+  box-shadow: 0 10px 24px rgba(28, 23, 19, 0.16);
+
+  .hero-paso-numero {
+    color: var(--fs-acento);
+  }
+
+  .hero-paso-icono {
+    color: var(--fs-acento-suave);
+  }
+
+  .hero-paso-texto strong {
+    color: #fff;
+  }
+
+  .hero-paso-texto small {
+    color: #c9bcb2;
+  }
+}
+
+@keyframes fs-paso-aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fs-paso-pulso {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-paso {
+    animation: none;
+  }
+  .hero-paso-punto {
+    animation: none;
   }
 }
 
