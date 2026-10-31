@@ -27,8 +27,11 @@ bool _esUrlExterna(String path) {
   return !path.startsWith(ApiConfig.baseUrl);
 }
 
-/// Cuándo NO corresponde mandar el JWT ni intentar refrescar la sesión.
-bool _sinSesion(String path) => _esUrlExterna(path) || _esRutaPublica(path);
+/// Cuándo NO corresponde mandar el JWT ni intentar refrescar la sesión: la petición está marcada como pública
+/// (`extra['publica']`, la pone [ApiClient]), es de un tercero, o es una de las rutas públicas de siempre (los
+/// repositorios que todavía pasan [Dio] directo).
+bool _sinSesion(RequestOptions options) =>
+    options.extra['publica'] == true || _esUrlExterna(options.path) || _esRutaPublica(options.path);
 
 /// El refresh token ya no sirve: no hay uno guardado o el backend lo rechazó (400/401/403). Es lo único que
 /// justifica cerrar la sesión; un timeout, la falta de conexión o un 5xx del refresh NO lo son.
@@ -113,7 +116,7 @@ Dio buildDio({
   dio.interceptors.add(
     InterceptorsWrapper(
       onRequest: (options, handler) async {
-        if (!_sinSesion(options.path)) {
+        if (!_sinSesion(options)) {
           final token = await tokenStorage.leerAccessToken();
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -128,7 +131,7 @@ Dio buildDio({
         // `_sinSesion` y no `_esRutaPublica`: si Cloudinary respondiera 401,
         // esto intentaba refrescar el token y, al fallar, cerraba la sesión
         // del cliente por un error de un tercero.
-        if (!esNoAutorizado || _sinSesion(error.requestOptions.path) || yaReintentado) {
+        if (!esNoAutorizado || _sinSesion(error.requestOptions) || yaReintentado) {
           handler.next(error);
           return;
         }

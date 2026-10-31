@@ -43,6 +43,7 @@ dependencies:
   share_plus: ^13.3.0
   webview_flutter: ^4.13.0
   speech_to_text: ^7.3.0
+  connectivity_plus: ^7.3.2
 
 dev_dependencies:
   flutter_test:

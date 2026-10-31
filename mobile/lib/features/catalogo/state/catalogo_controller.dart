@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../features/tracking/models/evento.dart';
 import '../../../features/tracking/state/tracking_service.dart';
+import '../../../features/tienda/state/tienda_controller.dart';
 import '../models/catalogo_item.dart';
 import '../models/filtros_catalogo.dart';
 import 'catalogo_providers.dart';
@@ -65,6 +66,8 @@ class CatalogoController extends StateNotifier<CatalogoState> {
     state = state.copyWith(cargandoPrimeraPagina: true, error: false);
     try {
       final items = await _obtenerPagina(1);
+      // Al cambiar de tienda este controlador se descarta: una carga en vuelo no debe escribir en uno ya liberado.
+      if (!mounted) return;
       state = state.copyWith(
         items: items,
         pagina: 1,
@@ -72,6 +75,7 @@ class CatalogoController extends StateNotifier<CatalogoState> {
         cargandoPrimeraPagina: false,
       );
     } catch (_) {
+      if (!mounted) return;
       state = state.copyWith(cargandoPrimeraPagina: false, error: true);
     }
   }
@@ -83,6 +87,7 @@ class CatalogoController extends StateNotifier<CatalogoState> {
     try {
       final siguiente = state.pagina + 1;
       final nuevos = await _obtenerPagina(siguiente);
+      if (!mounted) return;
       state = state.copyWith(
         items: [...state.items, ...nuevos],
         pagina: siguiente,
@@ -92,6 +97,7 @@ class CatalogoController extends StateNotifier<CatalogoState> {
     } catch (_) {
       // Si falla al pedir "una página más", no se rompe la grilla que ya
       // se veía: se deja de cargar y listo.
+      if (!mounted) return;
       state = state.copyWith(cargando: false);
     }
   }
@@ -102,6 +108,7 @@ class CatalogoController extends StateNotifier<CatalogoState> {
     // etiquetas viejas; quitarFiltroVoz es la única vía que las conserva.
     state = state.copyWith(filtros: filtros, etiquetasVoz: const {});
     await cargarPrimeraPagina();
+    if (!mounted) return;
 
     if (filtros.texto != null && filtros.texto!.isNotEmpty) {
       _ref.read(trackingServiceProvider).track(tipo: TipoEvento.busqueda, texto: filtros.texto);
@@ -155,6 +162,8 @@ class CatalogoController extends StateNotifier<CatalogoState> {
   }
 }
 
-final catalogoControllerProvider = StateNotifierProvider<CatalogoController, CatalogoState>(
-  (ref) => CatalogoController(ref),
-);
+/// Una instancia por tienda: al cambiarla se descarta la lista, los filtros y la página de la anterior.
+final catalogoControllerProvider = StateNotifierProvider<CatalogoController, CatalogoState>((ref) {
+  ref.watch(tiendaCodigoProvider);
+  return CatalogoController(ref);
+});

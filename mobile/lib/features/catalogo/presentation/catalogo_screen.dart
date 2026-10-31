@@ -2,8 +2,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/sesion/dialogos_sesion.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../tienda/presentation/marca_tienda.dart';
+import '../../tienda/state/tienda_controller.dart';
 import '../../compras/state/carrito_controller.dart';
 import '../../notificaciones/presentation/boton_notificaciones.dart';
 import '../../recomendador/presentation/carrusel_recomendaciones.dart';
@@ -24,7 +27,7 @@ const _etiquetasCampoVoz = {
   'precio_max': 'Hasta Bs',
 };
 
-enum _AccionMenu { favoritos, carrito, compras, reservas, salir, iniciarSesion }
+enum _AccionMenu { favoritos, carrito, compras, reservas, cambiarTienda, salir, iniciarSesion, accesoPersonal }
 
 class CatalogoScreen extends ConsumerStatefulWidget {
   const CatalogoScreen({super.key});
@@ -87,7 +90,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     return Scaffold(
       backgroundColor: AppColors.fondo,
       appBar: AppBar(
-        title: const Text('FashionStore'),
+        title: MarcaTienda(tienda: ref.watch(tiendaActualProvider)),
         actions: [
           if (autenticado) const BotonNotificaciones(),
           IconButton(
@@ -117,10 +120,14 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                   context.push('/compras');
                 case _AccionMenu.reservas:
                   context.push('/reservas');
+                case _AccionMenu.cambiarTienda:
+                  cambiarDeTiendaConAviso(context, ref);
                 case _AccionMenu.salir:
-                  ref.read(authControllerProvider.notifier).logout();
+                  cerrarSesionConAviso(context, ref);
                 case _AccionMenu.iniciarSesion:
                   context.push('/login');
+                case _AccionMenu.accesoPersonal:
+                  context.push('/vendedor/acceso');
               }
             },
             itemBuilder: (context) => [
@@ -160,6 +167,14 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                   title: Text('Mis reservas'),
                 ),
               ),
+              const PopupMenuItem(
+                value: _AccionMenu.cambiarTienda,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.storefront_outlined),
+                  title: Text('Cambiar de tienda'),
+                ),
+              ),
               const PopupMenuDivider(),
               autenticado
                   ? const PopupMenuItem(
@@ -178,6 +193,15 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                         title: Text('Iniciar sesión'),
                       ),
                     ),
+              if (!autenticado)
+                const PopupMenuItem(
+                  value: _AccionMenu.accesoPersonal,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.badge_outlined),
+                    title: Text('Acceso del personal'),
+                  ),
+                ),
             ],
           ),
         ],

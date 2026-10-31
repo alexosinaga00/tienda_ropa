@@ -1,17 +1,23 @@
-import 'package:dio/dio.dart';
+import '../../../core/network/api_client.dart';
 import '../models/recomendacion_item.dart';
 
 class RecomendadorRepository {
-  RecomendadorRepository(this._dio);
+  /// [invitado]: sin sesión se usa la ruta pública de la tienda elegida (`/public/{codigo}/ia/recomendaciones`); con
+  /// sesión, la empresa sale del token.
+  RecomendadorRepository(this._api, {this._invitado = false});
 
-  final Dio _dio;
+  final ApiClient _api;
+  final bool _invitado;
 
   Future<List<RecomendacionItem>> obtenerRecomendaciones({int? excluirProductoId}) async {
-    final respuesta = await _dio.post<Map<String, dynamic>>(
+    final respuesta = await _api.postObjeto<List<RecomendacionItem>>(
       '/ia/recomendaciones',
-      queryParameters: {'excluir_producto_id': ?excluirProductoId},
+      query: {'excluir_producto_id': ?excluirProductoId},
+      desde: (json) => (json['recomendaciones'] as List<dynamic>)
+          .map((e) => RecomendacionItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      publica: _invitado,
     );
-    final filas = respuesta.data!['recomendaciones'] as List<dynamic>;
-    return filas.map((e) => RecomendacionItem.fromJson(e as Map<String, dynamic>)).toList();
+    return respuesta;
   }
 }

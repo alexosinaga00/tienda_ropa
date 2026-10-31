@@ -1,18 +1,40 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/error_app.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/network/providers.dart';
+import '../../tienda/models/tienda.dart';
+import '../../tienda/state/tienda_controller.dart';
 import '../data/auth_repository.dart';
+import '../models/usuario.dart';
 import 'auth_state.dart';
 
-const mensajeSoloClientes = 'Esta app es solo para clientes. Ingresá al panel web con tu cuenta de personal.';
+const mensajeSoloClientes = 'Este acceso es para clientes. Si trabajas en una tienda, usa "Acceso del personal".';
+const mensajeCuentaDeCliente = 'Esta cuenta es de cliente. Usa "Iniciar sesión".';
+const mensajeSinAccesoMovil = 'Tu cuenta no tiene acceso a la app móvil. Usa el panel web.';
+const mensajeCredencialesPersonal = 'Empresa, correo o contraseña incorrectos.';
+const mensajePrimeraVezSinConexion = 'Sin conexión: la primera vez necesitas internet.';
 
 /// Se lanza cuando inicia sesión alguien sin el rol `cliente`: la sesión no se abre.
 class AccesoSoloClientesException implements Exception {
   const AccesoSoloClientesException();
 }
 
+/// Se lanza cuando el personal no puede entrar: la cuenta es de cliente o no tiene acceso a la app móvil.
+class AccesoPersonalException implements Exception {
+  const AccesoPersonalException(this.modo);
+
+  final ModoApp modo;
+
+  String get mensaje => modo == ModoApp.cliente ? mensajeCuentaDeCliente : mensajeSinAccesoMovil;
+}
+
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
-  return AuthRepository(dio: ref.watch(dioProvider), tokenStorage: ref.watch(tokenStorageProvider));
+  // La tienda se lee al llamar (no se observa): la empresa del login y del registro es la que esté elegida en ese momento.
+  return AuthRepository(
+    dio: ref.watch(dioProvider),
+    tokenStorage: ref.watch(tokenStorageProvider),
+    codigoEmpresa: () => ref.read(tiendaCodigoProvider),
+  );
 });
 
 final authControllerProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
@@ -25,7 +47,7 @@ class AuthController extends StateNotifier<AuthState> {
     // la sesión para que el router mande a login.
     _ref.listen<int>(sesionExpiradaProvider, (anterior, actual) {
       if (anterior != null && anterior != actual) {
-        logout();
+        logout(motivo: MotivoCierre.vencida);
       }
     });
   }
@@ -37,6 +59,7 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> restaurarSesion() async {
     state = state.copyWith(estado: EstadoSesion.cargando);
     final tokenStorage = _ref.read(tokenStorageProvider);
+    final sesionStorage = _ref.read(sesionStorageProvider);
     final token = await tokenStorage.leerAccessToken();
 
     if (token == null) {
@@ -44,28 +67,49 @@ class AuthController extends StateNotifier<AuthState> {
       return;
     }
 
+    // Sin tienda guardada no se sabe de qué empresa es la sesión (una instalación anterior al multitenant): se descarta.
+    await _ref.read(tiendaControllerProvider.notifier).cargadaFuture;
+    final tienda = _ref.read(tiendaActualProvider);
+    if (tienda == null) {
+      await _descartarSesionGuardada();
+      return;
+    }
+
     try {
       final usuario = await _repository.obtenerUsuarioActual();
-      if (!usuario.esCliente) {
-        // Una sesión guardada de personal no se restaura: la app es solo para clientes.
-        await tokenStorage.limpiar();
-        state = const AuthState(estado: EstadoSesion.noAutenticado);
+      // Sin acceso a la app (proveedor, superadministrador) o de otra tienda que la elegida: nunca se mezclan empresas.
+      if (usuario.modo == ModoApp.sinAcceso ||
+          (usuario.empresaCodigo != null && usuario.empresaCodigo != tienda.codigo)) {
+        await _descartarSesionGuardada();
         return;
       }
+      if (usuario.modo == ModoApp.vendedor) await sesionStorage.guardarPerfil(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
     } catch (e) {
       if (esSinConexion(e) || esErrorDeServidor(e)) {
-        // No se pudo verificar la sesión (sin red, timeout o 5xx): eso NO es un token inválido. Se conservan los
-        // tokens para que la próxima apertura con conexión la restaure. AuthState no tiene un estado "sin verificar",
-        // así que por ahora la app queda como invitado (catálogo público) sin cerrar la sesión guardada.
+        // No se pudo verificar la sesión (sin red, timeout o 5xx): eso NO es un token inválido. Se conservan los tokens
+        // para que la próxima apertura con conexión la restaure.
+        final perfil = await sesionStorage.leerPerfil();
+        if (perfil != null && perfil.modo == ModoApp.vendedor && perfil.empresaCodigo == tienda.codigo) {
+          // El personal debe poder abrir la app sin red: sigue adentro con el último perfil, marcado sin verificar.
+          state = AuthState(estado: EstadoSesion.autenticado, usuario: perfil, verificada: false);
+          return;
+        }
+        // Un cliente sin red queda como invitado (catálogo público) sin cerrar la sesión guardada.
         state = const AuthState(estado: EstadoSesion.noAutenticado);
         return;
       }
-      await tokenStorage.limpiar();
-      state = const AuthState(estado: EstadoSesion.noAutenticado);
+      await _descartarSesionGuardada();
     }
   }
 
+  Future<void> _descartarSesionGuardada() async {
+    await _ref.read(tokenStorageProvider).limpiar();
+    await _ref.read(sesionStorageProvider).borrarPerfil();
+    state = const AuthState(estado: EstadoSesion.noAutenticado);
+  }
+
+  /// Acceso de los CLIENTES (el de `login_screen.dart`): la empresa es la de la tienda elegida.
   Future<void> login({required String email, required String password}) async {
     state = state.copyWith(estado: EstadoSesion.cargando);
     try {
@@ -84,6 +128,71 @@ class AuthController extends StateNotifier<AuthState> {
         error: 'Email o contraseña incorrectos.',
       );
       rethrow;
+    }
+  }
+
+  /// Acceso del PERSONAL (cajero, encargado, administrador): la empresa la escribe la persona (nombre o código). Solo
+  /// entra quien tiene el modo vendedor; si la cuenta es de cliente o no tiene acceso a la app, la sesión que el login
+  /// acaba de abrir se cierra y se explica por qué.
+  Future<void> loginPersonal({required String empresa, required String email, required String password}) async {
+    state = state.copyWith(estado: EstadoSesion.cargando);
+    try {
+      await _repository.login(email: email, password: password, empresa: empresa.trim());
+      final usuario = await _repository.obtenerUsuarioActual();
+      if (usuario.modo != ModoApp.vendedor) throw AccesoPersonalException(usuario.modo);
+      // La tienda es la de la empresa de la cuenta (puede no ser la que estaba elegida).
+      final tienda = await _tiendaDe(usuario);
+      if (tienda != null) await _ref.read(tiendaControllerProvider.notifier).elegir(tienda);
+      await _ref.read(sesionStorageProvider).guardarPerfil(usuario);
+      state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+    } on AccesoPersonalException catch (e) {
+      await _repository.logout();
+      state = AuthState(estado: EstadoSesion.noAutenticado, error: e.mensaje);
+      rethrow;
+    } catch (e) {
+      await _repository.logout();
+      state = AuthState(estado: EstadoSesion.noAutenticado, error: _mensajeDeLoginPersonal(e));
+      rethrow;
+    }
+  }
+
+  /// El logo y el color de la empresa se piden a la ruta pública; si no responde se usa lo mínimo que trae la cuenta.
+  Future<Tienda?> _tiendaDe(Usuario usuario) async {
+    final codigo = usuario.empresaCodigo ?? _ref.read(tiendaCodigoProvider) ?? '';
+    if (codigo.isEmpty) return null; // sin código no hay tienda que elegir
+    try {
+      return await _ref.read(tiendaRepositoryProvider).obtener(codigo);
+    } catch (_) {
+      return Tienda(codigo: codigo, nombre: usuario.empresaNombre ?? codigo);
+    }
+  }
+
+  String _mensajeDeLoginPersonal(Object e) {
+    if (esSinConexion(e)) return mensajePrimeraVezSinConexion;
+    final app = ErrorApp.desde(e);
+    if (app.esFuncional) return app.mensaje;
+    if (app.estado == 429 || app.tipo == TipoErrorApp.servidor) return mensajeDeError(e, app.mensaje);
+    return mensajeCredencialesPersonal;
+  }
+
+  /// Vuelve a consultar al servidor una sesión restaurada sin red (`verificada` falsa), p. ej. cuando regresa la
+  /// conexión. Si el servidor la rechaza (401 o 403 después del refresh) la sesión venció; sin conexión no cambia nada.
+  Future<void> verificarSesion() async {
+    final actual = state;
+    if (!actual.estaAutenticado || actual.verificada) return;
+    try {
+      final usuario = await _repository.obtenerUsuarioActual();
+      if (!mounted) return;
+      // Solo el personal tiene sesiones sin verificar: si el servidor ya no lo reconoce como vendedor, la sesión no sirve.
+      if (usuario.modo != ModoApp.vendedor) {
+        await logout(motivo: MotivoCierre.vencida);
+        return;
+      }
+      await _ref.read(sesionStorageProvider).guardarPerfil(usuario);
+      state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+    } catch (e) {
+      final estado = ErrorApp.desde(e).estado;
+      if (estado == 401 || estado == 403) await logout(motivo: MotivoCierre.vencida);
     }
   }
 
@@ -113,8 +222,20 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> logout() async {
-    await _repository.logout();
+  /// Olvida por qué se cerró la sesión. Sin esto, a quien cerró sesión por vencimiento siendo personal el router lo
+  /// seguiría mandando a "Acceso del personal"; "Soy cliente" y "Elegir otra tienda" lo llaman para poder salir de ahí.
+  void olvidarMotivoCierre() {
+    if (state.estado != EstadoSesion.noAutenticado || state.motivoCierre == null) return;
     state = const AuthState(estado: EstadoSesion.noAutenticado);
+  }
+
+  /// Cierra la sesión: borra los tokens y el perfil guardado, pero NO la tienda. Deja el motivo y el modo que tenía para
+  /// que el router mande al personal cuya sesión venció a "Acceso del personal".
+  Future<void> logout({MotivoCierre motivo = MotivoCierre.voluntario}) async {
+    final modoPrevio = state.usuario?.modo;
+    await _repository.logout();
+    await _ref.read(sesionStorageProvider).borrarPerfil();
+    if (!mounted) return;
+    state = AuthState(estado: EstadoSesion.noAutenticado, motivoCierre: motivo, modoPrevio: modoPrevio);
   }
 }

@@ -1,43 +1,29 @@
-import 'package:dio/dio.dart';
+import '../../../core/network/api_client.dart';
 import '../models/referencia.dart';
 
 /// Catálogos de referencia (categoría, talla, color, material, temporada,
-/// sucursal): son chicos, así que se pide una sola página grande en vez
-/// de paginar.
+/// sucursal) de la tienda elegida: son chicos, así que se pide una sola
+/// página grande en vez de paginar. Todos son públicos.
 class ReferenciaRepository {
-  ReferenciaRepository(this._dio);
+  ReferenciaRepository(this._api);
 
-  final Dio _dio;
+  final ApiClient _api;
 
   static const _tamanioMaximo = 100;
 
-  Future<List<CategoriaRef>> categorias() async {
-    final r = await _dio.get<List<dynamic>>('/categorias', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => CategoriaRef.fromJson(e as Map<String, dynamic>)).toList();
+  Future<List<T>> _lista<T>(String ruta, DesdeJson<T> desde) {
+    return _api.getLista<T>(ruta, query: {'tamanio': _tamanioMaximo}, desde: desde, publica: true);
   }
 
-  Future<List<TallaRef>> tallas() async {
-    final r = await _dio.get<List<dynamic>>('/tallas', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => TallaRef.fromJson(e as Map<String, dynamic>)).toList();
-  }
+  Future<List<CategoriaRef>> categorias() => _lista('/categorias', CategoriaRef.fromJson);
 
-  Future<List<ColorRef>> colores() async {
-    final r = await _dio.get<List<dynamic>>('/colores', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => ColorRef.fromJson(e as Map<String, dynamic>)).toList();
-  }
+  Future<List<TallaRef>> tallas() => _lista('/tallas', TallaRef.fromJson);
 
-  Future<List<MaterialRef>> materiales() async {
-    final r = await _dio.get<List<dynamic>>('/materiales', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => MaterialRef.fromJson(e as Map<String, dynamic>)).toList();
-  }
+  Future<List<ColorRef>> colores() => _lista('/colores', ColorRef.fromJson);
 
-  Future<List<TemporadaRef>> temporadas() async {
-    final r = await _dio.get<List<dynamic>>('/temporadas', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => TemporadaRef.fromJson(e as Map<String, dynamic>)).toList();
-  }
+  Future<List<MaterialRef>> materiales() => _lista('/materiales', MaterialRef.fromJson);
 
-  Future<List<SucursalRef>> sucursales() async {
-    final r = await _dio.get<List<dynamic>>('/sucursales', queryParameters: {'tamanio': _tamanioMaximo});
-    return r.data!.map((e) => SucursalRef.fromJson(e as Map<String, dynamic>)).toList();
-  }
+  Future<List<TemporadaRef>> temporadas() => _lista('/temporadas', TemporadaRef.fromJson);
+
+  Future<List<SucursalRef>> sucursales() => _lista('/sucursales', SucursalRef.fromJson);
 }

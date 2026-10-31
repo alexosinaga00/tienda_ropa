@@ -5,14 +5,14 @@ import '../data/referencia_repository.dart';
 import '../models/catalogo_detalle.dart';
 import '../models/referencia.dart';
 
-final catalogoRepositoryProvider = Provider<CatalogoRepository>((ref) => CatalogoRepository(ref.watch(dioProvider)));
+final catalogoRepositoryProvider = Provider<CatalogoRepository>((ref) => CatalogoRepository(ref.watch(apiClientProvider)));
 
 final detalleProductoProvider = FutureProvider.family<CatalogoDetalle, int>(
   (ref, productoId) => ref.watch(catalogoRepositoryProvider).detalle(productoId),
 );
 
 final referenciaRepositoryProvider = Provider<ReferenciaRepository>(
-  (ref) => ReferenciaRepository(ref.watch(dioProvider)),
+  (ref) => ReferenciaRepository(ref.watch(apiClientProvider)),
 );
 
 // Catálogos de referencia: se piden una sola vez y quedan en caché para

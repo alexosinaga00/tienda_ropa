@@ -25,16 +25,35 @@ import '../../features/reservas/presentation/confirmar_reserva_screen.dart';
 import '../../features/reservas/presentation/mis_reservas_screen.dart';
 import '../../features/reservas/presentation/reserva_detalle_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
+import '../../features/auth/models/usuario.dart';
+import '../../features/vendedor/presentation/acceso_vendedor_screen.dart';
+import '../../features/vendedor/presentation/inicio_vendedor_screen.dart';
+import '../../features/tienda/presentation/elige_tienda_screen.dart';
+import '../../features/tienda/presentation/entrar_a_tienda_screen.dart';
+import '../../features/tienda/state/tienda_controller.dart';
+import 'retroceso.dart';
 
 class _RefrescoDelRouter extends ChangeNotifier {
   _RefrescoDelRouter(Ref ref) {
     ref.listen<AuthState>(authControllerProvider, (_, _) => notifyListeners());
+    ref.listen<TiendaState>(tiendaControllerProvider, (_, _) => notifyListeners());
   }
 }
 
 final _refrescoDelRouterProvider = Provider<_RefrescoDelRouter>((ref) => _RefrescoDelRouter(ref));
 
-bool _esRutaAuth(String ruta) => ruta == '/login' || ruta == '/registro' || ruta == '/recuperar' || ruta == '/restablecer';
+bool _esRutaAuth(String ruta) =>
+    ruta == '/login' ||
+    ruta == '/registro' ||
+    ruta == '/recuperar' ||
+    ruta == '/restablecer' ||
+    ruta == '/vendedor/acceso';
+
+/// El área del personal (`/vendedor`, `/vendedor/acceso`).
+bool _esRutaDeVendedor(String ruta) => ruta == '/vendedor' || ruta.startsWith('/vendedor/');
+
+/// Elegir tienda y entrar por el enlace `/t/<codigo>` están siempre permitidos, con o sin sesión.
+bool _esRutaDeTienda(String ruta) => ruta == '/tienda' || ruta.startsWith('/t/');
 
 // El catálogo, el detalle de producto y el asistente son públicos (igual que
 // en el web, que solo protege carrito/checkout/mis-compras/reservas con authGuard).
@@ -78,6 +97,9 @@ class _RutaInvalidaScreen extends StatelessWidget {
   }
 }
 
+/// El botón "atrás" del sistema: si no hay historial sube a la pantalla padre en vez de cerrar la app (ver `retroceso.dart`).
+final retrocesoProvider = Provider<BackButtonDispatcher>((ref) => RetrocesoDelRouter(ref.watch(routerProvider)));
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refresco = ref.watch(_refrescoDelRouterProvider);
 
@@ -87,9 +109,15 @@ final routerProvider = Provider<GoRouter>((ref) {
     errorBuilder: (context, state) => const _RutaInvalidaScreen(mensaje: 'Esa página no existe.'),
     redirect: (context, state) {
       final authState = ref.read(authControllerProvider);
+      final tiendaState = ref.read(tiendaControllerProvider);
       final ruta = state.matchedLocation;
       final esAuth = _esRutaAuth(ruta);
       final esSplash = ruta == '/splash';
+      final esTienda = _esRutaDeTienda(ruta);
+      final haySesionTienda = tiendaState.tienda != null;
+
+      // Hasta leer la tienda guardada no se sabe adónde ir.
+      if (!tiendaState.cargada) return esSplash ? null : '/splash';
 
       switch (authState.estado) {
         case EstadoSesion.inicial:
@@ -103,12 +131,28 @@ final routerProvider = Provider<GoRouter>((ref) {
           // login, registro) ya muestra su propio indicador de carga.
           return null;
         case EstadoSesion.noAutenticado:
-          if (esSplash) return '/home';
+          // Sin tienda elegida lo único posible es elegirla.
+          if (esSplash) return haySesionTienda ? '/home' : '/tienda';
+          if (esTienda) return null;
+          // El personal escribe su empresa al entrar: no necesita haber elegido tienda antes.
+          if (ruta == '/vendedor/acceso') return null;
+          if (!haySesionTienda) return '/tienda';
           if (esAuth) return null;
+          // El área del personal exige entrar por su pantalla de acceso.
+          if (_esRutaDeVendedor(ruta)) return '/vendedor/acceso';
+          // Al personal cuya sesión venció se le manda a su acceso (para reenviar lo pendiente), no al login de clientes.
+          if (authState.motivoCierre == MotivoCierre.vencida && authState.modoPrevio == ModoApp.vendedor) {
+            return '/vendedor/acceso';
+          }
           if (_esRutaPublicaParaInvitado(ruta)) return null;
           return '/login?returnTo=${Uri.encodeComponent(state.uri.toString())}';
         case EstadoSesion.autenticado:
-          if (esSplash) return '/home';
+          final esVendedor = authState.usuario?.modo == ModoApp.vendedor;
+          if (esSplash) return esVendedor ? '/vendedor' : '/home';
+          if (esTienda) return null;
+          // El personal vive en su área; el cliente no puede entrar a ella.
+          if (esVendedor) return ruta == '/vendedor' ? null : '/vendedor';
+          if (_esRutaDeVendedor(ruta)) return '/home';
           if (esAuth) {
             final returnTo = state.uri.queryParameters['returnTo'];
             return (returnTo != null && returnTo.isNotEmpty) ? returnTo : '/home';
@@ -118,6 +162,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
+      GoRoute(path: '/tienda', builder: (context, state) => const EligeTiendaScreen()),
+      GoRoute(
+        path: '/t/:codigo',
+        builder: (context, state) => EntrarATiendaScreen(codigo: state.pathParameters['codigo'] ?? ''),
+      ),
+      GoRoute(path: '/vendedor/acceso', builder: (context, state) => const AccesoVendedorScreen()),
+      GoRoute(path: '/vendedor', builder: (context, state) => const InicioVendedorScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/registro', builder: (context, state) => const RegistroScreen()),
       GoRoute(path: '/recuperar', builder: (context, state) => const RecuperarScreen()),

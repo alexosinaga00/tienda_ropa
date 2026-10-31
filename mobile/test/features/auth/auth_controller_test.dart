@@ -6,24 +6,43 @@ import 'package:mobile/features/auth/data/auth_repository.dart';
 import 'package:mobile/features/auth/models/usuario.dart';
 import 'package:mobile/features/auth/state/auth_controller.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/features/tienda/models/tienda.dart';
 
+import '../../helpers/sesion_storage_falso.dart';
 import '../../helpers/token_storage_falso.dart';
+
+/// La tienda guardada en el dispositivo en estas pruebas. AJUSTE multitenant: `restaurarSesion` ahora espera y lee la
+/// tienda elegida; sin una tienda guardada descarta los tokens. Por eso el contenedor sobreescribe
+/// `sesionStorageProvider` con esta tienda, cuyo código coincide con `empresaCodigo` del usuario de prueba.
+const _tiendaPrueba = Tienda(codigo: 'chaski', nombre: 'Chaski Sport');
 
 /// Repositorio sin red: el login guarda tokens en el almacenamiento falso y `/auth/yo` devuelve un usuario con los
 /// roles dados (o falla, para simular credenciales inválidas).
 class _RepositorioFalso extends AuthRepository {
-  _RepositorioFalso(this.roles, this.almacenamiento, {this.falla = false, this.errorAlObtenerUsuario})
-    : super(dio: Dio(), tokenStorage: almacenamiento);
+  _RepositorioFalso(
+    this.roles,
+    this.almacenamiento, {
+    this.falla = false,
+    this.errorAlObtenerUsuario,
+    this.empresaCodigo = 'chaski',
+    this.permisos = const [],
+  }) : super(dio: Dio(), tokenStorage: almacenamiento);
 
   final List<String> roles;
+
+  /// Ajuste E18b: los permisos deciden el modo de la cuenta (vendedor, cliente o sin acceso).
+  final List<String> permisos;
   final TokenStorageFalso almacenamiento;
   final bool falla;
+
+  /// La empresa del usuario que devuelve `/auth/yo` (null = sin empresa en la respuesta).
+  final String? empresaCodigo;
 
   /// Si se da, `/auth/yo` falla con este error (p. ej. un DioException de red o un 500).
   final Object? errorAlObtenerUsuario;
 
   @override
-  Future<void> login({required String email, required String password}) async {
+  Future<void> login({required String email, required String password, String? empresa}) async {
     if (falla) throw Exception('401');
     await almacenamiento.guardar(accessToken: 'ACCESS', refreshToken: 'REFRESH');
   }
@@ -40,7 +59,8 @@ class _RepositorioFalso extends AuthRepository {
       telefono: null,
       activo: true,
       roles: roles,
-      permisos: const [],
+      permisos: permisos,
+      empresaCodigo: empresaCodigo,
     );
   }
 }
@@ -50,12 +70,23 @@ ProviderContainer _contenedor(
   TokenStorageFalso almacenamiento, {
   bool falla = false,
   Object? errorAlObtenerUsuario,
+  String? empresaCodigo = 'chaski',
+  bool sinTienda = false,
+  List<String> permisos = const [],
 }) {
   final contenedor = ProviderContainer(
     overrides: [
       tokenStorageProvider.overrideWithValue(almacenamiento),
+      sesionStorageProvider.overrideWithValue(SesionStorageFalso(tienda: sinTienda ? null : _tiendaPrueba)),
       authRepositoryProvider.overrideWithValue(
-        _RepositorioFalso(roles, almacenamiento, falla: falla, errorAlObtenerUsuario: errorAlObtenerUsuario),
+        _RepositorioFalso(
+          roles,
+          almacenamiento,
+          falla: falla,
+          errorAlObtenerUsuario: errorAlObtenerUsuario,
+          empresaCodigo: empresaCodigo,
+          permisos: permisos,
+        ),
       ),
     ],
   );
@@ -132,17 +163,22 @@ void main() {
       expect(contenedor.read(authControllerProvider).estaAutenticado, isTrue);
     });
 
-    test('una sesión guardada de personal no se restaura y se limpian los tokens', () async {
+    // Ajuste E18b: antes la app era solo para clientes y toda sesión de personal se descartaba. Ahora quien tiene
+    // `ventas.presencial` se restaura como vendedor y conserva sus tokens.
+    test('una sesión guardada de personal con permiso de venta se restaura como vendedor', () async {
       final almacenamiento = TokenStorageFalso()
         ..accessToken = 'ACCESS'
         ..refreshToken = 'REFRESH';
-      final contenedor = _contenedor(['encargado_sucursal'], almacenamiento);
+      final contenedor = _contenedor(['cajero'], almacenamiento, permisos: ['ventas.presencial']);
 
       await contenedor.read(authControllerProvider.notifier).restaurarSesion();
 
-      expect(contenedor.read(authControllerProvider).estado, EstadoSesion.noAutenticado);
-      expect(almacenamiento.accessToken, isNull);
-      expect(almacenamiento.refreshToken, isNull);
+      final estado = contenedor.read(authControllerProvider);
+      expect(estado.estaAutenticado, isTrue);
+      expect(estado.usuario?.modo, ModoApp.vendedor);
+      expect(almacenamiento.accessToken, 'ACCESS');
+      expect(almacenamiento.refreshToken, 'REFRESH');
+      expect(almacenamiento.vecesLimpiado, 0);
     });
 
     DioException errorDio(DioExceptionType tipo, {int? estado}) {
@@ -190,6 +226,88 @@ void main() {
       expect(contenedor.read(authControllerProvider).estado, EstadoSesion.noAutenticado);
       expect(almacenamiento.accessToken, isNull);
       expect(almacenamiento.refreshToken, isNull);
+    });
+  });
+
+  group('AuthController.restaurarSesion - multitenant', () {
+    test('sin token no hay sesión y no se toca nada', () async {
+      final almacenamiento = TokenStorageFalso();
+      final contenedor = _contenedor(['cliente'], almacenamiento);
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      expect(contenedor.read(authControllerProvider).estado, EstadoSesion.noAutenticado);
+      expect(almacenamiento.vecesLimpiado, 0);
+    });
+
+    test('token pero sin tienda guardada: se limpian los tokens y queda noAutenticado', () async {
+      final almacenamiento = TokenStorageFalso()
+        ..accessToken = 'ACCESS'
+        ..refreshToken = 'REFRESH';
+      final contenedor = _contenedor(['cliente'], almacenamiento, sinTienda: true);
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      final estado = contenedor.read(authControllerProvider);
+      expect(estado.estado, EstadoSesion.noAutenticado);
+      expect(estado.usuario, isNull);
+      expect(almacenamiento.accessToken, isNull);
+      expect(almacenamiento.refreshToken, isNull);
+      expect(almacenamiento.vecesLimpiado, 1);
+    });
+
+    test('con tienda guardada y el mismo empresa_codigo la sesión se restaura', () async {
+      final almacenamiento = TokenStorageFalso()
+        ..accessToken = 'ACCESS'
+        ..refreshToken = 'REFRESH';
+      final contenedor = _contenedor(['cliente'], almacenamiento, empresaCodigo: 'chaski');
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      final estado = contenedor.read(authControllerProvider);
+      expect(estado.estaAutenticado, isTrue);
+      expect(estado.usuario?.empresaCodigo, 'chaski');
+      expect(almacenamiento.vecesLimpiado, 0);
+    });
+
+    test('/auth/yo con un empresa_codigo distinto de la tienda: se limpian los tokens', () async {
+      final almacenamiento = TokenStorageFalso()
+        ..accessToken = 'ACCESS'
+        ..refreshToken = 'REFRESH';
+      final contenedor = _contenedor(['cliente'], almacenamiento, empresaCodigo: 'andina');
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      final estado = contenedor.read(authControllerProvider);
+      expect(estado.estado, EstadoSesion.noAutenticado);
+      expect(estado.usuario, isNull);
+      expect(almacenamiento.accessToken, isNull);
+      expect(almacenamiento.refreshToken, isNull);
+      expect(almacenamiento.vecesLimpiado, 1);
+    });
+
+    test('un usuario sin empresa_codigo en /auth/yo no se descarta por la tienda', () async {
+      final almacenamiento = TokenStorageFalso()
+        ..accessToken = 'ACCESS'
+        ..refreshToken = 'REFRESH';
+      final contenedor = _contenedor(['cliente'], almacenamiento, empresaCodigo: null);
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      expect(contenedor.read(authControllerProvider).estaAutenticado, isTrue);
+      expect(almacenamiento.vecesLimpiado, 0);
+    });
+
+    // Ajuste E18b: el personal con permisos de venta ya no se descarta (ver arriba); sigue descartándose quien no es
+    // cliente ni tiene `ventas.presencial` / `reservas.gestionar_sucursal` (p. ej. el proveedor), con tokens limpios.
+    test('una cuenta sin acceso a la app (proveedor) se descarta aunque la tienda coincida', () async {
+      final almacenamiento = TokenStorageFalso()..accessToken = 'ACCESS';
+      final contenedor = _contenedor(['proveedor'], almacenamiento, empresaCodigo: 'chaski');
+
+      await contenedor.read(authControllerProvider.notifier).restaurarSesion();
+
+      expect(contenedor.read(authControllerProvider).estado, EstadoSesion.noAutenticado);
+      expect(almacenamiento.accessToken, isNull);
     });
   });
 }

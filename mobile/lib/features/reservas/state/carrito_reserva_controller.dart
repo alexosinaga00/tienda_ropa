@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../tienda/state/tienda_controller.dart';
 import '../models/item_reserva_temporal.dart';
 
 /// Lista temporal de variantes que el cliente va agregando desde el
@@ -23,9 +24,10 @@ class CarritoReservaController extends StateNotifier<List<ItemReservaTemporal>> 
   }
 }
 
-/// Una instancia por sesión: aunque solo viva en memoria, lo que un cliente
-/// dejó a medio reservar no puede aparecerle al siguiente.
+/// Una instancia por sesión y por tienda: aunque solo viva en memoria, lo que un cliente dejó a medio reservar no puede
+/// aparecerle al siguiente, ni llevarse a otra tienda (los ids de variante son de la tienda donde se agregaron).
 final carritoReservaProvider = StateNotifierProvider<CarritoReservaController, List<ItemReservaTemporal>>((ref) {
   ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  ref.watch(tiendaCodigoProvider);
   return CarritoReservaController();
 });

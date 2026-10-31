@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/core/network/error_app.dart';
 import 'package:mobile/core/network/mensaje_error.dart';
 
 DioException _error(DioExceptionType tipo, {int? estado, Object? cuerpo}) {
@@ -61,6 +62,113 @@ void main() {
       expect(mensajeDeError(conDetalle, 'por defecto'), 'Solo quedan 2');
       expect(mensajeDeError(_error(DioExceptionType.connectionError), 'por defecto'), 'por defecto');
       expect(mensajeDeError(Exception('x'), 'por defecto'), 'por defecto');
+    });
+  });
+
+  group('mensajeDeError - códigos funcionales', () {
+    const mensajePlan = 'Tu plan no incluye esta función. Consulta con el administrador de tu empresa.';
+    const mensajeSuscripcion = 'La suscripción de esta tienda no está activa. Contacta al administrador de la tienda.';
+    const mensajeLimite = 'Tu empresa alcanzó el límite de su plan.';
+
+    test('un DioException con un código funcional da el texto amigable fijo', () {
+      final plan = _error(
+        DioExceptionType.badResponse,
+        estado: 403,
+        cuerpo: {'detail': 'plan_no_incluye_funcionalidad'},
+      );
+      final suscripcion = _error(
+        DioExceptionType.badResponse,
+        estado: 403,
+        cuerpo: {'detail': 'suscripcion_no_activa'},
+      );
+      final limite = _error(
+        DioExceptionType.badResponse,
+        estado: 409,
+        cuerpo: {'detail': 'x', 'codigo': 'limite_plan_excedido', 'mensaje': 'texto técnico'},
+      );
+
+      expect(mensajeDeError(plan, 'por defecto'), mensajePlan);
+      expect(mensajeDeError(suscripcion, 'por defecto'), mensajeSuscripcion);
+      expect(mensajeDeError(limite, 'por defecto'), mensajeLimite);
+    });
+
+    test('un ErrorApp funcional da su texto fijo', () {
+      final error = ErrorApp.desde(_error(DioExceptionType.badResponse, estado: 403, cuerpo: {'detail': 'suscripcion_no_activa'}));
+
+      expect(mensajeDeError(error, 'por defecto'), mensajeSuscripcion);
+    });
+
+    test('un ErrorApp no funcional usa su detalle y, si no tiene, el mensaje por defecto', () {
+      final conDetalle = ErrorApp.desde(
+        _error(DioExceptionType.badResponse, estado: 409, cuerpo: {'detail': 'Solo quedan 2'}),
+      );
+      final sinDetalle = ErrorApp.desde(_error(DioExceptionType.badResponse, estado: 500));
+      final sinRed = ErrorApp.desde(_error(DioExceptionType.connectionError));
+
+      expect(mensajeDeError(conDetalle, 'por defecto'), 'Solo quedan 2');
+      expect(mensajeDeError(sinDetalle, 'por defecto'), 'por defecto');
+      expect(mensajeDeError(sinRed, 'por defecto'), 'por defecto');
+    });
+  });
+
+  group('helpers que aceptan ErrorApp', () {
+    ErrorApp con(int estado, {Object? cuerpo}) =>
+        ErrorApp.desde(_error(DioExceptionType.badResponse, estado: estado, cuerpo: cuerpo));
+
+    test('esConflicto, esNoEncontrado y esErrorDeServidor miran el estado del ErrorApp', () {
+      expect(esConflicto(con(409)), isTrue);
+      expect(esConflicto(con(404)), isFalse);
+      expect(esNoEncontrado(con(404)), isTrue);
+      expect(esNoEncontrado(con(409)), isFalse);
+      expect(esErrorDeServidor(con(500)), isTrue);
+      expect(esErrorDeServidor(con(503)), isTrue);
+      expect(esErrorDeServidor(con(401)), isFalse);
+    });
+
+    test('esSinConexion reconoce un ErrorApp sinConexion y no otro', () {
+      expect(esSinConexion(ErrorApp.desde(_error(DioExceptionType.connectionTimeout))), isTrue);
+      expect(esSinConexion(ErrorApp.desde(_error(DioExceptionType.connectionError))), isTrue);
+      expect(esSinConexion(con(500)), isFalse);
+      expect(esSinConexion(ErrorApp.desde(Exception('x'))), isFalse);
+    });
+
+    test('un ErrorApp sin estado no es conflicto, ni no encontrado, ni error de servidor', () {
+      final sinRed = ErrorApp.desde(_error(DioExceptionType.connectionError));
+
+      expect(esConflicto(sinRed), isFalse);
+      expect(esNoEncontrado(sinRed), isFalse);
+      expect(esErrorDeServidor(sinRed), isFalse);
+    });
+
+    test('esPlanNoIncluye, esSuscripcionNoActiva y esLimitePlan aceptan ErrorApp y DioException', () {
+      final plan = _error(DioExceptionType.badResponse, estado: 403, cuerpo: {'detail': 'plan_no_incluye_funcionalidad'});
+      final suscripcion = _error(DioExceptionType.badResponse, estado: 403, cuerpo: {'codigo': 'suscripcion_no_activa'});
+      final limite = _error(DioExceptionType.badResponse, estado: 409, cuerpo: {'codigo': 'limite_plan_excedido'});
+
+      for (final entrada in [plan, ErrorApp.desde(plan)]) {
+        expect(esPlanNoIncluye(entrada), isTrue);
+        expect(esSuscripcionNoActiva(entrada), isFalse);
+        expect(esLimitePlan(entrada), isFalse);
+      }
+      for (final entrada in [suscripcion, ErrorApp.desde(suscripcion)]) {
+        expect(esSuscripcionNoActiva(entrada), isTrue);
+        expect(esPlanNoIncluye(entrada), isFalse);
+      }
+      for (final entrada in [limite, ErrorApp.desde(limite)]) {
+        expect(esLimitePlan(entrada), isTrue);
+        expect(esPlanNoIncluye(entrada), isFalse);
+      }
+    });
+
+    test('los helpers funcionales son falsos para un 403/409 común y para una excepción cualquiera', () {
+      final prohibido = _error(DioExceptionType.badResponse, estado: 403, cuerpo: {'detail': 'Sin permiso'});
+      final conflicto = _error(DioExceptionType.badResponse, estado: 409, cuerpo: {'detail': 'Solo quedan 2'});
+
+      expect(esPlanNoIncluye(prohibido), isFalse);
+      expect(esSuscripcionNoActiva(prohibido), isFalse);
+      expect(esLimitePlan(conflicto), isFalse);
+      expect(esLimitePlan(Exception('x')), isFalse);
+      expect(esPlanNoIncluye(Exception('x')), isFalse);
     });
   });
 }

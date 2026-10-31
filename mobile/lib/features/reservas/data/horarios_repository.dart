@@ -1,13 +1,16 @@
-import 'package:dio/dio.dart';
+import '../../../core/network/api_client.dart';
 import '../models/horario_sucursal.dart';
 
 class HorariosRepository {
-  HorariosRepository(this._dio);
+  HorariosRepository(this._api);
 
-  final Dio _dio;
+  final ApiClient _api;
 
-  Future<List<HorarioSucursal>> porSucursal(int sucursalId) async {
-    final respuesta = await _dio.get<List<dynamic>>('/sucursales/$sucursalId/horarios');
-    return respuesta.data!.map((e) => HorarioSucursal.fromJson(e as Map<String, dynamic>)).toList();
+  Future<List<HorarioSucursal>> porSucursal(int sucursalId) {
+    return _api.getLista<HorarioSucursal>(
+      '/sucursales/$sucursalId/horarios',
+      desde: HorarioSucursal.fromJson,
+      publica: true,
+    );
   }
 }

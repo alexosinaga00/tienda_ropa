@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
+import '../../auth/state/auth_controller.dart';
+import '../../tienda/state/tienda_controller.dart';
 import '../models/evento.dart';
 
 /// Registra eventos de navegación (vista, búsqueda, favorito) en
@@ -21,11 +23,14 @@ import '../models/evento.dart';
 /// La cola tiene un tope: si se llena (mucho tiempo sin red), se descartan
 /// los eventos más viejos.
 class TrackingService {
-  TrackingService(this._dio);
+  /// [codigoInvitado]: devuelve el código de la tienda elegida cuando NO hay sesión (se usa la ruta pública
+  /// `/public/{codigo}/ia/eventos`) o null cuando hay sesión (la empresa sale del token).
+  TrackingService(this._dio, {this._codigoInvitado});
 
   static const maxEventosEncolados = 100;
 
   final Dio _dio;
+  final String? Function()? _codigoInvitado;
   final List<Evento> _cola = [];
 
   int get eventosEncolados => _cola.length;
@@ -45,7 +50,16 @@ class TrackingService {
     // concurrente, o un elemento que se saca al confirmarse el envío).
     for (final evento in List<Evento>.from(_cola)) {
       try {
-        await _dio.post<void>('/ia/eventos', data: evento.toJson());
+        final codigo = _codigoInvitado?.call();
+        if (codigo == null) {
+          await _dio.post<void>('/ia/eventos', data: evento.toJson());
+        } else {
+          await _dio.post<void>(
+            '/public/$codigo/ia/eventos',
+            data: evento.toJson(),
+            options: Options(extra: {'publica': true}),
+          );
+        }
         _cola.remove(evento);
       } catch (error) {
         if (_esRechazoDefinitivo(error)) {
@@ -65,4 +79,10 @@ class TrackingService {
   }
 }
 
-final trackingServiceProvider = Provider<TrackingService>((ref) => TrackingService(ref.watch(dioProvider)));
+/// Observa la tienda y la sesión: al cambiar cualquiera se descarta la cola en RAM (tiene ids de producto de la otra
+/// empresa o de otra persona).
+final trackingServiceProvider = Provider<TrackingService>((ref) {
+  final autenticado = ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  final codigo = ref.watch(tiendaCodigoProvider);
+  return TrackingService(ref.watch(dioProvider), codigoInvitado: () => autenticado ? null : codigo);
+});

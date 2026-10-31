@@ -29,10 +29,14 @@ class AppSpacing {
   static const xxl = 48.0;
 }
 
-ThemeData buildAppTheme() {
+/// Sin [acento] devuelve el tema base. Con [acento] (el color de la tienda ya validado con `colorAcentoSeguro`)
+/// cambia el color primario, los botones, los botones de texto y el borde de foco de los campos. `AppColors.acento`
+/// no cambia: los widgets que lo usan directo conservan el color base.
+ThemeData buildAppTheme({Color? acento}) {
+  final primario = acento ?? AppColors.acento;
   final colorScheme = ColorScheme.fromSeed(
-    seedColor: AppColors.acento,
-    primary: AppColors.acento,
+    seedColor: primario,
+    primary: primario,
     error: AppColors.error,
     surface: AppColors.fondo,
   );
@@ -67,12 +71,12 @@ ThemeData buildAppTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.base),
-        borderSide: const BorderSide(color: AppColors.acento, width: 1.5),
+        borderSide: BorderSide(color: primario, width: 1.5),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.acento,
+        backgroundColor: primario,
         foregroundColor: Colors.white,
         minimumSize: const Size.fromHeight(52),
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
@@ -80,7 +84,7 @@ ThemeData buildAppTheme() {
       ),
     ),
     textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: AppColors.acento),
+      style: TextButton.styleFrom(foregroundColor: primario),
     ),
   );
 }

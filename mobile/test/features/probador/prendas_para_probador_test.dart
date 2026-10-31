@@ -10,10 +10,12 @@ import 'package:mobile/features/probador/data/probador_repository.dart';
 import 'package:mobile/features/probador/models/activo_probador.dart';
 import 'package:mobile/features/probador/state/probador_providers.dart';
 
+import '../../helpers/api_client_falso.dart';
+
 /// Catálogo de prueba: Polera A (10: variantes 101 y 102), Camisa B (20: 201 y 202) y un Pantalón C (30) que no admite
 /// probador. La Chamarra D (40, variante 401) existe pero NO está en el listado (p. ej. más allá de los primeros 50).
 class _CatalogoFalso extends CatalogoRepository {
-  _CatalogoFalso() : super(Dio());
+  _CatalogoFalso() : super(ApiClientFalso());
 
   static const _productos = {
     10: ('Polera A', true, [101, 102]),

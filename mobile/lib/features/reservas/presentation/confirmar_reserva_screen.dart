@@ -89,7 +89,8 @@ class _ConfirmarReservaScreenState extends ConsumerState<ConfirmarReservaScreen>
       ref.read(carritoReservaProvider.notifier).vaciar();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reserva creada')));
-      context.go('/reservas');
+      // Reemplaza solo esta pantalla (no toda la pila): "atrás" desde Mis reservas vuelve a donde estaba la persona.
+      context.pushReplacement('/reservas');
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(

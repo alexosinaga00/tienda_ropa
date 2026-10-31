@@ -99,7 +99,15 @@ class _EstadoPagoScreenState extends ConsumerState<EstadoPagoScreen> {
   /// prendas al carrito.
   Future<void> _cancelarCompra() async {
     final ventaId = _ventaId;
-    if (ventaId == null) return;
+    if (ventaId == null) {
+      // Sin número de venta no se puede cancelar desde aquí: antes no pasaba nada y la persona quedaba atrapada en la
+      // pantalla. Se explica y se la lleva a Mis compras, donde la compra pendiente se puede cancelar o pagar.
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No pudimos identificar tu compra. Revísala en Mis compras.')));
+      context.go('/compras');
+      return;
+    }
     setState(() => _cancelando = true);
     try {
       await ref.read(pagosRepositoryProvider).cancelarCompra(ventaId);

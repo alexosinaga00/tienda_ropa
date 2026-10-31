@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
+import '../../auth/state/auth_controller.dart';
 import '../data/recomendador_repository.dart';
 import '../models/recomendacion_item.dart';
 
-final recomendadorRepositoryProvider = Provider<RecomendadorRepository>(
-  (ref) => RecomendadorRepository(ref.watch(dioProvider)),
-);
+/// Sin sesión usa la ruta pública de la tienda elegida; con sesión, la empresa sale del token.
+final recomendadorRepositoryProvider = Provider<RecomendadorRepository>((ref) {
+  final invitado = !ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
+  return RecomendadorRepository(ref.watch(apiClientProvider), invitado: invitado);
+});
 
 /// Carrusel del home: recomendaciones generales del cliente (o de
 /// popularidad, si es anónimo/nuevo).

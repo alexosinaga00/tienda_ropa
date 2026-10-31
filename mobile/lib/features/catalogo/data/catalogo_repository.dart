@@ -1,44 +1,47 @@
-import 'package:dio/dio.dart';
+import '../../../core/network/api_client.dart';
 import '../models/catalogo_detalle.dart';
 import '../models/catalogo_item.dart';
 import '../models/filtros_catalogo.dart';
 import '../models/variante_lookup.dart';
 
+/// El catálogo de la tienda elegida. Listar, buscar y ver el detalle son públicos (`/public/{codigo}/catalogo...`);
+/// resolver las variantes del carrito exige sesión (la empresa sale del token).
 class CatalogoRepository {
-  CatalogoRepository(this._dio);
+  CatalogoRepository(this._api);
 
-  final Dio _dio;
+  final ApiClient _api;
 
-  Future<List<CatalogoItem>> listar({required int pagina, required int tamanio}) async {
-    final respuesta = await _dio.get<List<dynamic>>(
+  Future<List<CatalogoItem>> listar({required int pagina, required int tamanio}) {
+    return _api.getLista<CatalogoItem>(
       '/catalogo',
-      queryParameters: {'pagina': pagina, 'tamanio': tamanio},
+      query: {'pagina': pagina, 'tamanio': tamanio},
+      desde: CatalogoItem.fromJson,
+      publica: true,
     );
-    return respuesta.data!.map((e) => CatalogoItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<List<CatalogoItem>> buscar(FiltrosCatalogo filtros, {required int pagina, required int tamanio}) async {
-    final respuesta = await _dio.get<List<dynamic>>(
+  Future<List<CatalogoItem>> buscar(FiltrosCatalogo filtros, {required int pagina, required int tamanio}) {
+    return _api.getLista<CatalogoItem>(
       '/catalogo/buscar',
-      queryParameters: {'pagina': pagina, 'tamanio': tamanio, ...filtros.aQueryParams()},
+      query: {'pagina': pagina, 'tamanio': tamanio, ...filtros.aQueryParams()},
+      desde: CatalogoItem.fromJson,
+      publica: true,
     );
-    return respuesta.data!.map((e) => CatalogoItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<CatalogoDetalle> detalle(int productoId) async {
-    final respuesta = await _dio.get<Map<String, dynamic>>('/catalogo/$productoId');
-    return CatalogoDetalle.fromJson(respuesta.data!);
+  Future<CatalogoDetalle> detalle(int productoId) {
+    return _api.getObjeto<CatalogoDetalle>('/catalogo/$productoId', desde: CatalogoDetalle.fromJson, publica: true);
   }
 
   /// Resuelve nombre/foto/talla/color en lote para un conjunto de
   /// variantes -- lo usa el carrito de compra (features/compras), que del
-  /// backend solo recibe variante_id/cantidad/precio.
-  Future<List<VarianteLookupItem>> detallePorVariantes(List<int> varianteIds) async {
-    if (varianteIds.isEmpty) return const [];
-    final respuesta = await _dio.get<List<dynamic>>(
+  /// backend solo recibe variante_id/cantidad/precio. Exige sesión.
+  Future<List<VarianteLookupItem>> detallePorVariantes(List<int> varianteIds) {
+    if (varianteIds.isEmpty) return Future.value(const []);
+    return _api.getLista<VarianteLookupItem>(
       '/catalogo/variantes/detalle',
-      queryParameters: {'variante_ids': varianteIds.join(',')},
+      query: {'variante_ids': varianteIds.join(',')},
+      desde: VarianteLookupItem.fromJson,
     );
-    return respuesta.data!.map((e) => VarianteLookupItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

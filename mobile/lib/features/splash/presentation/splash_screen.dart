@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../tienda/state/tienda_controller.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -18,8 +21,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     // (sin token guardado), el splash desaparecía casi instantáneo. Se
     // retrasa el arranque de la restauración de sesión en vez de retrasar
     // la navegación en el router, para no tocar esa lógica compartida.
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) ref.read(authControllerProvider.notifier).restaurarSesion();
+    Future.delayed(const Duration(seconds: 3), () async {
+      if (!mounted) return;
+      await ref.read(authControllerProvider.notifier).restaurarSesion();
+      // La tienda guardada puede haber cambiado de nombre, logo o color, o ya no existir: se confirma en segundo plano
+      // (sin conexión no pasa nada, se sigue con lo guardado).
+      unawaited(ref.read(tiendaControllerProvider.notifier).validarGuardada());
     });
   }
 

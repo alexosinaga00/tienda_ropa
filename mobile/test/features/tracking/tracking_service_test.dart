@@ -146,5 +146,70 @@ void main() {
 
       expect(servicio.eventosEncolados, 0);
     });
+
+    test('con codigoInvitado que devuelve un código, el POST va a /public/{codigo}/ia/eventos como ruta pública', () async {
+      RequestOptions? peticion;
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'));
+      dio.httpClientAdapter = _AdaptadorFalso((options) async {
+        peticion = options;
+        return _json('{}', 201);
+      });
+
+      TrackingService(dio, codigoInvitado: () => 'chaski').track(tipo: TipoEvento.vista, productoId: 3);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(peticion?.path, '/public/chaski/ia/eventos');
+      expect(peticion?.method, 'POST');
+      expect(peticion?.extra['publica'], isTrue);
+      expect((peticion?.data as Map?)?['producto_id'], 3);
+    });
+
+    test('con codigoInvitado que devuelve null (hay sesión), el POST va a /ia/eventos sin marca pública', () async {
+      RequestOptions? peticion;
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'));
+      dio.httpClientAdapter = _AdaptadorFalso((options) async {
+        peticion = options;
+        return _json('{}', 201);
+      });
+
+      TrackingService(dio, codigoInvitado: () => null).track(tipo: TipoEvento.vista, productoId: 3);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(peticion?.path, '/ia/eventos');
+      expect(peticion?.extra['publica'], isNot(true));
+    });
+
+    test('sin codigoInvitado (como antes) el POST va a /ia/eventos', () async {
+      RequestOptions? peticion;
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'));
+      dio.httpClientAdapter = _AdaptadorFalso((options) async {
+        peticion = options;
+        return _json('{}', 201);
+      });
+
+      TrackingService(dio).track(tipo: TipoEvento.busqueda, texto: 'camisa');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(peticion?.path, '/ia/eventos');
+    });
+
+    test('el código se lee al enviar: si la persona inicia sesión, los eventos siguientes van a la ruta privada', () async {
+      final rutas = <String>[];
+      String? codigo = 'chaski';
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'));
+      dio.httpClientAdapter = _AdaptadorFalso((options) async {
+        rutas.add(options.path);
+        return _json('{}', 201);
+      });
+
+      final servicio = TrackingService(dio, codigoInvitado: () => codigo);
+      servicio.track(tipo: TipoEvento.vista, productoId: 1);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      codigo = null;
+      servicio.track(tipo: TipoEvento.vista, productoId: 2);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(rutas, ['/public/chaski/ia/eventos', '/ia/eventos']);
+    });
   });
 }

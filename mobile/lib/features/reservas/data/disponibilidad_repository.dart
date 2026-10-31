@@ -1,17 +1,18 @@
-import 'package:dio/dio.dart';
+import '../../../core/network/api_client.dart';
 import '../models/disponibilidad_sucursal.dart';
 
 class DisponibilidadRepository {
-  DisponibilidadRepository(this._dio);
+  DisponibilidadRepository(this._api);
 
-  final Dio _dio;
+  final ApiClient _api;
 
-  /// Endpoint público: no requiere sesión de cliente.
-  Future<List<DisponibilidadSucursal>> porVariante(int varianteId) async {
-    final respuesta = await _dio.get<List<dynamic>>(
+  /// Endpoint público de la tienda elegida: no requiere sesión de cliente.
+  Future<List<DisponibilidadSucursal>> porVariante(int varianteId) {
+    return _api.getLista<DisponibilidadSucursal>(
       '/inventario/disponibilidad',
-      queryParameters: {'variante_id': varianteId},
+      query: {'variante_id': varianteId},
+      desde: DisponibilidadSucursal.fromJson,
+      publica: true,
     );
-    return respuesta.data!.map((e) => DisponibilidadSucursal.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

@@ -1,14 +1,20 @@
-import 'package:dio/dio.dart';
-
+import '../../../core/network/api_client.dart';
 import '../models/voz_resultado.dart';
 
 class VozRepository {
-  VozRepository(this._dio);
+  /// [invitado]: sin sesión se usa la ruta pública de la tienda elegida (`/public/{codigo}/ia/voz`); con sesión, la
+  /// empresa sale del token.
+  VozRepository(this._api, {this._invitado = false});
 
-  final Dio _dio;
+  final ApiClient _api;
+  final bool _invitado;
 
-  Future<VozResultado> buscarPorVoz(String texto) async {
-    final respuesta = await _dio.post<Map<String, dynamic>>('/ia/voz', data: {'texto': texto});
-    return VozResultado.fromJson(respuesta.data!);
+  Future<VozResultado> buscarPorVoz(String texto) {
+    return _api.postObjeto<VozResultado>(
+      '/ia/voz',
+      cuerpo: {'texto': texto},
+      desde: VozResultado.fromJson,
+      publica: _invitado,
+    );
   }
 }

@@ -14,10 +14,12 @@ import 'carrito_reserva_controller.dart';
 final reservasRepositoryProvider = Provider<ReservasRepository>((ref) => ReservasRepository(ref.watch(dioProvider)));
 
 final disponibilidadRepositoryProvider = Provider<DisponibilidadRepository>(
-  (ref) => DisponibilidadRepository(ref.watch(dioProvider)),
+  (ref) => DisponibilidadRepository(ref.watch(apiClientProvider)),
 );
 
-final horariosRepositoryProvider = Provider<HorariosRepository>((ref) => HorariosRepository(ref.watch(dioProvider)));
+final horariosRepositoryProvider = Provider<HorariosRepository>(
+  (ref) => HorariosRepository(ref.watch(apiClientProvider)),
+);
 
 final horariosSucursalProvider = FutureProvider.family<List<HorarioSucursal>, int>(
   (ref, sucursalId) => ref.watch(horariosRepositoryProvider).porSucursal(sucursalId),
