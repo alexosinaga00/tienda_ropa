@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../features/auth/models/usuario.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/tienda/state/tienda_controller.dart';
 import 'contador_pendientes.dart';
 
 Future<int> _pendientes(WidgetRef ref) async {
   final usuario = ref.read(authControllerProvider).usuario;
-  if (usuario == null) return 0;
+  // Solo el personal tiene base local: a un cliente no se le abre sin necesidad.
+  if (usuario == null || usuario.modo != ModoApp.vendedor) return 0;
   return ref.read(contadorPendientesProvider).pendientesDe(empresaId: usuario.empresaId, usuarioId: usuario.id);
 }
 

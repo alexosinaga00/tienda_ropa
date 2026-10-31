@@ -27,6 +27,8 @@ import '../../features/reservas/presentation/reserva_detalle_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/auth/models/usuario.dart';
 import '../../features/vendedor/presentation/acceso_vendedor_screen.dart';
+import '../../features/vendedor/presentation/catalogo_local_screen.dart';
+import '../../features/vendedor/presentation/detalle_local_screen.dart';
 import '../../features/vendedor/presentation/inicio_vendedor_screen.dart';
 import '../../features/tienda/presentation/elige_tienda_screen.dart';
 import '../../features/tienda/presentation/entrar_a_tienda_screen.dart';
@@ -151,7 +153,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           if (esSplash) return esVendedor ? '/vendedor' : '/home';
           if (esTienda) return null;
           // El personal vive en su área; el cliente no puede entrar a ella.
-          if (esVendedor) return ruta == '/vendedor' ? null : '/vendedor';
+          if (esVendedor) return _esRutaDeVendedor(ruta) && ruta != '/vendedor/acceso' ? null : '/vendedor';
           if (_esRutaDeVendedor(ruta)) return '/home';
           if (esAuth) {
             final returnTo = state.uri.queryParameters['returnTo'];
@@ -169,6 +171,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/vendedor/acceso', builder: (context, state) => const AccesoVendedorScreen()),
       GoRoute(path: '/vendedor', builder: (context, state) => const InicioVendedorScreen()),
+      GoRoute(path: '/vendedor/catalogo', builder: (context, state) => const CatalogoLocalScreen()),
+      GoRoute(
+        path: '/vendedor/producto/:id',
+        builder: (context, state) {
+          final id = _parseId(state.pathParameters['id']);
+          if (id == null) return const _RutaInvalidaScreen(mensaje: 'Ese producto no existe.');
+          return DetalleLocalScreen(productoId: id);
+        },
+      ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/registro', builder: (context, state) => const RegistroScreen()),
       GoRoute(path: '/recuperar', builder: (context, state) => const RecuperarScreen()),

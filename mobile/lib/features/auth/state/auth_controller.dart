@@ -4,6 +4,7 @@ import '../../../core/network/mensaje_error.dart';
 import '../../../core/network/providers.dart';
 import '../../tienda/models/tienda.dart';
 import '../../tienda/state/tienda_controller.dart';
+import '../../vendedor/state/pendientes_providers.dart';
 import '../data/auth_repository.dart';
 import '../models/usuario.dart';
 import 'auth_state.dart';
@@ -13,6 +14,9 @@ const mensajeCuentaDeCliente = 'Esta cuenta es de cliente. Usa "Iniciar sesión"
 const mensajeSinAccesoMovil = 'Tu cuenta no tiene acceso a la app móvil. Usa el panel web.';
 const mensajeCredencialesPersonal = 'Empresa, correo o contraseña incorrectos.';
 const mensajePrimeraVezSinConexion = 'Sin conexión: la primera vez necesitas internet.';
+
+/// Lo máximo que cerrar sesión espera a la limpieza de la base local.
+const tiempoMaximoLimpiezaAlCerrar = Duration(seconds: 3);
 
 /// Se lanza cuando inicia sesión alguien sin el rol `cliente`: la sesión no se abre.
 class AccesoSoloClientesException implements Exception {
@@ -229,10 +233,27 @@ class AuthController extends StateNotifier<AuthState> {
     state = const AuthState(estado: EstadoSesion.noAutenticado);
   }
 
+  /// Depura la base local del personal que se va (ver `PoliticaLimpiezaLocal`). Cerrar sesión NUNCA debe fallar ni
+  /// quedarse esperando por esto: cualquier error se ignora y a los pocos segundos se sigue sin esperar más.
+  Future<void> _limpiarBaseLocal(Usuario usuario) async {
+    final empresaId = usuario.empresaId;
+    if (empresaId == null) return;
+    try {
+      await (() async {
+        final politica = await _ref.read(politicaLimpiezaLocalProvider.future);
+        await politica.alCerrarSesion(empresaId: empresaId, usuarioId: usuario.id);
+      })().timeout(tiempoMaximoLimpiezaAlCerrar);
+    } catch (_) {
+      // La limpieza es de mejor esfuerzo: la próxima vez se vuelve a intentar.
+    }
+  }
+
   /// Cierra la sesión: borra los tokens y el perfil guardado, pero NO la tienda. Deja el motivo y el modo que tenía para
   /// que el router mande al personal cuya sesión venció a "Acceso del personal".
   Future<void> logout({MotivoCierre motivo = MotivoCierre.voluntario}) async {
-    final modoPrevio = state.usuario?.modo;
+    final usuarioPrevio = state.usuario;
+    final modoPrevio = usuarioPrevio?.modo;
+    if (modoPrevio == ModoApp.vendedor) await _limpiarBaseLocal(usuarioPrevio!);
     await _repository.logout();
     await _ref.read(sesionStorageProvider).borrarPerfil();
     if (!mounted) return;

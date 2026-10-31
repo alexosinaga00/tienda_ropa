@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +12,8 @@ import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/tienda/data/tienda_repository.dart';
 import 'package:mobile/features/tienda/models/tienda.dart';
 import 'package:mobile/features/tienda/state/tienda_controller.dart';
+import 'package:mobile/features/vendedor/data/politica_limpieza_local.dart';
+import 'package:mobile/features/vendedor/state/pendientes_providers.dart';
 
 import '../../helpers/api_client_falso.dart';
 import '../../helpers/sesion_storage_falso.dart';
@@ -93,6 +97,26 @@ class _RepoFalso extends AuthRepository {
     consultasUsuario++;
     if (errorUsuario != null) throw errorUsuario!;
     return usuario;
+  }
+}
+
+/// La limpieza de la base local, sin base: anota con qué se la llamó y qué tokens había en ese momento.
+class _LimpiezaFalsa implements PoliticaLimpiezaLocal {
+  _LimpiezaFalsa({this.error, this.cuelga = false});
+
+  final Object? error;
+  final bool cuelga;
+
+  /// Se asigna con los tokens del mundo de la prueba una vez creado.
+  String? Function() leerToken = () => null;
+  final llamadas = <({int empresaId, int usuarioId, String? tokenAlLlamar})>[];
+
+  @override
+  Future<ResultadoLimpieza> alCerrarSesion({required int empresaId, required int usuarioId}) async {
+    llamadas.add((empresaId: empresaId, usuarioId: usuarioId, tokenAlLlamar: leerToken()));
+    if (cuelga) await Completer<void>().future;
+    if (error != null) throw error!;
+    return const ResultadoLimpieza(pendientes: 0, purgo: true);
   }
 }
 
@@ -842,6 +866,94 @@ void main() {
 
       expect(m.estado.modoPrevio, isNull);
       expect(m.estado.estado, EstadoSesion.noAutenticado);
+    });
+
+    /// Un mundo con la limpieza de la base local reemplazada por [limpieza].
+    _Mundo mundoConLimpieza(_LimpiezaFalsa limpieza, {Usuario? usuario}) {
+      final m = _mundo(
+        usuario: usuario,
+        branding: _brandingChaski,
+        extraOverrides: [politicaLimpiezaLocalProvider.overrideWith((ref) async => limpieza)],
+      );
+      limpieza.leerToken = () => m.tokens.accessToken;
+      return m;
+    }
+
+    test('el personal que cierra sesión dispara la limpieza con su empresa y su usuario, ANTES de borrar los tokens', () async {
+      final limpieza = _LimpiezaFalsa();
+      final m = mundoConLimpieza(limpieza);
+      await _loginPersonal(m);
+
+      await m.auth.logout();
+
+      expect(limpieza.llamadas, hasLength(1));
+      expect(limpieza.llamadas.single.empresaId, 7);
+      expect(limpieza.llamadas.single.usuarioId, 4);
+      expect(limpieza.llamadas.single.tokenAlLlamar, 'ACCESS');
+      expect(m.tokens.accessToken, isNull);
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+    });
+
+    test('un cliente que cierra sesión NO dispara la limpieza ni abre la base local', () async {
+      final limpieza = _LimpiezaFalsa();
+      final m = mundoConLimpieza(limpieza, usuario: _cliente());
+      await m.auth.login(email: 'a@b.com', password: 'clave12345');
+
+      await m.auth.logout();
+
+      expect(limpieza.llamadas, isEmpty);
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+    });
+
+    test('sin sesión previa no hay limpieza', () async {
+      final limpieza = _LimpiezaFalsa();
+      final m = mundoConLimpieza(limpieza);
+
+      await m.auth.logout();
+
+      expect(limpieza.llamadas, isEmpty);
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+    });
+
+    test('si la limpieza lanza un error, cerrar sesión igual termina bien', () async {
+      final limpieza = _LimpiezaFalsa(error: StateError('disco lleno'));
+      final m = mundoConLimpieza(limpieza);
+      await _loginPersonal(m);
+
+      await m.auth.logout();
+
+      expect(limpieza.llamadas, hasLength(1));
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+      expect(m.estado.modoPrevio, ModoApp.vendedor);
+      expect(m.tokens.accessToken, isNull);
+      expect(m.sesion.perfil, isNull);
+    });
+
+    test('si la base local no abre (sin plugin), cerrar sesión igual termina bien', () async {
+      final m = _mundo(
+        branding: _brandingChaski,
+        extraOverrides: [politicaLimpiezaLocalProvider.overrideWith((ref) async => throw StateError('no abre'))],
+      );
+      await _loginPersonal(m);
+
+      await m.auth.logout(motivo: MotivoCierre.vencida);
+
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+      expect(m.estado.motivoCierre, MotivoCierre.vencida);
+      expect(m.tokens.accessToken, isNull);
+    });
+
+    test('si la limpieza se cuelga, cerrar sesión no espera más del tiempo máximo', () async {
+      final limpieza = _LimpiezaFalsa(cuelga: true);
+      final m = mundoConLimpieza(limpieza);
+      await _loginPersonal(m);
+      final reloj = Stopwatch()..start();
+
+      await m.auth.logout();
+
+      expect(reloj.elapsed, lessThan(tiempoMaximoLimpiezaAlCerrar + const Duration(seconds: 2)));
+      expect(m.estado.estado, EstadoSesion.noAutenticado);
+      expect(m.tokens.accessToken, isNull);
     });
 
     test('el listener de sesionExpiradaProvider cierra la sesión con motivo vencida', () async {

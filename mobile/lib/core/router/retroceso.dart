@@ -18,6 +18,8 @@ String? rutaPadreDe(String ruta) {
     case '/recuperar':
     case '/restablecer':
       return '/login';
+    case '/vendedor/catalogo':
+      return '/vendedor';
     case '/checkout/direccion/nueva':
     case '/checkout/pago':
       return '/checkout/entrega';
@@ -25,7 +27,9 @@ String? rutaPadreDe(String ruta) {
       return '/carrito';
   }
   if (ruta.startsWith('/checkout/estado/')) return '/compras';
-  if (ruta.startsWith('/compras/')) return '/compras';  if (ruta.startsWith('/reserva/') && ruta != '/reserva/confirmar') return '/reservas';
+  if (ruta.startsWith('/compras/')) return '/compras';
+  if (ruta.startsWith('/vendedor/producto/')) return '/vendedor/catalogo';
+  if (ruta.startsWith('/reserva/') && ruta != '/reserva/confirmar') return '/reservas';
   // Todo lo demás (detalle, favoritos, carrito, login, reservas...) cuelga del catálogo.
   return '/home';
 }

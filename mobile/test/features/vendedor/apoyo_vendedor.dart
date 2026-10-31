@@ -6,6 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile/core/conectividad/conectividad_service.dart';
+import 'package:mobile/core/sesion/contador_pendientes.dart';
+import 'package:mobile/core/utils/reloj.dart';
+import 'package:mobile/features/vendedor/data/descarga_repository.dart';
+import 'package:mobile/features/vendedor/data/politica_limpieza_local.dart';
+import 'package:mobile/features/vendedor/data/politica_vigencia.dart';
+import 'package:mobile/features/vendedor/state/catalogo_local_providers.dart';
+import 'package:mobile/features/vendedor/state/pendientes_providers.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:mobile/core/network/providers.dart';
 import 'package:mobile/features/auth/data/auth_repository.dart';
 import 'package:mobile/features/auth/models/usuario.dart';
@@ -18,7 +26,9 @@ import 'package:mobile/features/vendedor/presentation/acceso_vendedor_screen.dar
 import 'package:mobile/features/vendedor/presentation/inicio_vendedor_screen.dart';
 
 import '../../helpers/api_client_falso.dart';
+import '../../helpers/base_local_falsa.dart';
 import '../../helpers/conectividad_falsa.dart';
+import '../../helpers/servicio_descarga_falso.dart';
 import '../../helpers/sesion_storage_falso.dart';
 import '../../helpers/token_storage_falso.dart';
 
@@ -133,6 +143,8 @@ class EscenarioVendedor {
     required this.sesion,
     required this.tokens,
     required this.api,
+    this.servicioDescarga,
+    this.base,
   });
 
   final GoRouter router;
@@ -142,6 +154,10 @@ class EscenarioVendedor {
   final SesionStorageFalso sesion;
   final TokenStorageFalso tokens;
   final ApiClientFalso api;
+
+  /// La descarga del catálogo (doble sin red) y la base local en memoria que usa la pantalla.
+  final ServicioDescargaFalso? servicioDescarga;
+  final Database? base;
 
   /// La ruta que muestra el router ahora.
   String get ruta => router.routerDelegate.currentConfiguration.last.matchedLocation;
@@ -166,6 +182,9 @@ Future<EscenarioVendedor> abrirVendedor(
   Completer<void>? puerta,
   bool enLinea = true,
   List<Override> overrides = const [],
+  Database? base,
+  ServicioDescargaFalso? servicioDescarga,
+  Reloj? reloj,
 }) async {
   tester.view.physicalSize = const Size(800, 1800);
   tester.view.devicePixelRatio = 1;
@@ -176,6 +195,9 @@ Future<EscenarioVendedor> abrirVendedor(
   final repo = RepositorioAuthFalso(tokens, usuario: usuarioLogin, errorLogin: errorLogin, puerta: puerta);
   final conectividad = ConectividadFalsa(enLinea: enLinea);
   addTearDown(conectividad.cerrar);
+  // Sin red ni plugins: la base local es la REAL en memoria (vacía si no se da otra) y la descarga es un doble.
+  final baseLocal = base ?? await _abrirBaseVacia(tester);
+  final descarga = servicioDescarga ?? ServicioDescargaFalso();
   final api = ApiClientFalso()
     ..responder('GET', '/public/chaski/tienda', {'codigo': 'chaski', 'nombre': 'Chaski Sport', 'disponible': true})
     ..responder('GET', '/public/andina/tienda', {'codigo': 'andina', 'nombre': 'Boutique Andina', 'disponible': true});
@@ -201,6 +223,20 @@ Future<EscenarioVendedor> abrirVendedor(
         tiendaRepositoryProvider.overrideWithValue(TiendaRepository(api)),
         conectividadServiceProvider.overrideWithValue(conectividad),
         if (estadoAuth != null) authControllerProvider.overrideWith((ref) => AuthControllerFalso(ref, estadoAuth)),
+        baseLocalProvider.overrideWith((ref) => baseLocal),
+        descargaServiceProvider.overrideWith((ref) => descarga),
+        if (reloj != null) relojProvider.overrideWithValue(reloj),
+        // Sin una base propia, las pantallas no leen la base local: SQLite deja temporizadores pendientes dentro de las
+        // pruebas de widgets. Estas pruebas (E18b) no hablan de catálogo, así que se simula lo que el inicio consulta.
+        if (base == null) ...[
+          vigenciaProvider.overrideWith((ref) async => const ResumenVigencia(estado: EstadoVigencia.nunca)),
+          sucursalesAutorizadasProvider.overrideWith((ref) async => const []),
+          sucursalActivaProvider.overrideWith((ref) async => null),
+          pendientesAjenosProvider.overrideWith((ref) async => 0),
+          contadorPendientesProvider.overrideWithValue(const ContadorPendientesVacio()),
+          politicaLimpiezaLocalProvider.overrideWith((ref) async => const _LimpiezaNula()),
+          descargaRepositoryProvider.overrideWith((ref) async => _RepositorioDescargaNulo()),
+        ],
         ...overrides,
       ],
       child: MaterialApp.router(routerConfig: router),
@@ -218,6 +254,50 @@ Future<EscenarioVendedor> abrirVendedor(
     sesion: sesion,
     tokens: tokens,
     api: api,
+    servicioDescarga: descarga,
+    base: baseLocal,
   );
 }
 
+/// El estado de la descarga sin base: nunca descargó nada y no recuerda la sucursal.
+class _RepositorioDescargaNulo implements DescargaRepository {
+  @override
+  Future<UltimaDescarga?> ultimaDescarga(int empresaId, int sucursalId) async => null;
+
+  @override
+  Future<int?> sucursalActiva(int empresaId, int usuarioId) async => null;
+
+  @override
+  Future<void> fijarSucursalActiva(int empresaId, int usuarioId, int sucursalId) async {}
+
+  @override
+  Future<bool> hayOperacionesEnviadas(int empresaId) async => false;
+
+  @override
+  Future<int?> avisoHoras(int empresaId) async => null;
+
+  @override
+  Future<int?> empresaDeSucursal(int sucursalId) async => null;
+
+  @override
+  Future<String?> formatoDescarga(int empresaId, int sucursalId) async => null;
+}
+
+/// Una limpieza al cerrar sesión que no toca ninguna base.
+class _LimpiezaNula implements PoliticaLimpiezaLocal {
+  const _LimpiezaNula();
+
+  @override
+  Future<ResultadoLimpieza> alCerrarSesion({required int empresaId, required int usuarioId}) async =>
+      const ResultadoLimpieza(pendientes: 0, purgo: false);
+}
+
+Future<Database> _abrirBaseVacia(WidgetTester tester) async {
+  final db = (await tester.runAsync(abrirBaseDePrueba))!;
+  addTearDown(() async {
+    try {
+      await db.close();
+    } catch (_) {}
+  });
+  return db;
+}

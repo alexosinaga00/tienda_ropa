@@ -51,6 +51,20 @@ const _usuario = Usuario(
   empresaCodigo: 'chaski',
 );
 
+/// Un cliente: no tiene base local, así que no se le cuentan pendientes.
+const _cliente = Usuario(
+  id: 9,
+  nombre: 'Luis',
+  apellido: 'Mamani',
+  email: 'luis@example.com',
+  telefono: null,
+  activo: true,
+  roles: ['cliente'],
+  permisos: [],
+  empresaId: 7,
+  empresaCodigo: 'chaski',
+);
+
 const _conSesion = AuthState(estado: EstadoSesion.autenticado, usuario: _usuario);
 const _sinSesion = AuthState(estado: EstadoSesion.noAutenticado);
 
@@ -163,6 +177,21 @@ void main() {
       expect(e.contador.consultas, hasLength(1));
       expect(e.contador.consultas.single.empresaId, 7);
       expect(e.contador.consultas.single.usuarioId, 5);
+    });
+
+    testWidgets('a un cliente no se le consulta el contador (no abre la base local) y cierra sin preguntar', (tester) async {
+      final e = await _montar(
+        tester,
+        auth: const AuthState(estado: EstadoSesion.autenticado, usuario: _cliente),
+        pendientes: 5,
+      );
+
+      await _tocar(tester, 'BOTON CERRAR');
+
+      expect(e.contador.consultas, isEmpty);
+      expect(_dialogo, findsNothing);
+      expect(e.auth.estado, EstadoSesion.noAutenticado);
+      expect(e.tokens.vecesLimpiado, 1);
     });
 
     testWidgets('con 3 pendientes avisa con el número en plural', (tester) async {
