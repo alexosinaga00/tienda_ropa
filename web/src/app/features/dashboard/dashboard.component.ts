@@ -39,6 +39,9 @@ const ESTADO_VENTA: Record<EstadoVenta, { etiqueta: string; chip: string }> = {
 
 const VENTAS_RECIENTES = 5;
 
+/** Solo estas ventas cuentan como "vendido": una pendiente de pago aún puede cancelarse y una anulada ya no vale. */
+const ESTADOS_VENDIDA: ReadonlySet<EstadoVenta> = new Set<EstadoVenta>(['pagada', 'entregada']);
+
 const ESTADOS_RESERVA: { estado: EstadoReserva; etiqueta: string; color: string }[] = [
   { estado: 'pendiente', etiqueta: 'Pendientes', color: 'var(--fs-acento)' },
   { estado: 'en_prueba', etiqueta: 'En prueba', color: 'var(--fs-advertencia)' },
@@ -75,6 +78,9 @@ export class DashboardComponent implements OnInit {
 
   protected readonly ticketsHoy = signal(0);
   protected readonly totalVentasHoy = signal(0);
+  /** Ventas de hoy que aún esperan el pago: no suman a lo vendido, pero se avisan aparte. */
+  protected readonly porCobrarCantidad = signal(0);
+  protected readonly porCobrarTotal = signal(0);
   protected readonly vendidosHoy = signal<ProductoVendidoHoy[]>([]);
 
   /** Las ventas de hoy más recientes (la tabla "Últimas ventas"). */
@@ -159,16 +165,22 @@ export class DashboardComponent implements OnInit {
   private procesarVentas(ventas: Venta[]): void {
     const hoy = fechaLocalIso(new Date());
     const ventasHoy = ventas.filter((v) => v.fecha.slice(0, 10) === hoy);
+    const vendidas = ventasHoy.filter((v) => ESTADOS_VENDIDA.has(v.estado));
+    const porCobrar = ventasHoy.filter((v) => v.estado === 'pendiente_pago');
 
-    this.ticketsHoy.set(ventasHoy.length);
+    // "Últimas ventas" muestra todas, con su estado: ahí interesa ver también las anuladas y las pendientes.
     this.ventasRecientes.set(
       [...ventasHoy].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, VENTAS_RECIENTES),
     );
+    // Lo vendido (tickets, total y gráfico) cuenta solo las pagadas y entregadas.
+    this.ticketsHoy.set(vendidas.length);
     // El backend serializa los montos (Decimal) como texto: sin Number() se concatenan.
-    this.totalVentasHoy.set(ventasHoy.reduce((acc, v) => acc + Number(v.total), 0));
+    this.totalVentasHoy.set(vendidas.reduce((acc, v) => acc + Number(v.total), 0));
+    this.porCobrarCantidad.set(porCobrar.length);
+    this.porCobrarTotal.set(porCobrar.reduce((acc, v) => acc + Number(v.total), 0));
 
     const cantidadPorVariante = new Map<number, number>();
-    for (const venta of ventasHoy) {
+    for (const venta of vendidas) {
       for (const linea of venta.detalle) {
         cantidadPorVariante.set(linea.variante_id, (cantidadPorVariante.get(linea.variante_id) ?? 0) + linea.cantidad);
       }

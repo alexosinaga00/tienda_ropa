@@ -75,6 +75,12 @@
   color: var(--fs-texto-tenue);
 }
 
+// Ventas que esperan el pago: no suman a lo vendido, pero no deben pasar desapercibidas.
+.dash-kpi__nota--por-cobrar {
+  color: var(--fs-advertencia);
+  font-weight: 600;
+}
+
 // --- Paneles --------------------------------------------------------------
 .dash-fila {
   display: flex;

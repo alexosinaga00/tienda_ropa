@@ -26,6 +26,12 @@
         </div>
         <span class="dash-kpi__valor fs-num">Bs {{ totalVentasHoy() | number: '1.2-2' }}</span>
         <span class="dash-kpi__nota fs-num">{{ ticketsHoy() }} {{ ticketsHoy() === 1 ? 'ticket' : 'tickets' }}</span>
+        @if (porCobrarCantidad() > 0) {
+          <span class="dash-kpi__nota dash-kpi__nota--por-cobrar fs-num">
+            Por cobrar: {{ porCobrarCantidad() }} {{ porCobrarCantidad() === 1 ? 'venta' : 'ventas' }} (Bs
+            {{ porCobrarTotal() | number: '1.2-2' }})
+          </span>
+        }
       </div>
     }
     @if (puedeInventario()) {

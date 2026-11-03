@@ -111,14 +111,20 @@ describe('DashboardComponent', () => {
 
     const kpi = el.querySelector('.dash-kpi') as HTMLElement;
     expect(kpi.textContent).toContain('Ventas de hoy');
-    expect(kpi.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 430.50');
-    expect(kpi.querySelector('.dash-kpi__nota')?.textContent).toContain('3 tickets');
+    // Solo la pagada cuenta como vendida: la pendiente de pago y la anulada no suman.
+    expect(kpi.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 100.00');
+    expect(kpi.querySelector('.dash-kpi__nota')?.textContent).toContain('1 ticket');
+    expect(kpi.querySelector('.dash-kpi__nota')?.textContent).not.toContain('tickets');
+    // La pendiente de pago se avisa aparte.
+    expect(kpi.querySelector('.dash-kpi__nota--por-cobrar')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Por cobrar: 1 venta (Bs 250.50)',
+    );
     // Ícono de 30 px dentro del cuadro de 52 px.
     expect(kpi.querySelector('.dash-kpi__icono svg')?.getAttribute('width')).toBe('30');
 
-    // Barras: una por prenda vendida; la más vendida va resaltada.
+    // Barras: una por prenda vendida (solo de la venta pagada); la más vendida va resaltada.
     const barras = el.querySelectorAll('.dash-barra');
-    expect(barras.length).toBe(3);
+    expect(barras.length).toBe(1);
     expect(el.querySelectorAll('.dash-barra__relleno--max').length).toBe(1);
 
     // Últimas ventas: la más reciente primero, con su chip.
@@ -129,6 +135,46 @@ describe('DashboardComponent', () => {
     expect(chips[0].classList).toContain('fs-chip--error');
     expect(chips[1].classList).toContain('fs-chip--advertencia');
     expect(chips[2].classList).toContain('fs-chip--exito');
+  });
+
+  it('una venta anulada no cuenta como vendida: ni total, ni tickets, ni gráfico, ni "Por cobrar"', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
+    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
+    http.expectOne(`${API}/ventas/sucursal/1`).flush([ventaDeHoy(1, 'anulada', 189, '05:03')]);
+    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 0.00');
+    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('0 tickets');
+    expect(el.querySelector('.dash-kpi__nota--por-cobrar')).toBeNull();
+    expect(el.querySelector('.dash-barras')).toBeNull();
+    // Pero en "Últimas ventas" sí se ve, con su etiqueta.
+    expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Anulada');
+  });
+
+  it('las ventas entregadas también cuentan como vendidas y varias pendientes se suman en "Por cobrar"', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
+    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
+    http
+      .expectOne(`${API}/ventas/sucursal/1`)
+      .flush([
+        ventaDeHoy(1, 'entregada', 40, '09:00'),
+        ventaDeHoy(2, 'pagada', 60, '10:00'),
+        ventaDeHoy(3, 'pendiente_pago', 10, '11:00'),
+        ventaDeHoy(4, 'pendiente_pago', 20.5, '12:00'),
+      ]);
+    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 100.00');
+    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('2 tickets');
+    expect(el.querySelector('.dash-kpi__nota--por-cobrar')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Por cobrar: 2 ventas (Bs 30.50)',
+    );
   });
 
   it('muestra el stock bajo con el total real de alertas', () => {
