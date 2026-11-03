@@ -3,7 +3,7 @@
     <span class="fs-eyebrow">Venta presencial</span>
     <h1>Caja</h1>
   </div>
-  @if (!cargandoSucursal() && !noEsEmpleado() && sucursalId() !== null && !vistaResumenGlobal()) {
+  @if (!cargandoSucursal() && !noEsEmpleado() && sucursalId() !== null) {
     <ul class="atajos" aria-label="Atajos de teclado">
       <li><kbd>Enter</kbd> agrega</li>
       <li><kbd>↑ ↓</kbd> navegan</li>
@@ -14,10 +14,14 @@
   }
 </div>
 
-@if (sinConexion() && !cargandoSucursal() && !noEsEmpleado() && sucursalId() !== null && !vistaResumenGlobal()) {
+@if (sinConexion() && !cargandoSucursal() && !noEsEmpleado() && sucursalId() !== null) {
   <p class="fs-aviso franja-offline" role="status" data-estado="sin-conexion">
     <fs-icono nombre="advertencia" [tam]="24" />
-    Estás sin conexión. Las ventas se guardan en este equipo y se envían solas al volver Internet.
+    @if (vistaResumenGlobal()) {
+      Estás sin conexión. El administrador solo puede cobrar con conexión.
+    } @else {
+      Estás sin conexión. Las ventas se guardan en este equipo y se envían solas al volver Internet.
+    }
   </p>
 }
 
@@ -28,16 +32,45 @@
     <fs-icono nombre="alerta" [tam]="24" />
     Tu usuario no tiene un registro de empleado: no puedes operar la caja.
   </p>
-} @else if (vistaResumenGlobal()) {
+} @else if (vistaResumenGlobal() && sucursalId() === null) {
   <p class="ayuda">
-    Como administrador no tienes una sucursal propia, así que no puedes cobrar aquí. Este es el resumen de cómo
-    le está yendo hoy a cada una.
+    Como administrador no tienes una sucursal propia. Elige en cuál vas a cobrar. Abajo ves cómo le está yendo hoy
+    a cada una.
   </p>
+
+  <div class="selector-sucursal">
+    <label for="sucursal-caja">Sucursal de la caja</label>
+    <select
+      id="sucursal-caja"
+      class="fs-input"
+      [ngModel]="sucursalId()"
+      (ngModelChange)="elegirSucursalCaja($event)"
+      [attr.disabled]="cargandoSucursales() || sinConexion() ? '' : null"
+    >
+      <option [ngValue]="null" disabled>
+        {{ cargandoSucursales() ? 'Cargando sucursales…' : 'Elige una sucursal' }}
+      </option>
+      @for (s of sucursalesCaja(); track s.id) {
+        <option [ngValue]="s.id">{{ s.nombre }}</option>
+      }
+    </select>
+    @if (sinConexion()) {
+      <span class="fs-caption">Sin conexión no se puede elegir sucursal.</span>
+    }
+  </div>
+
+  @if (errorResumen()) {
+    <p class="fs-aviso fs-aviso--error" role="alert">
+      <fs-icono nombre="alerta" [tam]="24" />
+      No se pudo cargar el resumen de hoy.
+      <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="reintentarResumen()">Reintentar</button>
+    </p>
+  }
 
   <section class="panel">
     <div class="panel__scroll">
       <p-table
-        [value]="resumenPorSucursal()"
+        [value]="filasResumen()"
         [loading]="cargandoResumen()"
         styleClass="p-datatable-sm"
         [tableStyle]="{ 'min-width': '480px' }"
@@ -58,7 +91,7 @@
         </ng-template>
         <ng-template #emptymessage>
           <tr>
-            <td colspan="3"><div class="vacio">Todavía no hay ventas hoy en ninguna sucursal.</div></td>
+            <td colspan="3"><div class="vacio">No hay sucursales para mostrar.</div></td>
           </tr>
         </ng-template>
       </p-table>
@@ -70,6 +103,26 @@
     No tienes una sucursal asignada. Pide a un administrador que te la asigne.
   </p>
 } @else {
+  @if (vistaResumenGlobal()) {
+    <!-- El administrador cobra en la sucursal que eligió y puede cambiarla entre ventas. -->
+    <div class="selector-sucursal">
+      <label for="sucursal-caja-activa">Sucursal de la caja</label>
+      <select
+        id="sucursal-caja-activa"
+        class="fs-input"
+        [ngModel]="sucursalId()"
+        (ngModelChange)="elegirSucursalCaja($event)"
+        [attr.disabled]="hayVentaEnCurso() || fase() !== 'armando' || sinConexion() ? '' : null"
+      >
+        @for (s of sucursalesCaja(); track s.id) {
+          <option [ngValue]="s.id">{{ s.nombre }}</option>
+        }
+      </select>
+      @if (hayVentaEnCurso() || fase() !== 'armando') {
+        <span class="fs-caption">Termina o limpia la venta en curso para cambiar de sucursal.</span>
+      }
+    </div>
+  }
   <div class="caja-layout">
     <!-- ================= Columna izquierda: armado de la venta ================= -->
     <section class="columna-armado">

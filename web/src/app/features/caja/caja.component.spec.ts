@@ -149,7 +149,16 @@ describe('CajaComponent', () => {
     expect(el.querySelector('.btn-cobrar')?.hasAttribute('disabled')).toBe(true);
   });
 
-  it('un administrador sin sucursal ve el resumen de hoy y no puede cobrar', () => {
+  // ---- Administrador (sin sucursal propia): elige en cuál cobra ----
+
+  const SUCURSALES = [
+    { id: 1, nombre: 'Central', activo: true, es_deposito: false },
+    { id: 2, nombre: 'Equipetrol', activo: true, es_deposito: false },
+    { id: 3, nombre: 'Depósito', activo: true, es_deposito: true },
+    { id: 4, nombre: 'Cerrada', activo: false, es_deposito: false },
+  ];
+
+  function abrirComoAdministrador(porSucursal: unknown[] = [{ sucursal_id: 1, sucursal: 'Central', transacciones: 4, total_ventas: '1250.00' }]) {
     configurar(['administrador']);
     const fixture = TestBed.createComponent(CajaComponent);
     fixture.detectChanges();
@@ -158,15 +167,94 @@ describe('CajaComponent', () => {
       resumen: {},
       top_productos: [],
       por_canal: [],
-      por_sucursal: [{ sucursal_id: 1, sucursal: 'Central', transacciones: 4, total_ventas: 1250 }],
+      por_sucursal: porSucursal,
       detalle: [],
     });
+    http.expectOne((r) => r.url === `${API}/sucursales`).flush(SUCURSALES);
     fixture.detectChanges();
-    const el = fixture.nativeElement as HTMLElement;
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
 
-    expect(el.textContent).toContain('Como administrador no tienes una sucursal propia');
-    expect(el.querySelector('tbody')?.textContent).toContain('Central');
-    expect(el.querySelector('.btn-cobrar')).toBeNull();
+  function elegirSucursal(pantalla: Pantalla, id: number, selector = '#sucursal-caja'): void {
+    const select = pantalla.el.querySelector(selector) as HTMLSelectElement;
+    const opcion = Array.from(select.options).find((o) => o.textContent?.trim() === SUCURSALES.find((s) => s.id === id)?.nombre);
+    select.value = opcion!.value;
+    select.dispatchEvent(new Event('change'));
+    pantalla.fixture.detectChanges();
+  }
+
+  describe('administrador sin sucursal propia', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => localStorage.clear());
+
+    it('ve el selector de sucursal (solo activas y no depósito) y el resumen con todas, también las de 0 ventas', () => {
+      const { el } = abrirComoAdministrador();
+
+      expect(el.textContent).toContain('Como administrador no tienes una sucursal propia');
+      const opciones = Array.from(el.querySelectorAll('#sucursal-caja option')).map((o) => o.textContent?.trim());
+      expect(opciones).toEqual(['Elige una sucursal', 'Central', 'Equipetrol']);
+      const filas = Array.from(el.querySelectorAll('tbody tr')).map((f) =>
+        Array.from(f.querySelectorAll('td')).map((c) => c.textContent?.trim()),
+      );
+      expect(filas).toEqual([
+        ['Central', '4', 'Bs 1,250.00'],
+        ['Equipetrol', '0', 'Bs 0.00'],
+      ]);
+      expect(el.querySelector('.btn-cobrar')).toBeNull();
+    });
+
+    it('al elegir una sucursal se abre la Caja normal y cobra en esa sucursal', () => {
+      const pantalla = abrirComoAdministrador();
+      elegirSucursal(pantalla, 2);
+
+      expect(pantalla.el.querySelector('.busqueda-grande #busqueda')).not.toBeNull();
+      expect(pantalla.el.querySelector('.btn-cobrar')).not.toBeNull();
+      buscarYAgregar(pantalla);
+
+      (pantalla.el.querySelector('.btn-cobrar') as HTMLButtonElement).click();
+      const peticion = http.expectOne((r) => r.method === 'POST' && r.url === `${API}/ventas/presencial`);
+      expect(peticion.request.body.sucursal_id).toBe(2);
+    });
+
+    it('con una venta en curso no se puede cambiar de sucursal', () => {
+      const pantalla = abrirComoAdministrador();
+      elegirSucursal(pantalla, 1);
+      buscarYAgregar(pantalla);
+
+      const select = pantalla.el.querySelector('#sucursal-caja-activa') as HTMLSelectElement;
+      expect(select.disabled).toBe(true);
+      expect(pantalla.el.textContent).toContain('Termina o limpia la venta en curso');
+    });
+
+    it('recuerda la sucursal elegida y la abre la próxima vez', async () => {
+      const primera = abrirComoAdministrador();
+      elegirSucursal(primera, 2);
+      expect(localStorage.getItem('fs_caja_sucursal_admin')).toBe('2');
+      primera.fixture.destroy();
+      TestBed.resetTestingModule();
+
+      const segunda = abrirComoAdministrador();
+      expect(segunda.el.querySelector('.busqueda-grande #busqueda')).not.toBeNull();
+      await segunda.fixture.whenStable(); // ngModel escribe el valor del select en un microtask
+      segunda.fixture.detectChanges();
+      const activa = segunda.el.querySelector('#sucursal-caja-activa') as HTMLSelectElement;
+      expect(activa.selectedOptions[0]?.textContent?.trim()).toBe('Equipetrol');
+    });
+
+    it('si el resumen falla avisa y ofrece reintentar (ya no se ve como "sin ventas")', () => {
+      configurar(['administrador']);
+      const fixture = TestBed.createComponent(CajaComponent);
+      fixture.detectChanges();
+      http.expectOne(`${API}/empleados/yo`).flush({ id: 1, sucursal_id: null });
+      http.expectOne((r) => r.url === `${API}/reportes/ventas`).flush({ detail: 'error' }, { status: 500, statusText: 'Error' });
+      http.expectOne((r) => r.url === `${API}/sucursales`).flush(SUCURSALES);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+
+      expect(el.querySelector('[role="alert"]')?.textContent).toContain('No se pudo cargar el resumen de hoy');
+      (Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Reintentar')) as HTMLButtonElement).click();
+      http.expectOne((r) => r.url === `${API}/reportes/ventas`);
+    });
   });
 
   it('sin sucursal asignada avisa en tuteo', () => {

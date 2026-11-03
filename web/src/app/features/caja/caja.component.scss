@@ -625,3 +625,21 @@
     font-size: 40px;
   }
 }
+
+// El administrador (sin sucursal propia) elige en cuál sucursal cobra.
+.selector-sucursal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fs-espacio-3, 12px);
+  margin-bottom: var(--fs-espacio-4, 16px);
+
+  label {
+    font-weight: 600;
+  }
+
+  select {
+    min-width: 240px;
+    min-height: 44px;
+  }
+}

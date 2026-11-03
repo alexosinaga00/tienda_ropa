@@ -27,7 +27,7 @@ import { ConectividadService } from '../../core/conectividad.service';
 import { fechaLocalIso } from '../../core/date-utils';
 import { SIN_TOAST_ERROR } from '../../core/http-contexts';
 import { VarianteBusqueda } from '../../core/models/catalogo.models';
-import { Empleado } from '../../core/models/organizacion.models';
+import { Empleado, Sucursal } from '../../core/models/organizacion.models';
 import { MetodoPagoCaja, Pago, PagoCajaRequest, PagoCajaRespuesta } from '../../core/models/pagos.models';
 import { FilaVentasPorSucursal, ReporteVentas } from '../../core/models/reportes.models';
 import { Reserva } from '../../core/models/reservas.models';
@@ -71,6 +71,17 @@ type FaseVenta = 'armando' | 'cobrando';
 const INTERVALO_PLAZO_MS = 60_000;
 /** Tope de ventas del historial cuyo plazo se consulta a la vez; las demás quedan sin indicador (el botón sigue como siempre). */
 const MAX_PLAZOS_PARALELOS = 30;
+
+/** localStorage: la última sucursal en la que cobró el administrador (alcance global), para no elegirla cada vez. */
+const CLAVE_SUCURSAL_ADMIN = 'fs_caja_sucursal_admin';
+
+/** Fila del resumen del administrador: una por sucursal, también las que hoy no vendieron nada. */
+interface FilaResumenCaja {
+  sucursal_id: number;
+  sucursal: string;
+  transacciones: number;
+  total_ventas: number;
+}
 
 /** El plazo de una venta tal como lo dijo el servidor, más el reloj local al recibirlo (solo para la cuenta regresiva visible). */
 interface PlazoVenta {
@@ -154,6 +165,30 @@ export class CajaComponent implements OnInit, OnDestroy {
   protected readonly vistaResumenGlobal = signal(false);
   protected readonly cargandoResumen = signal(false);
   protected readonly resumenPorSucursal = signal<FilaVentasPorSucursal[]>([]);
+  /** El resumen no se pudo cargar: se avisa (antes un error se veía igual que "sin ventas") y se ofrece reintentar. */
+  protected readonly errorResumen = signal(false);
+  /** Sucursales donde el administrador puede cobrar (activas y que no son depósito). */
+  protected readonly sucursalesCaja = signal<Sucursal[]>([]);
+  protected readonly cargandoSucursales = signal(false);
+
+  /** Una fila por sucursal con lo vendido hoy (0 si no vendió). Si no hubo lista de sucursales, solo las que vendieron. */
+  protected readonly filasResumen = computed<FilaResumenCaja[]>(() => {
+    const vendido = new Map(this.resumenPorSucursal().map((fila) => [fila.sucursal_id, fila]));
+    const sucursales = this.sucursalesCaja();
+    if (sucursales.length === 0) {
+      return this.resumenPorSucursal().map((f) => ({ ...f, total_ventas: Number(f.total_ventas) }));
+    }
+    return sucursales.map((s) => {
+      const fila = vendido.get(s.id);
+      return {
+        sucursal_id: s.id,
+        sucursal: s.nombre,
+        transacciones: fila?.transacciones ?? 0,
+        // El backend serializa los montos (Decimal) como texto.
+        total_ventas: Number(fila?.total_ventas ?? 0),
+      };
+    });
+  });
 
   protected readonly fase = signal<FaseVenta>('armando');
 
@@ -293,7 +328,7 @@ export class CajaComponent implements OnInit, OnDestroy {
         // en el backend) -- no puede cobrar sin elegir una sucursal, pero sí
         // puede ver cómo le está yendo a cada una.
         if (empleado.sucursal_id === null && this.esAdministrador()) {
-          this.cargarResumenGlobal();
+          this.iniciarVistaAdministrador();
           return;
         }
         this.sucursalId.set(empleado.sucursal_id);
@@ -321,7 +356,7 @@ export class CajaComponent implements OnInit, OnDestroy {
         }
         this.cargandoSucursal.set(false);
         if (this.esAdministrador()) {
-          this.cargarResumenGlobal();
+          this.iniciarVistaAdministrador();
           return;
         }
         this.noEsEmpleado.set(true);
@@ -361,6 +396,7 @@ export class CajaComponent implements OnInit, OnDestroy {
   private cargarResumenGlobal(): void {
     this.vistaResumenGlobal.set(true);
     this.cargandoResumen.set(true);
+    this.errorResumen.set(false);
     const hoy = fechaLocalIso(new Date());
     this.http
       .get<ReporteVentas>(`${environment.apiUrl}/reportes/ventas`, { params: { desde: hoy, hasta: hoy } })
@@ -369,8 +405,67 @@ export class CajaComponent implements OnInit, OnDestroy {
           this.cargandoResumen.set(false);
           this.resumenPorSucursal.set(reporte.por_sucursal);
         },
-        error: () => this.cargandoResumen.set(false),
+        error: () => {
+          this.cargandoResumen.set(false);
+          this.errorResumen.set(true);
+        },
       });
+  }
+
+  /** "Reintentar" cuando el resumen del administrador no cargó. */
+  protected reintentarResumen(): void {
+    this.cargarResumenGlobal();
+  }
+
+  /**
+   * El administrador no tiene sucursal propia (alcance global): elige en cuál cobrar y ve cómo va hoy cada una. El
+   * servidor ya le permite vender en cualquier sucursal de su empresa.
+   */
+  private iniciarVistaAdministrador(): void {
+    this.cargarResumenGlobal();
+    this.cargandoSucursales.set(true);
+    this.http.get<Sucursal[]>(`${environment.apiUrl}/sucursales`, { params: { pagina: 1, tamanio: 100 } }).subscribe({
+      next: (sucursales) => {
+        this.cargandoSucursales.set(false);
+        this.sucursalesCaja.set(sucursales.filter((s) => s.activo && !s.es_deposito));
+        const recordada = this.sucursalRecordadaDelAdministrador();
+        if (recordada !== null && this.sucursalesCaja().some((s) => s.id === recordada)) {
+          this.elegirSucursalCaja(recordada);
+        }
+      },
+      error: () => this.cargandoSucursales.set(false),
+    });
+  }
+
+  /** Cambia la sucursal en la que cobra el administrador. No se puede con una venta en curso. */
+  protected elegirSucursalCaja(id: number | null): void {
+    if (!this.vistaResumenGlobal() || this.fase() !== 'armando' || this.hayVentaEnCurso()) return;
+    if (id !== null && !this.sucursalesCaja().some((s) => s.id === id)) return;
+    this.sucursalId.set(id);
+    this.recordarSucursalDelAdministrador(id);
+    // Lo que se veía era de la sucursal anterior.
+    this.textoBusqueda.set('');
+    this.resultados.set([]);
+    this.historialHoy.set([]);
+    if (id !== null) this.enfocarBusqueda();
+  }
+
+  private sucursalRecordadaDelAdministrador(): number | null {
+    try {
+      const valor = Number(localStorage.getItem(CLAVE_SUCURSAL_ADMIN));
+      return Number.isInteger(valor) && valor > 0 ? valor : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private recordarSucursalDelAdministrador(id: number | null): void {
+    try {
+      if (id === null) localStorage.removeItem(CLAVE_SUCURSAL_ADMIN);
+      else localStorage.setItem(CLAVE_SUCURSAL_ADMIN, String(id));
+    } catch {
+      // Sin almacenamiento no se recuerda la elección: no afecta a la venta.
+    }
   }
 
   private enfocarBusqueda(): void {
@@ -625,6 +720,15 @@ export class CajaComponent implements OnInit, OnDestroy {
     }
     // Sin conexión no se crea la venta en el servidor: se cobra en efectivo y se guarda en este equipo (E14b).
     if (this.sinConexion()) {
+      // El administrador elige sucursal solo en línea: el modo sin conexión es del cajero de su sucursal.
+      if (this.vistaResumenGlobal()) {
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Sin conexión',
+          detail: 'El administrador solo puede cobrar con conexión. Espera a que vuelva Internet.',
+        });
+        return;
+      }
       void this.abrirCobroOffline();
       return;
     }
