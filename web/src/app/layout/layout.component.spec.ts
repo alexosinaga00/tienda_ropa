@@ -490,12 +490,40 @@ describe('LayoutComponent', () => {
       });
     });
 
-    it('las secciones plegables arrancan cerradas y se abren con su rótulo; las fijas siempre están abiertas', () => {
+    it('Análisis y Plataforma también se pliegan y arrancan cerradas', () => {
+      iniciarSesion(['administrador'], PERMISOS_ADMIN, 7);
+      const { fixture, comp, el } = crear();
+
+      expect(comp.estaAbierto('analisis')).toBe(false);
+      expect((el.querySelector('#menu-seccion-analisis') as HTMLElement).hasAttribute('hidden')).toBe(true);
+
+      const rotulo = Array.from(el.querySelectorAll('button.layout__rotulo--boton')).find((b) =>
+        (b.textContent ?? '').includes('Análisis'),
+      ) as HTMLButtonElement;
+      rotulo.click();
+      fixture.detectChanges();
+
+      expect(comp.estaAbierto('analisis')).toBe(true);
+      expect((el.querySelector('#menu-seccion-analisis') as HTMLElement).hasAttribute('hidden')).toBe(false);
+      fixture.destroy();
+    });
+
+    it('Analítica solo se ofrece con alcance global: un encargado con reportes.ver no la ve', () => {
+      iniciarSesion(['encargado_sucursal'], ['reportes.ver', 'inventario.ver'], 7);
+      const { fixture, comp } = crear();
+
+      const etiquetas = (comp.itemsInicio() as ItemMenu[]).map((i) => i.etiqueta);
+      expect(etiquetas).toContain('Reportes');
+      expect(etiquetas).toContain('Reportes con IA');
+      expect(etiquetas).not.toContain('Analítica');
+      fixture.destroy();
+    });
+
+    it('las secciones plegables arrancan cerradas y se abren con su rótulo; Dashboard y Caja siempre están a la vista', () => {
       iniciarSesion(['administrador'], PERMISOS_ADMIN, 7);
       const { fixture, comp, el } = crear();
 
       expect(comp.estaAbierto('general')).toBe(true);
-      expect(comp.estaAbierto('analisis')).toBe(true);
       expect(comp.estaAbierto('catalogo')).toBe(false);
       const catalogo = el.querySelector('#menu-seccion-catalogo') as HTMLElement;
       expect(catalogo.hasAttribute('hidden')).toBe(true);

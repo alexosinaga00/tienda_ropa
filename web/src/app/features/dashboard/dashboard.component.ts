@@ -68,6 +68,10 @@ export class DashboardComponent implements OnInit {
   protected readonly puedeReservas = computed(() =>
     this.authService.tienePermiso('reservas.gestionar_sucursal'),
   );
+  /** Un rol sin ventas, inventario ni reservas (p. ej. el proveedor) no tiene nada que mostrar en este resumen. */
+  protected readonly sinFuncionesEnResumen = computed(
+    () => !this.puedeVentas() && !this.puedeInventario() && !this.puedeReservas(),
+  );
   private readonly esAdministrador = computed(() => this.authService.roles().includes('administrador'));
 
   protected readonly cargando = signal(true);

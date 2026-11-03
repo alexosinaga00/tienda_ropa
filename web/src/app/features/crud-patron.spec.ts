@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
+import { AuthService } from '../core/auth.service';
 import { CiudadesComponent } from './ciudades/ciudades.component';
 import { ColeccionesComponent } from './colecciones/colecciones.component';
 import { ColoresComponent } from './colores/colores.component';
@@ -56,7 +57,13 @@ describe.each(CASOS)('Patrón CRUD: $nombre', (caso) => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [caso.componente],
-      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+        // Roles solo se edita con plataforma.gestionar; sin él la pantalla es de consulta (ver roles.component.spec.ts).
+        ...(caso.nombre === 'roles' ? [{ provide: AuthService, useValue: { tienePermiso: () => true } }] : []),
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   });

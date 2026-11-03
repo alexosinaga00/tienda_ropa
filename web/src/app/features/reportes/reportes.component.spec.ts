@@ -5,6 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { ChartModule } from 'primeng/chart';
 import { vi } from 'vitest';
 import { environment } from '../../../environments/environment';
+import { PlanService } from '../../core/plan.service';
 import { ReportesComponent } from './reportes.component';
 
 const API = environment.apiUrl;
@@ -72,6 +73,32 @@ describe('ReportesComponent', () => {
     expect(el.querySelector('.pregunta [aria-label="Dictar la pregunta"]')).not.toBeNull();
     const pestanias = Array.from(el.querySelectorAll('.p-tab')).map((t) => t.textContent?.trim());
     expect(pestanias).toEqual(['Dashboard', 'Ventas', 'Inventario', 'Reservas']);
+  });
+
+  it('con un plan sin reportes con IA no se muestra "Pregúntale a la IA" (el servidor respondería 403)', () => {
+    const { fixture, el } = abrir();
+    expect(el.querySelector('.pregunta')).not.toBeNull();
+
+    TestBed.inject(PlanService).suscripcion.set({
+      plan_codigo: 'basico',
+      plan_nombre: 'Básico',
+      estado: 'activa',
+      fecha_inicio: '2026-01-01',
+      fecha_vencimiento: '2099-01-01',
+      max_sucursales: 2,
+      sucursales_activas: 1,
+      funcionalidades: ['reportes_convencionales'],
+    });
+    fixture.detectChanges();
+
+    expect(el.querySelector('.pregunta')).toBeNull();
+    // Los reportes convencionales siguen ahí.
+    expect(Array.from(el.querySelectorAll('.p-tab')).map((t) => t.textContent?.trim())).toEqual([
+      'Dashboard',
+      'Ventas',
+      'Inventario',
+      'Reservas',
+    ]);
   });
 
   it('dibuja las siete tarjetas del dashboard con iconos y marca "bajo mínimo" como alerta', () => {

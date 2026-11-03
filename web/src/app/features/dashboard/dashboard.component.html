@@ -9,7 +9,13 @@
   </div>
 </header>
 
-@if (!cargando() && sucursalId() === null && !vistaGlobal()) {
+@if (sinFuncionesEnResumen() && usuario()) {
+  <p class="fs-aviso" role="status">
+    <fs-icono nombre="alerta" [tam]="28" />
+    Tu rol no tiene indicadores en este resumen. Si necesitas más funciones, pídele a un administrador de tu empresa que
+    revise tu rol.
+  </p>
+} @else if (!cargando() && sucursalId() === null && !vistaGlobal()) {
   <p class="fs-aviso" role="status">
     <fs-icono nombre="alerta" [tam]="28" />
     No tienes una sucursal asignada. Pídele a un administrador que te asigne una para ver los indicadores.

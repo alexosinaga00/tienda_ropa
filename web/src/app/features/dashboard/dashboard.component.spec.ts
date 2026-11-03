@@ -177,6 +177,18 @@ describe('DashboardComponent', () => {
     );
   });
 
+  it('un rol sin ventas, inventario ni reservas (proveedor) ve un aviso claro y no un panel vacío', () => {
+    iniciarSesion(['proveedor'], ['catalogo.ver']);
+    const { fixture, el } = crear();
+    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: null, activo: true });
+    fixture.detectChanges();
+
+    const aviso = el.querySelector('.fs-aviso')?.textContent ?? '';
+    expect(aviso).toContain('Tu rol no tiene indicadores en este resumen.');
+    expect(aviso).not.toContain('No tienes una sucursal asignada');
+    expect(el.querySelector('.dash-kpis')).toBeNull();
+  });
+
   it('muestra el stock bajo con el total real de alertas', () => {
     iniciarSesion(['encargado'], ['inventario.ver']);
     const { fixture, el } = crear();

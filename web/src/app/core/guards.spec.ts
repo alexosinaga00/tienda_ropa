@@ -14,6 +14,7 @@ import {
   staffGuard,
   superadminGuard,
   tiendaSesionGuard,
+  todosLosPermisosGuard,
 } from './guards';
 
 function usuario(roles: string[], empresaCodigo: string | null): UsuarioYo {
@@ -289,6 +290,35 @@ describe('guards', () => {
 
     it('sin sesión va a /admin/login', () => {
       const resultado = ejecutar(guardia(), '/catalogo-local');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+    });
+  });
+
+  describe('todosLosPermisosGuard (Analítica: reportes.ver y alcance global)', () => {
+    const guardia = () => todosLosPermisosGuard('reportes.ver', 'organizacion.gestionar');
+
+    it('el administrador (tiene los dos permisos) pasa', () => {
+      iniciarSesion({ ...usuario(['administrador'], 'acme'), permisos: ['reportes.ver', 'organizacion.gestionar'] });
+
+      expect(ejecutar(guardia(), '/analitica')).toBe(true);
+    });
+
+    it('un encargado con solo reportes.ver va al dashboard, ni escribiendo la URL entra', () => {
+      iniciarSesion({ ...usuario(['encargado_sucursal'], 'acme'), permisos: ['reportes.ver'] });
+
+      const resultado = ejecutar(guardia(), '/analitica');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/dashboard');
+    });
+
+    it('con solo el alcance global pero sin reportes.ver tampoco pasa', () => {
+      iniciarSesion({ ...usuario(['administrador'], 'acme'), permisos: ['organizacion.gestionar'] });
+
+      const resultado = ejecutar(guardia(), '/analitica');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/dashboard');
+    });
+
+    it('sin sesión va a /admin/login', () => {
+      const resultado = ejecutar(guardia(), '/analitica');
       expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
     });
   });

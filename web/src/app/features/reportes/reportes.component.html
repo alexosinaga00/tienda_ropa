@@ -8,6 +8,7 @@
 <!-- ============================================================ -->
 <!-- Pregunta a la IA (CU-23): texto o dictado por voz              -->
 <!-- ============================================================ -->
+@if (incluyeIa()) {
 <section class="pregunta fs-zona-oscura" aria-label="Pregunta a los reportes">
   <div class="pregunta-titulo">
     <fs-icono nombre="destellos" [tam]="30" />
@@ -62,6 +63,7 @@
     <p class="pregunta-respuesta" role="status">{{ texto }}</p>
   }
 </section>
+}
 
 <!-- ============================================================ -->
 <!-- Filtros                                                        -->

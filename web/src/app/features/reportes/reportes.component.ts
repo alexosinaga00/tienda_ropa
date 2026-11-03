@@ -19,6 +19,7 @@ import {
   ReporteVentas,
   ReporteVozRespuesta,
 } from '../../core/models/reportes.models';
+import { PlanService } from '../../core/plan.service';
 import { VozService } from '../../core/voz.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { NombreIcono } from '../../shared/icono/iconos';
@@ -391,6 +392,10 @@ export class ReportesComponent implements OnInit {
   // reutilizando las mismas búsquedas de siempre (no se dibuja `resultado` aparte).
 
   protected readonly vozDisponible = this.voz.disponible;
+
+  private readonly planService = inject(PlanService);
+  /** "Pregúntale a la IA" (`/ia/reporte-voz`) exige el plan con reportes_ia: sin él el servidor responde 403. */
+  protected readonly incluyeIa = computed(() => this.planService.incluye('reportes_ia'));
   protected readonly pregunta = signal('');
   protected readonly escuchando = signal(false);
   protected readonly preguntando = signal(false);

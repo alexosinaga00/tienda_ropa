@@ -56,8 +56,8 @@
             {{ columna.encabezado }}
           </th>
         }
-        @if (!soloLectura) {
-          <th class="tg-th-acciones" [style.width]="accionExtraIcono ? '11.5rem' : '8rem'">Acciones</th>
+        @if (mostrarAcciones) {
+          <th class="tg-th-acciones" [style.width]="soloLectura ? '5rem' : accionExtraIcono ? '11.5rem' : '8rem'">Acciones</th>
         }
       </tr>
     </ng-template>
@@ -81,7 +81,7 @@
             }
           </td>
         }
-        @if (!soloLectura) {
+        @if (mostrarAcciones) {
           <td class="tg-acciones">
             @if (accionExtraIcono) {
               <button
@@ -98,18 +98,20 @@
                 }
               </button>
             }
-            <button type="button" class="tg-accion" aria-label="Editar" title="Editar" (click)="editar.emit(fila)">
-              <fs-icono nombre="editar" [tam]="24" />
-            </button>
-            <button
-              type="button"
-              class="tg-accion tg-accion--suave"
-              aria-label="Desactivar"
-              title="Desactivar"
-              (click)="confirmarEliminar(fila)"
-            >
-              <fs-icono nombre="apagar" [tam]="24" />
-            </button>
+            @if (!soloLectura) {
+              <button type="button" class="tg-accion" aria-label="Editar" title="Editar" (click)="editar.emit(fila)">
+                <fs-icono nombre="editar" [tam]="24" />
+              </button>
+              <button
+                type="button"
+                class="tg-accion tg-accion--suave"
+                aria-label="Desactivar"
+                title="Desactivar"
+                (click)="confirmarEliminar(fila)"
+              >
+                <fs-icono nombre="apagar" [tam]="24" />
+              </button>
+            }
           </td>
         }
       </tr>
@@ -117,7 +119,7 @@
 
     <ng-template #emptymessage>
       <tr>
-        <td [attr.colspan]="columnas.length + (soloLectura ? 0 : 1)" class="fs-estado-vacio">
+        <td [attr.colspan]="columnas.length + (mostrarAcciones ? 1 : 0)" class="fs-estado-vacio">
           @if (error()) {
             <span role="alert">No se pudo cargar la lista.</span>
             <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm tg-reintentar" (click)="reintentar()">

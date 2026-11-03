@@ -6,6 +6,7 @@ import {
   staffGuard,
   superadminGuard,
   tiendaSesionGuard,
+  todosLosPermisosGuard,
 } from './core/guards';
 import { tiendaResolver } from './features/tienda/tienda.resolver';
 import { RUTAS_LEGACY } from './features/tienda/rutas-legacy';
@@ -296,7 +297,8 @@ export const routes: Routes = [
       {
         // Dashboard del Machine Learning (E17b): solo el administrador de una empresa con el plan que lo incluye.
         path: 'analitica',
-        canActivate: [permisoGuard('reportes.ver')],
+        // Alcance global (`organizacion.gestionar`) además de reportes.ver: el servidor responde 403 a quien solo ve su sucursal.
+        canActivate: [todosLosPermisosGuard('reportes.ver', 'organizacion.gestionar')],
         loadComponent: () => import('./features/analitica/analitica.component').then((m) => m.AnaliticaComponent),
       },
       {

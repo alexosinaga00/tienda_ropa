@@ -1,11 +1,12 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, ViewChild, inject, signal } from '@angular/core';
+import { Component, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { finalize } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { AuthService } from '../../core/auth.service';
 import { Permiso, Rol } from '../../core/models/seguridad.models';
 import { DialogoCrudComponent } from '../../shared/tabla-generica/dialogo-crud.component';
 import { AriaErrorDirective, ErrorCampoComponent } from '../../shared/tabla-generica/error-campo.component';
@@ -51,6 +52,13 @@ export class RolesComponent {
   private readonly fb = inject(FormBuilder);
   private readonly http = inject(HttpClient);
   private readonly messageService = inject(MessageService);
+  private readonly authService = inject(AuthService);
+
+  /**
+   * Crear, editar o desactivar un rol y asignarle permisos exige `plataforma.gestionar` en el servidor (los roles son
+   * globales: los comparten todas las empresas). Sin ese permiso la pantalla es de consulta: nada de botones que den 403.
+   */
+  protected readonly puedeEditar = computed(() => this.authService.tienePermiso('plataforma.gestionar'));
 
   protected readonly formulario = this.fb.nonNullable.group({
     nombre: ['', Validators.required],
@@ -127,6 +135,7 @@ export class RolesComponent {
   }
 
   protected alternarPermiso(codigo: string): void {
+    if (!this.puedeEditar()) return;
     this.seleccionados.update((actuales) => {
       // Set nuevo, no mutado: si se muta el mismo objeto el signal no avisa
       // del cambio y las casillas no se repintan.
@@ -141,6 +150,7 @@ export class RolesComponent {
   }
 
   protected alternarModulo(grupo: GrupoPermisos): void {
+    if (!this.puedeEditar()) return;
     const todosPuestos = grupo.permisos.every((p) => this.seleccionados().has(p.codigo));
     this.seleccionados.update((actuales) => {
       const copia = new Set(actuales);
@@ -167,7 +177,7 @@ export class RolesComponent {
 
   guardarPermisos(): void {
     const rol = this.rolPermisos();
-    if (!rol || this.guardandoPermisos()) return;
+    if (!rol || this.guardandoPermisos() || !this.puedeEditar()) return;
 
     this.guardandoPermisos.set(true);
     // El endpoint REEMPLAZA la lista completa, no es incremental: se manda

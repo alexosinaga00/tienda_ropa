@@ -65,6 +65,13 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
    * PrimeIcons ("pi pi-key"). */
   @Input() accionExtraIcono?: string;
   @Input() accionExtraEtiqueta = 'Acción';
+  /** En `soloLectura`, dejar visible solo la acción extra (p. ej. "Ver permisos"): sin editar ni desactivar. */
+  @Input() accionExtraEnLectura = false;
+
+  /** La columna de acciones se dibuja si se puede modificar, o si en solo lectura queda la acción extra. */
+  protected get mostrarAcciones(): boolean {
+    return !this.soloLectura || (this.accionExtraEnLectura && !!this.accionExtraIcono);
+  }
 
   @Output() crear = new EventEmitter<void>();
   @Output() editar = new EventEmitter<T>();

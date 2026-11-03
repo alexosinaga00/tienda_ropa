@@ -48,6 +48,9 @@ export const RUTA_PENDIENTES = '/operaciones-pendientes';
 /** Ruta de "Sincronización" (E16): las operaciones de toda la empresa tal como las guardó el servidor. */
 export const RUTA_SINCRONIZACION = '/sincronizacion';
 
+/** Tener alcance global (ver toda la empresa y no solo una sucursal) es tener este permiso (backend `plataforma/politicas.py`). */
+export const PERMISO_ALCANCE_GLOBAL = 'organizacion.gestionar';
+
 export interface ItemMenu {
   etiqueta: string;
   /** Nombre de un `fs-icono` (24 px en el menú). */
@@ -56,6 +59,8 @@ export interface ItemMenu {
   permiso?: string;
   /** Alternativa a `permiso`: lo ve quien tenga CUALQUIERA de estos permisos. */
   permisos?: string[];
+  /** Permiso EXTRA que también debe tener (además de `permiso`): p. ej. el alcance global, que da `organizacion.gestionar`. */
+  ademas?: string;
   /** Solo lo ve ese rol; sin `rol` lo ve el personal de una empresa, nunca el superadministrador. */
   rol?: typeof ROL_SUPERADMINISTRADOR;
   /** Si el plan no la incluye, el ítem sigue en su lugar pero deshabilitado y con candado. */
@@ -97,7 +102,16 @@ export const ITEMS_INICIO: ItemMenu[] = [
   { etiqueta: 'Reportes', icono: 'grafico', ruta: '/reportes', permiso: 'reportes.ver' },
   // E17: se agregan al final de Análisis sin tocar lo que ya había. Con un plan sin la función quedan en gris, con candado.
   { etiqueta: 'Reportes con IA', icono: 'destellos', ruta: '/reportes-ia', permiso: 'reportes.ver', funcion: 'reportes_ia' },
-  { etiqueta: 'Analítica', icono: 'tendencia', ruta: '/analitica', permiso: 'reportes.ver', funcion: 'analitica_ml' },
+  // El servidor solo la abre a quien tiene alcance global (`organizacion.gestionar`, el administrador): un encargado de
+  // sucursal con `reportes.ver` recibiría 403 en todo, así que ni se le ofrece.
+  {
+    etiqueta: 'Analítica',
+    icono: 'tendencia',
+    ruta: '/analitica',
+    permiso: 'reportes.ver',
+    ademas: PERMISO_ALCANCE_GLOBAL,
+    funcion: 'analitica_ml',
+  },
 ];
 
 export const GRUPOS_MENU: GrupoMenu[] = [
@@ -223,7 +237,7 @@ const SECCIONES_MENU: SeccionDef[] = [
     plegable: true,
     rutas: ['/reservas', '/envios', '/zonas-envio', '/promociones', '/catalogo-local', RUTA_PENDIENTES, RUTA_SINCRONIZACION],
   },
-  { id: 'analisis', etiqueta: 'Análisis', plegable: false, rutas: ['/reportes', '/reportes-ia', '/analitica'] },
+  { id: 'analisis', etiqueta: 'Análisis', plegable: true, rutas: ['/reportes', '/reportes-ia', '/analitica'] },
   {
     id: 'organizacion',
     etiqueta: 'Organización',
@@ -233,7 +247,7 @@ const SECCIONES_MENU: SeccionDef[] = [
   {
     id: 'plataforma',
     etiqueta: 'Plataforma',
-    plegable: false,
+    plegable: true,
     rutas: ['/plataforma/empresas', '/plataforma/planes', '/plataforma/suscripciones', '/plataforma/auditoria'],
   },
 ];
@@ -290,6 +304,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.authService.esSuperadmin()) return item.rol === ROL_SUPERADMINISTRADOR;
     if (item.rol) return false;
     if (item.permisos && !item.permisos.some((permiso) => this.authService.tienePermiso(permiso))) return false;
+    if (item.ademas && !this.authService.tienePermiso(item.ademas)) return false;
     return !item.permiso || this.authService.tienePermiso(item.permiso);
   };
 

@@ -6,7 +6,9 @@
   placeholderBusqueda="Buscar rol"
   [columnas]="columnas"
   accionExtraIcono="llave"
-  accionExtraEtiqueta="Permisos del rol"
+  [accionExtraEtiqueta]="puedeEditar() ? 'Permisos del rol' : 'Ver permisos del rol'"
+  [soloLectura]="!puedeEditar()"
+  [accionExtraEnLectura]="true"
   (crear)="abrirCrear()"
   (editar)="abrirEditar($event)"
   (accionExtra)="abrirPermisos($event)"
@@ -41,9 +43,16 @@
   @if (!grupos().length) {
     <p class="fs-caption">Cargando permisos…</p>
   } @else {
-    <p class="fs-caption permisos-ayuda">
-      Lo que quede marcado es exactamente lo que podrá hacer el rol: lo que desmarques se le quita.
-    </p>
+    @if (puedeEditar()) {
+      <p class="fs-caption permisos-ayuda">
+        Lo que quede marcado es exactamente lo que podrá hacer el rol: lo que desmarques se le quita.
+      </p>
+    } @else {
+      <p class="fs-caption permisos-ayuda">
+        Estos son los permisos del rol. Los roles son los mismos para todas las empresas y solo los cambia el
+        administrador de la plataforma. Tú decides quién tiene cada rol desde Usuarios.
+      </p>
+    }
 
     <div class="permisos-grid">
       @for (grupo of grupos(); track grupo.modulo) {
@@ -54,6 +63,7 @@
             role="checkbox"
             [attr.aria-checked]="moduloCompleto(grupo) ? 'true' : moduloParcial(grupo) ? 'mixed' : 'false'"
             [attr.aria-label]="'Todos los permisos de ' + grupo.modulo"
+            [disabled]="!puedeEditar()"
             (click)="alternarModulo(grupo)"
           >
             <span class="permisos-caja" [class.marcada]="moduloCompleto(grupo) || moduloParcial(grupo)">
@@ -71,6 +81,7 @@
               <input
                 type="checkbox"
                 [checked]="estaMarcado(permiso.codigo)"
+                [disabled]="!puedeEditar()"
                 (change)="alternarPermiso(permiso.codigo)"
               />
               <span>
@@ -86,13 +97,19 @@
     </div>
 
     <div class="permisos-pie">
-      <span class="fs-caption fs-num">{{ seleccionados().size }} permisos seleccionados</span>
+      <span class="fs-caption fs-num">
+        {{ seleccionados().size }} {{ puedeEditar() ? 'permisos seleccionados' : 'permisos' }}
+      </span>
       <span class="permisos-botones">
-        <button type="button" class="fs-btn fs-btn--secundario" (click)="dialogoPermisos.set(false)">Cancelar</button>
-        <button type="button" class="fs-btn fs-btn--primario" [disabled]="guardandoPermisos()" (click)="guardarPermisos()">
-          <fs-icono nombre="check" [tam]="24" />
-          Guardar permisos
+        <button type="button" class="fs-btn fs-btn--secundario" (click)="dialogoPermisos.set(false)">
+          {{ puedeEditar() ? 'Cancelar' : 'Cerrar' }}
         </button>
+        @if (puedeEditar()) {
+          <button type="button" class="fs-btn fs-btn--primario" [disabled]="guardandoPermisos()" (click)="guardarPermisos()">
+            <fs-icono nombre="check" [tam]="24" />
+            Guardar permisos
+          </button>
+        }
       </span>
     </div>
   }
