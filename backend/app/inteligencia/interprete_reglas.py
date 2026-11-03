@@ -323,8 +323,9 @@ class InterpreteReportesReglas(InterpreteReportesBase):
         *,
         nombres_sucursales: Iterable[str] = (),
         nombres_categorias: Iterable[str] = (),
+        con_alcance_global: bool = True,
     ) -> ResultadoInterpretacion:
-        """`funcionalidades` se acepta por compatibilidad con la base y no se usa: el tipo
+        """`funcionalidades` y `con_alcance_global` se aceptan por compatibilidad con la base y no se usan: el tipo
         detectado no se filtra por plan (lo decide el caso de uso, con su 403)."""
         try:
             return ResultadoInterpretacion(

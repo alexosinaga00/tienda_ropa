@@ -602,9 +602,16 @@ def _funcionalidades_del_plan(db: Session) -> set[str]:
     return {f for f in FUNCIONALIDADES if getattr(plan, f, False)}
 
 
-def _ejemplos(funcionalidades: set[str]) -> list[str]:
-    """Una frase de ejemplo por cada reporte disponible para el plan."""
-    return [d.ejemplos[0] for d in registro_reportes.disponibles_para(funcionalidades) if d.ejemplos]
+def _con_alcance_global(db: Session, usuario_id: int) -> bool:
+    """Si quien pide puede usar los reportes de toda la empresa (la misma regla de `exigir_alcance_global`)."""
+    return plataforma_politicas.tiene_alcance_global(db, usuario_id)
+
+
+def _ejemplos(funcionalidades: set[str], con_alcance_global: bool = True) -> list[str]:
+    """Una frase de ejemplo por cada reporte disponible para el plan y para quien pide."""
+    return [
+        d.ejemplos[0] for d in registro_reportes.disponibles_para(funcionalidades, con_alcance_global) if d.ejemplos
+    ]
 
 
 def _respuesta(
@@ -644,6 +651,7 @@ class _PreparadorSolicitud:
         self, db: Session, usuario_id: int, datos: ReporteGenerativoRequest
     ) -> _Preparada | ReporteGenerativoRespuesta:
         funcionalidades = _funcionalidades_del_plan(db)
+        con_global = _con_alcance_global(db, usuario_id)
         avisos: list[str] = []
         interprete: str | None = None
 
@@ -653,15 +661,15 @@ class _PreparadorSolicitud:
                 return _respuesta(
                     "incompleta",
                     "Escribe qué reporte necesitas.",
-                    sugerencias=_ejemplos(funcionalidades),
+                    sugerencias=_ejemplos(funcionalidades, con_global),
                 )
-            resultado, avisos_interprete = self._interpretar(db, texto, funcionalidades)
+            resultado, avisos_interprete = self._interpretar(db, texto, funcionalidades, con_global)
             avisos.extend(avisos_interprete)
             if resultado.solicitud is None:
                 return _respuesta(
                     "incompleta",
                     "No pude entender qué reporte necesitas. Prueba con una de estas frases.",
-                    sugerencias=_ejemplos(funcionalidades),
+                    sugerencias=_ejemplos(funcionalidades, con_global),
                     avisos=avisos,
                 )
             solicitud = resultado.solicitud
@@ -678,18 +686,18 @@ class _PreparadorSolicitud:
             return _respuesta(
                 "incompleta",
                 "Dime qué reporte necesitas.",
-                sugerencias=_ejemplos(funcionalidades),
+                sugerencias=_ejemplos(funcionalidades, con_global),
                 avisos=avisos,
                 interprete=interprete,
             )
         definicion = registro_reportes.obtener(codigo)
         if definicion is None:
-            titulos = ", ".join(d.titulo for d in registro_reportes.disponibles_para(funcionalidades))
+            titulos = ", ".join(d.titulo for d in registro_reportes.disponibles_para(funcionalidades, con_global))
             return _respuesta(
                 "no_soportada",
                 f"No puedo generar ese reporte. Puedo preparar: {titulos}. Las reservas y el resumen general "
                 "están en Reportes convencionales.",
-                sugerencias=_ejemplos(funcionalidades),
+                sugerencias=_ejemplos(funcionalidades, con_global),
                 avisos=avisos,
                 interprete=interprete,
             )
@@ -848,19 +856,27 @@ class _PreparadorSolicitud:
         return ", ".join(f"«{n}»" for n in nombres)
 
     @staticmethod
-    def _interpretar(db: Session, texto: str, funcionalidades: set[str]):
+    def _interpretar(db: Session, texto: str, funcionalidades: set[str], con_alcance_global: bool = True):
         """Groq primero; si no responde o devuelve algo que no valida, el intérprete de reglas."""
         sucursales = plataforma_politicas.listar_nombres_sucursales_activas(db)
         categorias = catalogo_politicas.listar_nombres_categorias_activas(db)
         avisos: list[str] = []
         resultado = obtener_interprete_reportes().interpretar(
-            texto, funcionalidades, nombres_sucursales=sucursales, nombres_categorias=categorias
+            texto,
+            funcionalidades,
+            nombres_sucursales=sucursales,
+            nombres_categorias=categorias,
+            con_alcance_global=con_alcance_global,
         )
         if resultado.solicitud is None:
             logger.warning("Interprete de reportes sin solicitud (origen=%s, error=%s)", resultado.origen, resultado.error)
             avisos.append("El asistente de IA no respondió; usé una interpretación básica de tu pedido.")
             resultado = InterpreteReportesReglas().interpretar(
-                texto, funcionalidades, nombres_sucursales=sucursales, nombres_categorias=categorias
+                texto,
+                funcionalidades,
+                nombres_sucursales=sucursales,
+                nombres_categorias=categorias,
+                con_alcance_global=con_alcance_global,
             )
         return resultado, avisos
 
@@ -1172,7 +1188,8 @@ class ExportarReporteGenerativo:
 
 
 class ConsultarCatalogoReportes:
-    def ejecutar(self, db: Session) -> list[dict]:
-        """GET /api/v1/reportes-ia/catalogo: los reportes que el plan de la empresa permite,
-        con sus filtros, columnas, gráfico y frases de ejemplo."""
-        return registro_reportes.catalogo_para(_funcionalidades_del_plan(db))
+    def ejecutar(self, db: Session, usuario_id: int) -> list[dict]:
+        """GET /api/v1/reportes-ia/catalogo: los reportes que el plan de la empresa permite y que el usuario puede
+        usar (sin alcance global no se ofrecen los de toda la empresa), con sus filtros, columnas, gráfico y frases
+        de ejemplo."""
+        return registro_reportes.catalogo_para(_funcionalidades_del_plan(db), _con_alcance_global(db, usuario_id))

@@ -697,6 +697,40 @@ def test_un_encargado_de_sucursal_recibe_el_403_de_alcance_global_y_sus_reportes
     assert _ok(ejecutar(client_por_peticion, encargado, solicitud={"tipo_reporte": "ventas_por_sucursal"}))["estado"] == "ok"
 
 
+def _cabeceras_encargado(mundo):
+    email = next(p.email for p in por_codigo("fashionstore").personal() if p.rol == "encargado_sucursal")
+    return cabeceras_de(mundo, "fashionstore", email)
+
+
+def test_el_catalogo_no_ofrece_la_analitica_a_un_encargado_pero_si_al_administrador(client_por_peticion, mundo):
+    encargado = _cabeceras_encargado(mundo)
+    admin = cabeceras_de(mundo, "fashionstore")
+
+    del_encargado = [r["codigo"] for r in _ok(client_por_peticion.get(f"{API}/catalogo", headers=encargado))]
+    del_admin = [r["codigo"] for r in _ok(client_por_peticion.get(f"{API}/catalogo", headers=admin))]
+
+    assert del_encargado == list(CODIGOS_E09)
+    assert del_admin == [*CODIGOS_E09, *CODIGOS_ANALITICA]
+
+
+def test_el_prompt_y_las_sugerencias_no_ofrecen_la_analitica_a_un_encargado(client_por_peticion, mundo, groq_simulado):
+    encargado = _cabeceras_encargado(mundo)
+    admin = cabeceras_de(mundo, "fashionstore")
+    peticiones = groq_simulado({"tipo_reporte": None})
+
+    respuesta_encargado = _ok(ejecutar(client_por_peticion, encargado, texto="ventas por sucursal"))
+    limiter.reset()
+    respuesta_admin = _ok(ejecutar(client_por_peticion, admin, texto="ventas por sucursal"))
+
+    prompt_encargado, prompt_admin = (p["messages"][0]["content"] for p in peticiones)
+    for nombre in (*CODIGOS_ANALITICA, "horizonte_semanas"):
+        assert nombre not in prompt_encargado, nombre
+    assert all(codigo in prompt_encargado for codigo in CODIGOS_E09)
+    assert all(codigo in prompt_admin for codigo in CODIGOS_ANALITICA)
+    assert len(respuesta_encargado["sugerencias"]) == len(CODIGOS_E09)
+    assert len(respuesta_admin["sugerencias"]) == len(CODIGOS_E09) + len(CODIGOS_ANALITICA)
+
+
 # ---- 7. Seguridad: JSON hostil, filtros ajenos y el archivo del modelo -------------------------------------------------
 
 

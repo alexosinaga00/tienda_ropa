@@ -498,10 +498,16 @@ def obtener(codigo: str | None) -> DefinicionReporte | None:
     return REGISTRO.get(codigo)
 
 
-def disponibles_para(funcionalidades: Iterable[str]) -> list[DefinicionReporte]:
-    """Reportes cuya funcionalidad de plan está entre las dadas (orden del registro)."""
+def disponibles_para(funcionalidades: Iterable[str], con_alcance_global: bool = True) -> list[DefinicionReporte]:
+    """Reportes cuya funcionalidad de plan está entre las dadas (orden del registro). Con `con_alcance_global=False`
+    (quien tiene una sucursal asignada) se omiten los de toda la empresa (`requiere_alcance_global`): solo es para no
+    ofrecerlos; el 403 de /interpretar y /ejecutar sigue siendo la barrera real."""
     permitidas = set(funcionalidades)
-    return [d for d in REGISTRO.values() if d.funcionalidad_plan in permitidas]
+    return [
+        d
+        for d in REGISTRO.values()
+        if d.funcionalidad_plan in permitidas and (con_alcance_global or not d.requiere_alcance_global)
+    ]
 
 
 def conectar_ejecutor(codigo: str, ejecutor: Ejecutor) -> None:
@@ -522,12 +528,16 @@ def _describir_filtro(nombre: str, f: DefinicionFiltro) -> str:
     return f"{nombre} (entero {f.minimo}..{f.maximo})"
 
 
-def descripcion_para_prompt(funcionalidades: Iterable[str] | None = None) -> str:
+def descripcion_para_prompt(
+    funcionalidades: Iterable[str] | None = None, con_alcance_global: bool = True
+) -> str:
     """Texto del catálogo para el prompt de sistema del intérprete: códigos, filtros y
     enums. No lleva datos del negocio (ni nombres de sucursales, categorías o productos).
     Sin `funcionalidades` describe todos los reportes del registro."""
     definiciones = (
-        list(REGISTRO.values()) if funcionalidades is None else disponibles_para(funcionalidades)
+        list(REGISTRO.values())
+        if funcionalidades is None
+        else disponibles_para(funcionalidades, con_alcance_global)
     )
     lineas = ["Tipos de reporte (usa exactamente uno de estos códigos en tipo_reporte):"]
     for d in definiciones:
@@ -544,12 +554,12 @@ def descripcion_para_prompt(funcionalidades: Iterable[str] | None = None) -> str
     return "\n".join(lineas)
 
 
-def catalogo_para(funcionalidades: Iterable[str]) -> list[dict[str, Any]]:
+def catalogo_para(funcionalidades: Iterable[str], con_alcance_global: bool = True) -> list[dict[str, Any]]:
     """Catálogo público de los reportes disponibles para un plan (GET /reportes-ia/catalogo):
     código, título, descripción, filtros con tipo y rango, columnas, gráfico y ejemplos.
     No incluye el ejecutor."""
     salida: list[dict[str, Any]] = []
-    for d in disponibles_para(funcionalidades):
+    for d in disponibles_para(funcionalidades, con_alcance_global):
         salida.append(
             {
                 "codigo": d.codigo,

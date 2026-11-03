@@ -261,7 +261,7 @@ reportes_ia_router = APIRouter(
 
 @reportes_ia_router.get("/catalogo")
 def catalogo_reportes_ia(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
-    return cu_catalogo_reportes.ejecutar(db)
+    return cu_catalogo_reportes.ejecutar(db, usuario.id)
 
 
 @reportes_ia_router.post("/interpretar", response_model=ReporteGenerativoRespuesta)

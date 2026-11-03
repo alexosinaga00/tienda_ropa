@@ -448,11 +448,16 @@ def sembrar_ciudades_base(db: Session) -> None:
 # (La constante vive en core.permisos y se sigue importando desde acá.)
 
 
+def tiene_alcance_global(db: Session, usuario_id: int) -> bool:
+    """True si el usuario no está limitado a una sucursal (tiene el permiso de alcance global). No lanza."""
+    return PERMISO_ALCANCE_GLOBAL in permisos_de_usuario(db, usuario_id)
+
+
 def sucursal_asignada(db: Session, usuario_id: int) -> int | None:
     """Sucursal a la que está limitado el usuario, o None si tiene alcance
     global. Sin alcance global y sin ficha de empleado activa con sucursal,
     no puede operar ninguna (PermisoDenegadoError)."""
-    if PERMISO_ALCANCE_GLOBAL in permisos_de_usuario(db, usuario_id):
+    if tiene_alcance_global(db, usuario_id):
         return None
     empleado = empleado_repo.obtener_por_usuario(db, usuario_id)
     if empleado is None or not empleado.activo or empleado.sucursal_id is None:
