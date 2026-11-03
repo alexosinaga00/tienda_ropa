@@ -210,6 +210,9 @@ Future<EscenarioVendedor> abrirVendedor(
       GoRoute(path: '/home', builder: (context, state) => const Scaffold(body: Text('PANTALLA HOME'))),
       GoRoute(path: '/tienda', builder: (context, state) => const Scaffold(body: Text('PANTALLA TIENDAS'))),
       GoRoute(path: '/vendedor/catalogo', builder: (context, state) => const Scaffold(body: Text('PANTALLA CATALOGO'))),
+      GoRoute(path: '/vendedor/venta/nueva', builder: (context, state) => const Scaffold(body: Text('PANTALLA NUEVA VENTA'))),
+      GoRoute(path: '/vendedor/reserva/nueva', builder: (context, state) => const Scaffold(body: Text('PANTALLA NUEVA RESERVA'))),
+      GoRoute(path: '/vendedor/operaciones', builder: (context, state) => const Scaffold(body: Text('PANTALLA OPERACIONES'))),
     ],
   );
   addTearDown(router.dispose);

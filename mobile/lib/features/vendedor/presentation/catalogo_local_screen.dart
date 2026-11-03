@@ -441,15 +441,18 @@ class _TarjetaPrenda extends StatelessWidget {
 /// La foto de una prenda: la de la caché si hay (sin red solo se ven las ya guardadas) y, si no, un recuadro neutro con el
 /// nombre. Reutilizable por el detalle.
 class FotoPrenda extends StatelessWidget {
-  const FotoPrenda({super.key, required this.nombre, required this.productoId, this.url});
+  const FotoPrenda({super.key, required this.nombre, required this.productoId, this.url, this.compacta = false});
 
   final String nombre;
   final int productoId;
   final String? url;
 
+  /// Para miniaturas (64 px): el recuadro sin foto muestra solo el ícono, porque el nombre no cabe.
+  final bool compacta;
+
   @override
   Widget build(BuildContext context) {
-    final alterna = _Alterna(nombre: nombre, productoId: productoId);
+    final alterna = _Alterna(nombre: nombre, productoId: productoId, compacta: compacta);
     final direccion = url;
     if (direccion == null || direccion.isEmpty) return alterna;
     return CachedNetworkImage(
@@ -463,13 +466,25 @@ class FotoPrenda extends StatelessWidget {
 }
 
 class _Alterna extends StatelessWidget {
-  const _Alterna({required this.nombre, required this.productoId});
+  const _Alterna({required this.nombre, required this.productoId, this.compacta = false});
 
   final String nombre;
   final int productoId;
+  final bool compacta;
 
   @override
   Widget build(BuildContext context) {
+    if (compacta) {
+      return ExcludeSemantics(
+        child: Container(
+          key: Key('foto_alterna_$productoId'),
+          width: double.infinity,
+          color: AppColors.fondoAlterno,
+          alignment: Alignment.center,
+          child: const Icon(Icons.checkroom, size: 28, color: AppColors.textoTenue),
+        ),
+      );
+    }
     return ExcludeSemantics(
       child: Container(
         key: Key('foto_alterna_$productoId'),

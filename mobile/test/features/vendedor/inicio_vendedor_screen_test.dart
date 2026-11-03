@@ -18,7 +18,8 @@ void main() {
       expect(_enTarjeta('Chaski Sport'), findsOneWidget);
       expect(find.text('Sesión verificada'), findsOneWidget);
       expect(find.text('Sesión sin verificar: sin conexión'), findsNothing);
-      expect(find.text('Las herramientas de venta llegan en las siguientes etapas.'), findsOneWidget);
+      // Ajuste E20: las herramientas de venta ya existen, el texto provisional se quitó.
+      expect(find.text('Las herramientas de venta llegan en las siguientes etapas.'), findsNothing);
       expect(find.widgetWithText(OutlinedButton, 'Cambiar de tienda'), findsOneWidget);
       expect(find.widgetWithText(ElevatedButton, 'Cerrar sesión'), findsOneWidget);
     });

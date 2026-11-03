@@ -29,9 +29,21 @@ enum TipoErrorApp {
 
 /// El único error que sale de [ApiClient]: ya traducido a un tipo, con un mensaje en español y sin tecnicismos.
 class ErrorApp implements Exception {
-  const ErrorApp({required this.tipo, required this.mensaje, this.estado, this.codigo, this.detalle});
+  const ErrorApp({
+    required this.tipo,
+    required this.mensaje,
+    this.estado,
+    this.codigo,
+    this.detalle,
+    this.posiblementeRecibido = false,
+  });
 
   final TipoErrorApp tipo;
+
+  /// La petición pudo haber LLEGADO al servidor aunque no hubo respuesta (se cortó al enviar o al esperar). Con `false` es
+  /// seguro que no llegó. Importa para reenviar: una operación con id único se puede reenviar sin duplicarse, pero hay que
+  /// saber que "no llegó" no es lo mismo que "no sabemos".
+  final bool posiblementeRecibido;
 
   /// Código HTTP, si el servidor llegó a responder.
   final int? estado;
@@ -67,8 +79,18 @@ class ErrorApp implements Exception {
         DioExceptionType.receiveTimeout => true,
         _ => error.error is SocketException,
       };
+      // Pudo haber llegado: se cortó al ENVIAR o al ESPERAR la respuesta, o falló la red a mitad de camino. Un error al
+      // CONECTAR (connectionError / connectionTimeout) en cambio asegura que nunca llegó.
+      final posiblementeRecibido = switch (error.type) {
+        DioExceptionType.connectionError || DioExceptionType.connectionTimeout => false,
+        _ => true,
+      };
       return sinRed
-          ? const ErrorApp(tipo: TipoErrorApp.sinConexion, mensaje: _mensajeSinConexion)
+          ? ErrorApp(
+              tipo: TipoErrorApp.sinConexion,
+              mensaje: _mensajeSinConexion,
+              posiblementeRecibido: posiblementeRecibido,
+            )
           : const ErrorApp(tipo: TipoErrorApp.desconocido, mensaje: 'Ocurrió un error inesperado. Intenta de nuevo.');
     }
 

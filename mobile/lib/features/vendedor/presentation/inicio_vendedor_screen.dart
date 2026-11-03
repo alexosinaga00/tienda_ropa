@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/conectividad/conectividad_service.dart';
 import '../../../core/sesion/dialogos_sesion.dart';
+import '../../../core/sync/operacion_pendiente.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/indicador_conexion.dart';
 import '../../auth/models/usuario.dart';
@@ -14,6 +15,8 @@ import '../../tienda/presentation/marca_tienda.dart';
 import '../../tienda/state/tienda_controller.dart';
 import '../state/catalogo_local_providers.dart';
 import '../state/descarga_controller.dart';
+import '../state/sincronizacion_providers.dart';
+import 'aviso_bloqueo_sync.dart';
 import 'aviso_pendientes_ajenos.dart';
 import 'aviso_vigencia.dart';
 
@@ -89,11 +92,13 @@ class _InicioVendedorScreenState extends ConsumerState<InicioVendedorScreen> {
                       ),
                       const AvisoPendientesAjenos(),
                       const SizedBox(height: AppSpacing.lg),
-                      const Text(
-                        'Las herramientas de venta llegan en las siguientes etapas.',
-                        style: TextStyle(color: AppColors.textoTenue),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
+                      const AvisoBloqueoSync(),
+                      const _TarjetaNuevaVenta(),
+                      const SizedBox(height: AppSpacing.sm),
+                      const _TarjetaNuevaReserva(),
+                      const SizedBox(height: AppSpacing.sm),
+                      const _TarjetaOperaciones(),
+                      const SizedBox(height: AppSpacing.sm),
                       const _TarjetaCatalogo(),
                       const SizedBox(height: AppSpacing.sm),
                       const _TarjetaActualizar(),
@@ -116,6 +121,67 @@ class _InicioVendedorScreenState extends ConsumerState<InicioVendedorScreen> {
             ),
     );
   }
+}
+
+/// "Nueva venta de contado": registra una venta en efectivo, con o sin conexión.
+class _TarjetaNuevaVenta extends StatelessWidget {
+  const _TarjetaNuevaVenta();
+
+  @override
+  Widget build(BuildContext context) {
+    return _TarjetaAccion(
+      icono: Icons.point_of_sale,
+      titulo: 'Nueva venta de contado',
+      subtitulo: 'Cobra en efectivo, con o sin conexión',
+      alPulsar: () => context.push('/vendedor/venta/nueva'),
+    );
+  }
+}
+
+/// "Nueva reserva": aparta prendas para que un cliente las pruebe en la tienda.
+class _TarjetaNuevaReserva extends StatelessWidget {
+  const _TarjetaNuevaReserva();
+
+  @override
+  Widget build(BuildContext context) {
+    return _TarjetaAccion(
+      icono: Icons.event_available_outlined,
+      titulo: 'Nueva reserva',
+      subtitulo: 'Aparta prendas para la visita de un cliente',
+      alPulsar: () => context.push('/vendedor/reserva/nueva'),
+    );
+  }
+}
+
+/// "Operaciones": lo registrado en este teléfono, con una insignia de lo que pide atención.
+class _TarjetaOperaciones extends ConsumerWidget {
+  const _TarjetaOperaciones();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final conteo = ref.watch(conteoOperacionesProvider).valueOrNull;
+    final pendientes = conteo == null ? 0 : porAtender(conteo);
+    return _TarjetaAccion(
+      icono: Icons.receipt_long_outlined,
+      titulo: 'Operaciones',
+      subtitulo: conteo == null ? 'Ventas y reservas de este teléfono' : _subtituloOperaciones(conteo),
+      insignia: pendientes,
+      alPulsar: () => context.push('/vendedor/operaciones'),
+    );
+  }
+}
+
+/// "3 por enviar · 1 en conflicto · 2 rechazadas", o "Todo al día" si nada espera.
+String _subtituloOperaciones(Map<EstadoOperacion, int> conteo) {
+  final porEnviarN = porEnviar(conteo);
+  final enConflicto = conteo[EstadoOperacion.enConflicto] ?? 0;
+  final rechazadas = conteo[EstadoOperacion.rechazada] ?? 0;
+  final partes = [
+    if (porEnviarN > 0) '$porEnviarN por enviar',
+    if (enConflicto > 0) '$enConflicto en conflicto',
+    if (rechazadas > 0) rechazadas == 1 ? '1 rechazada' : '$rechazadas rechazadas',
+  ];
+  return partes.isEmpty ? 'Todo al día' : partes.join(' · ');
 }
 
 /// "Catálogo sin conexión": entra a la consulta del catálogo descargado.
@@ -172,12 +238,16 @@ class _TarjetaAccion extends StatelessWidget {
     this.progreso = false,
     this.mensaje,
     this.mensajeEsError = false,
+    this.insignia = 0,
   });
 
   final IconData icono;
   final String titulo;
   final String subtitulo;
   final VoidCallback? alPulsar;
+
+  /// Cuántas cosas piden atención; no se dibuja si es cero.
+  final int insignia;
   final bool progreso;
   final String? mensaje;
   final bool mensajeEsError;
@@ -227,6 +297,24 @@ class _TarjetaAccion extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (insignia > 0) ...[
+                  Semantics(
+                    label: '$insignia por atender',
+                    excludeSemantics: true,
+                    child: Container(
+                      key: const Key('insignia_operaciones'),
+                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: AppColors.advertencia, borderRadius: BorderRadius.circular(12)),
+                      child: Text(
+                        insignia > 99 ? '99+' : '$insignia',
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
                 if (progreso)
                   const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                 else if (alPulsar != null)

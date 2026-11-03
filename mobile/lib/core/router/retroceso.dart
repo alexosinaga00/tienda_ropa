@@ -19,6 +19,9 @@ String? rutaPadreDe(String ruta) {
     case '/restablecer':
       return '/login';
     case '/vendedor/catalogo':
+    case '/vendedor/venta/nueva':
+    case '/vendedor/reserva/nueva':
+    case '/vendedor/operaciones':
       return '/vendedor';
     case '/checkout/direccion/nueva':
     case '/checkout/pago':
@@ -29,6 +32,7 @@ String? rutaPadreDe(String ruta) {
   if (ruta.startsWith('/checkout/estado/')) return '/compras';
   if (ruta.startsWith('/compras/')) return '/compras';
   if (ruta.startsWith('/vendedor/producto/')) return '/vendedor/catalogo';
+  if (ruta.startsWith('/vendedor/operaciones/')) return '/vendedor/operaciones';
   if (ruta.startsWith('/reserva/') && ruta != '/reserva/confirmar') return '/reservas';
   // Todo lo demás (detalle, favoritos, carrito, login, reservas...) cuelga del catálogo.
   return '/home';

@@ -29,6 +29,10 @@ import '../../features/auth/models/usuario.dart';
 import '../../features/vendedor/presentation/acceso_vendedor_screen.dart';
 import '../../features/vendedor/presentation/catalogo_local_screen.dart';
 import '../../features/vendedor/presentation/detalle_local_screen.dart';
+import '../../features/vendedor/presentation/nueva_reserva_screen.dart';
+import '../../features/vendedor/presentation/nueva_venta_screen.dart';
+import '../../features/vendedor/presentation/operaciones_pendientes_screen.dart';
+import '../../features/vendedor/presentation/resultado_sync_screen.dart';
 import '../../features/vendedor/presentation/inicio_vendedor_screen.dart';
 import '../../features/tienda/presentation/elige_tienda_screen.dart';
 import '../../features/tienda/presentation/entrar_a_tienda_screen.dart';
@@ -172,6 +176,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/vendedor/acceso', builder: (context, state) => const AccesoVendedorScreen()),
       GoRoute(path: '/vendedor', builder: (context, state) => const InicioVendedorScreen()),
       GoRoute(path: '/vendedor/catalogo', builder: (context, state) => const CatalogoLocalScreen()),
+      GoRoute(path: '/vendedor/venta/nueva', builder: (context, state) => const NuevaVentaScreen()),
+      GoRoute(path: '/vendedor/reserva/nueva', builder: (context, state) => const NuevaReservaScreen()),
+      GoRoute(path: '/vendedor/operaciones', builder: (context, state) => const OperacionesPendientesScreen()),
+      GoRoute(
+        path: '/vendedor/operaciones/:operacionId',
+        builder: (context, state) => ResultadoSyncScreen(
+          operacionId: (state.pathParameters['operacionId'] ?? '').toLowerCase(),
+          esNueva: state.uri.queryParameters['nuevo'] == '1',
+        ),
+      ),
       GoRoute(
         path: '/vendedor/producto/:id',
         builder: (context, state) {
