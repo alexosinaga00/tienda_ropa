@@ -30,6 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Textos nativos de Flutter (calendario, reloj, botones) en español.
+  flutter_localizations:
+    sdk: flutter
 
   go_router: ^18.0.0
   dio: ^5.11.0

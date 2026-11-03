@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/sync/disparador_sincronizacion.dart';
@@ -21,6 +22,10 @@ class FashionStoreApp extends ConsumerWidget {
       title: 'FashionStore',
       debugShowCheckedModeBanner: false,
       theme: ref.watch(temaEmpresaProvider),
+      // Español: calendario, reloj, botones y menús nativos de Flutter.
+      locale: const Locale('es'),
+      supportedLocales: const [Locale('es')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       // Para avisar el resultado de una sincronización automática desde cualquier pantalla.
       scaffoldMessengerKey: mensajeroGlobal,
       // Dispara la sincronización sola (solo actúa con una sesión del personal).

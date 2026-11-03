@@ -61,7 +61,7 @@ Map<String, Object?> _operacionEnviada(String id) => {
 };
 
 // IMPORTANTE: el ApiClientFalso entrega las respuestas en el orden en que se preparan y repite la última, así que en cada
-// prueba se prepara TODO (descarga 1, 2, ...) antes de la primera llamada.
+// prueba se preparan todas las respuestas (descarga 1, 2, ...) antes de la primera llamada.
 void main() {
   late Database db;
   late ApiClientConGancho api;

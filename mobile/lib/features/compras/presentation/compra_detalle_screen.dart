@@ -198,11 +198,6 @@ class _AccionesPendienteState extends ConsumerState<_AccionesPendiente> {
               title: const Text('PayPal'),
               onTap: () => Navigator.pop(context, 'paypal'),
             ),
-            ListTile(
-              leading: const Icon(Icons.account_balance_outlined),
-              title: const Text('Libélula'),
-              onTap: () => Navigator.pop(context, 'libelula'),
-            ),
           ],
         ),
       ),

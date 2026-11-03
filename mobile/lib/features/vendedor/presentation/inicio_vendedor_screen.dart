@@ -123,32 +123,41 @@ class _InicioVendedorScreenState extends ConsumerState<InicioVendedorScreen> {
   }
 }
 
-/// "Nueva venta de contado": registra una venta en efectivo, con o sin conexión.
-class _TarjetaNuevaVenta extends StatelessWidget {
+/// Los permisos que el SERVIDOR exige para cada tipo de operación (`PERMISO_POR_TIPO` del backend). Si la cuenta no lo tiene, la
+/// operación se rechazaría al sincronizar (`permiso_denegado`): mejor no ofrecerla.
+const permisoParaVender = 'ventas.presencial';
+const permisoParaReservar = 'reservas.gestionar_sucursal';
+
+const _textoSinPermiso = 'Tu cuenta no tiene permiso para esto. Pídelo al administrador de tu empresa.';
+
+/// "Nueva venta de contado": registra una venta en efectivo, con o sin conexión. Solo con el permiso de vender en caja.
+class _TarjetaNuevaVenta extends ConsumerWidget {
   const _TarjetaNuevaVenta();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final puede = ref.watch(authControllerProvider.select((s) => s.tienePermiso(permisoParaVender)));
     return _TarjetaAccion(
       icono: Icons.point_of_sale,
       titulo: 'Nueva venta de contado',
-      subtitulo: 'Cobra en efectivo, con o sin conexión',
-      alPulsar: () => context.push('/vendedor/venta/nueva'),
+      subtitulo: puede ? 'Cobra en efectivo, con o sin conexión' : _textoSinPermiso,
+      alPulsar: puede ? () => context.push('/vendedor/venta/nueva') : null,
     );
   }
 }
 
-/// "Nueva reserva": aparta prendas para que un cliente las pruebe en la tienda.
-class _TarjetaNuevaReserva extends StatelessWidget {
+/// "Nueva reserva": aparta prendas para que un cliente las pruebe en la tienda. Solo con el permiso de atender reservas.
+class _TarjetaNuevaReserva extends ConsumerWidget {
   const _TarjetaNuevaReserva();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final puede = ref.watch(authControllerProvider.select((s) => s.tienePermiso(permisoParaReservar)));
     return _TarjetaAccion(
       icono: Icons.event_available_outlined,
       titulo: 'Nueva reserva',
-      subtitulo: 'Aparta prendas para la visita de un cliente',
-      alPulsar: () => context.push('/vendedor/reserva/nueva'),
+      subtitulo: puede ? 'Aparta prendas para la visita de un cliente' : _textoSinPermiso,
+      alPulsar: puede ? () => context.push('/vendedor/reserva/nueva') : null,
     );
   }
 }

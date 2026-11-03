@@ -34,10 +34,11 @@ import '../../helpers/token_storage_falso.dart';
 
 const tiendaChaski = Tienda(codigo: 'chaski', nombre: 'Chaski Sport');
 
-/// Una cuenta de la empresa `chaski` con los roles y permisos dados. Por defecto, un cajero (puede vender en caja).
+/// Una cuenta de la empresa `chaski` con los roles y permisos dados. Por defecto, un cajero real: vende en caja, atiende las
+/// reservas de su sucursal y sincroniza (los mismos permisos que le da el seed).
 Usuario usuarioDePrueba({
   List<String> roles = const ['cajero'],
-  List<String> permisos = const ['ventas.presencial'],
+  List<String> permisos = const ['ventas.presencial', 'reservas.gestionar_sucursal', 'sincronizacion.operar'],
   String nombre = 'Marta',
   String? empresaCodigo = 'chaski',
   String? empresaNombre = 'Chaski Sport',

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../tienda/state/tienda_controller.dart';
 import '../state/auth_controller.dart';
 
 /// Solo rutas internas y que no sean de auth (evita volver a /login o
@@ -171,11 +172,13 @@ const _textoPortada = Color(0xFFC9BCB2);
 
 /// Portada del login: marca + gancho del probador virtual, sin imágenes
 /// (no depende de red ni de assets, así nunca queda un hueco vacío).
-class _PortadaProbador extends StatelessWidget {
+class _PortadaProbador extends ConsumerWidget {
   const _PortadaProbador();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // El nombre de la tienda elegida; sin tienda (no debería ocurrir en el login) queda la marca de la plataforma.
+    final nombreTienda = ref.watch(tiendaControllerProvider.select((s) => s.tienda?.nombre)) ?? 'FashionStore';
     final arriba = MediaQuery.paddingOf(context).top;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(bottom: Radius.circular(18)),
@@ -243,9 +246,11 @@ class _PortadaProbador extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    'FashionStore',
-                    style: TextStyle(
+                  Text(
+                    nombreTienda,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
                       fontFamily: 'serif',
                       fontStyle: FontStyle.italic,
                       fontWeight: FontWeight.w600,
