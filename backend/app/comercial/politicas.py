@@ -23,6 +23,7 @@ import datetime as dt
 import logging
 from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
+from html import escape
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -64,7 +65,8 @@ from app.core.config import get_settings
 from app.core.codigos import generar_codigo
 from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
 from app.core.deps import ParametrosPeriodo
-from app.core.tiempo import ahora_utc_naive, hoy_utc
+from app.core.correo import MensajeCorreo
+from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
     DomainError,
@@ -851,6 +853,95 @@ def describir_plazo_cambio(db: Session, venta: Venta) -> dict:
         "vigente": ahora_utc_naive() <= vence_en,
         "estado_venta": obtener_estado_codigo(db, venta.estado_id),
     }
+
+
+# ---- Cambio de talla o color y comprobante por correo (CU-17) ----
+
+
+def validar_cambio_de_variante(original, nueva) -> None:
+    """Un cambio entrega OTRA variante del MISMO producto y del MISMO precio: así no hay diferencia de dinero que
+    cobrar ni devolver (el reembolso todavía no existe). `original` y `nueva` son `ProductoVariante`."""
+    if nueva.id == original.id:
+        raise DomainError("La prenda nueva es la misma que se devuelve: elige otra talla o color")
+    if nueva.producto_id != original.producto_id:
+        raise DomainError("El cambio es de talla o color de la misma prenda: la nueva debe ser del mismo producto")
+    if not nueva.activo:
+        raise DomainError("La talla o el color elegido ya no se vende")
+    if catalogo_politicas.obtener_precio_efectivo(nueva) != catalogo_politicas.obtener_precio_efectivo(original):
+        raise DomainError("El cambio tiene diferencia de precio: todavía no se puede registrar")
+
+
+def destinatario_de_venta(db: Session, venta: Venta) -> tuple[str, str] | None:
+    """(correo, nombre) de quien compró, o None si la venta no tiene cliente (p. ej. una venta presencial sin
+    cuenta) o su usuario está inactivo."""
+    if venta.cliente_id is None:
+        return None
+    cliente = plataforma_politicas.obtener_cliente(db, venta.cliente_id)
+    usuario = plataforma_politicas.obtener_usuario(db, cliente.usuario_id)
+    if not usuario.activo or not usuario.email:
+        return None
+    return usuario.email, usuario.nombre
+
+
+def _fecha_legible(fecha: dt.datetime) -> str:
+    """La fecha en hora de Bolivia. Las fechas de la base son UTC sin zona."""
+    con_zona = fecha.replace(tzinfo=dt.timezone.utc) if fecha.tzinfo is None else fecha
+    return con_zona.astimezone(ZONA_BOLIVIA).strftime("%d/%m/%Y %H:%M")
+
+
+def construir_correo_comprobante_devolucion(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    codigo_devolucion: str,
+    codigo_venta: str,
+    sucursal: str,
+    fecha: dt.datetime,
+    lineas: list[tuple[str, str | None, int]],
+) -> MensajeCorreo:
+    """El comprobante de una devolución (sin reposición) o de un cambio de talla o color. `lineas` son
+    (prenda devuelta, prenda entregada en su lugar o None, cantidad). Todo dato variable se escapa en el HTML."""
+    es_cambio = any(nueva is not None for _, nueva, _ in lineas)
+    titulo = "Comprobante de cambio" if es_cambio else "Comprobante de devolución"
+    asunto = f"{titulo} {codigo_devolucion} · {nombre_empresa}"
+    cuando = _fecha_legible(fecha)
+
+    filas_texto: list[str] = []
+    filas_html: list[str] = []
+    for devuelta, nueva, cantidad in lineas:
+        if nueva is None:
+            filas_texto.append(f"- Devolviste: {devuelta} (x{cantidad})")
+            filas_html.append(
+                f'<li style="margin:0 0 8px">Devolviste: <strong>{escape(devuelta)}</strong> (x{cantidad})</li>'
+            )
+        else:
+            filas_texto.append(f"- Devolviste: {devuelta} (x{cantidad})\n  Recibes en su lugar: {nueva} (x{cantidad})")
+            filas_html.append(
+                f'<li style="margin:0 0 8px">Devolviste: <strong>{escape(devuelta)}</strong> (x{cantidad})<br>'
+                f"Recibes en su lugar: <strong>{escape(nueva)}</strong> (x{cantidad})</li>"
+            )
+
+    texto = (
+        f"Hola {nombre},\n\n"
+        f"{titulo} {codigo_devolucion} de tu compra {codigo_venta} en {nombre_empresa}.\n"
+        f"Sucursal: {sucursal}\nFecha: {cuando}\n\n" + "\n".join(filas_texto) + "\n\n"
+        "Guarda este mensaje como constancia. Si no reconoces esta operación, responde a la tienda.\n"
+    )
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412"><div style="max-width:480px;margin:0 auto;padding:24px">'
+        '<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(nombre_empresa)}</p>"
+        f'<h1 style="font-size:22px;margin:0 0 12px">{escape(titulo)}</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)}, registramos la operación '
+        f"<strong>{escape(codigo_devolucion)}</strong> sobre tu compra <strong>{escape(codigo_venta)}</strong>.</p>"
+        f'<p style="font-size:14px;color:#6B645C;margin:0 0 12px">Sucursal: {escape(sucursal)}<br>Fecha: {escape(cuando)}</p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{"".join(filas_html)}</ul>'
+        '<p style="font-size:13px;line-height:1.5;color:#6B645C">Guarda este mensaje como constancia. Si no reconoces '
+        "esta operación, responde a la tienda.</p></div></body></html>"
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
 
 
 # ---- Puntos de entrada para `inteligencia` (reportes y recomendador) ----------

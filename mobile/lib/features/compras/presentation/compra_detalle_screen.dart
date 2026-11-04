@@ -31,6 +31,7 @@ class CompraDetalleScreen extends ConsumerWidget {
           // El estado de la compra y del envío los cambia el personal: se vuelven a pedir al deslizar hacia abajo.
           onRefresh: () async {
             ref.invalidate(envioDeCompraProvider(ventaId));
+            ref.invalidate(plazoCambioProvider(ventaId));
             ref.invalidate(compraDetalleProvider(ventaId));
             await ref.read(compraDetalleProvider(ventaId).future);
           },
@@ -66,6 +67,11 @@ class CompraDetalleScreen extends ConsumerWidget {
               if (venta.esEnvioADomicilio && (venta.estado == 'pagada' || venta.estado == 'entregada')) ...[
                 _SeguimientoEnvio(ventaId: venta.id),
                 const SizedBox(height: AppSpacing.md),
+              ],
+
+              // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo.
+              if (venta.estado == 'pagada' || venta.estado == 'entregada') ...[
+                _PlazoDeCambio(ventaId: venta.id),
               ],
 
               for (final linea in venta.detalle) _TarjetaLinea(linea: linea),
@@ -156,6 +162,61 @@ class _SeguimientoEnvio extends ConsumerWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hasta cuándo se puede cambiar la prenda (lo calcula el servidor). Si no se pudo saber, no se muestra nada.
+/// El cambio se hace en la tienda: el cliente lleva la prenda y el cajero cambia la talla o el color.
+class _PlazoDeCambio extends ConsumerWidget {
+  const _PlazoDeCambio({required this.ventaId});
+
+  final int ventaId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final plazo = ref.watch(plazoCambioProvider(ventaId)).valueOrNull;
+    if (plazo == null) return const SizedBox.shrink();
+
+    final vigente = plazo.vigente;
+    final color = vigente ? AppColors.exito : AppColors.error;
+    final hasta = formatearFechaHora(plazo.venceEn);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(vigente ? Icons.schedule : Icons.error_outline, color: color, size: 28),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vigente
+                          ? 'Puedes cambiar tu prenda hasta el $hasta'
+                          : 'El plazo para cambiar esta compra venció el $hasta',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                    ),
+                    if (vigente) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      const Text(
+                        'Lleva la prenda a la tienda y cambia la talla o el color en caja. Te enviaremos el '
+                        'comprobante a tu correo.',
+                        style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

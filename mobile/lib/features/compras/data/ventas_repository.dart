@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../models/plazo_cambio.dart';
 import '../models/venta.dart';
 
 class VentasRepository {
@@ -22,5 +23,11 @@ class VentasRepository {
   Future<Venta> comprobante(int ventaId) async {
     final respuesta = await _dio.get<Map<String, dynamic>>('/ventas/$ventaId/comprobante');
     return Venta.fromJson(respuesta.data!);
+  }
+
+  /// Hasta cuándo se puede cambiar la compra. Solo la consulta quien la compró (o el personal de su sucursal).
+  Future<PlazoCambio> plazoCambio(int ventaId) async {
+    final respuesta = await _dio.get<Map<String, dynamic>>('/ventas/$ventaId/plazo-cambio');
+    return PlazoCambio.fromJson(respuesta.data!);
   }
 }

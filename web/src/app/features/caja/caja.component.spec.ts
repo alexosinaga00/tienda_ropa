@@ -1774,6 +1774,145 @@ describe('CajaComponent', () => {
       });
     });
 
+    describe('el cambio de talla o color en la misma devolución', () => {
+      const urlDetalle = `${API}/catalogo/variantes/detalle`;
+      const conIds = (ids: string) => (r: { url: string; params: { get(k: string): string | null } }) =>
+        r.url === urlDetalle && r.params.get('variante_ids') === ids;
+      const variante = (id: number, precio: string, disponible: number) => ({
+        id,
+        talla_id: id,
+        color_id: 1,
+        sku: `SKU-${id}`,
+        precio_efectivo: precio,
+        cantidad_disponible: disponible,
+      });
+
+      /** Abre el diálogo de la venta 55 (variante 7) y responde el catálogo: 8 (L, 4 disp.), 9 (XL, otro precio), 10 (S, sin stock). */
+      function abrirDialogoConOpciones(pantalla: Pantalla): void {
+        historialConPlazos(pantalla, { 55: 3 * HORA_MS });
+        abrirDialogoDeLaFila(pantalla);
+        http.expectOne(urlPlazo(55)).flush(respuestaPlazo(55, 3 * HORA_MS));
+        http.expectOne(conIds('7')).flush([
+          { variante_id: 7, producto_id: 3, producto_nombre: 'Polera', imagen_principal: null, talla_codigo: 'M', color_nombre: 'Azul' },
+        ]);
+        http.expectOne((r) => r.url === `${API}/catalogo/3` && r.params.get('sucursal_id') === '1').flush({
+          id: 3,
+          variantes: [variante(7, '100.00', 5), variante(8, '100.00', 4), variante(9, '130.00', 9), variante(10, '100.00', 0)],
+        });
+        http.expectOne(conIds('7,8,9,10')).flush([
+          { variante_id: 7, producto_id: 3, producto_nombre: 'Polera', imagen_principal: null, talla_codigo: 'M', color_nombre: 'Azul' },
+          { variante_id: 8, producto_id: 3, producto_nombre: 'Polera', imagen_principal: null, talla_codigo: 'L', color_nombre: 'Azul' },
+          { variante_id: 9, producto_id: 3, producto_nombre: 'Polera', imagen_principal: null, talla_codigo: 'XL', color_nombre: 'Azul' },
+          { variante_id: 10, producto_id: 3, producto_nombre: 'Polera', imagen_principal: null, talla_codigo: 'S', color_nombre: 'Azul' },
+        ]);
+        pantalla.fixture.detectChanges();
+      }
+
+      const selector = () => document.body.querySelector('select[data-estado="select-cambio"]') as HTMLSelectElement;
+
+      it('ofrece solo las variantes del mismo producto y del mismo precio, con su stock', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirDialogoConOpciones(pantalla);
+
+        const opciones = Array.from(selector().options).map((o) => ({ texto: limpio(o.textContent), deshabilitada: o.disabled }));
+        expect(opciones).toEqual([
+          { texto: 'Solo devolver', deshabilitada: false },
+          { texto: 'L · Azul (4 disp.)', deshabilitada: false },
+          { texto: 'S · Azul (sin stock)', deshabilitada: true }, // la XL, de otro precio, no aparece
+        ]);
+        // De paso, el diálogo ya nombra la prenda real (antes decía "Variante 7").
+        expect(limpio(selector().closest('tr')?.querySelector('td.fuerte')?.textContent)).toBe('Polera · M · Azul');
+      });
+
+      it('con una talla elegida, la devolución manda variante_nueva_id', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirDialogoConOpciones(pantalla);
+
+        const cantidad = document.body.querySelector('input.input-cantidad') as HTMLInputElement;
+        cantidad.value = '1';
+        cantidad.dispatchEvent(new Event('input'));
+        selector().value = selector().options[1].value;
+        selector().dispatchEvent(new Event('change'));
+        pantalla.fixture.detectChanges();
+        botonConfirmar().click();
+
+        const devolucion = http.expectOne((r) => r.method === 'POST' && r.url === `${API}/devoluciones`);
+        expect(devolucion.request.body).toEqual({
+          venta_id: 55,
+          detalle: [{ venta_detalle_id: 9, cantidad: 1, variante_nueva_id: 8 }],
+        });
+      });
+
+      it('un cambio registrado avisa que se entrega la prenda nueva y NO deja el aviso de la nueva venta', () => {
+        configurar(['cajero']);
+        const toast = vi.spyOn(TestBed.inject(MessageService), 'add');
+        const pantalla = abrir(1);
+        abrirDialogoConOpciones(pantalla);
+        const cantidad = document.body.querySelector('input.input-cantidad') as HTMLInputElement;
+        cantidad.value = '1';
+        cantidad.dispatchEvent(new Event('input'));
+        selector().value = selector().options[1].value;
+        selector().dispatchEvent(new Event('change'));
+        botonConfirmar().click();
+
+        http.expectOne((r) => r.method === 'POST' && r.url === `${API}/devoluciones`).flush({
+          reposiciones: [{ venta_detalle_id: 9, variante_devuelta_id: 7, variante_nueva_id: 8, cantidad: 1 }],
+          correo_programado: true,
+        });
+        http.expectOne(`${API}/ventas/sucursal/1`).flush([pagada(55)]);
+        http.expectOne(urlPlazo(55)).flush(respuestaPlazo(55, 3 * HORA_MS));
+        pantalla.fixture.detectChanges();
+
+        expect(toast).toHaveBeenCalledWith({
+          severity: 'success',
+          summary: 'Cambio registrado',
+          detail: 'Entrega la prenda nueva. Se envió el comprobante al correo del cliente.',
+        });
+        expect(avisoDelCambio()).toBeNull();
+      });
+
+      it('un cambio sin correo del cliente lo dice', () => {
+        configurar(['cajero']);
+        const toast = vi.spyOn(TestBed.inject(MessageService), 'add');
+        const pantalla = abrir(1);
+        abrirDialogoConOpciones(pantalla);
+        const cantidad = document.body.querySelector('input.input-cantidad') as HTMLInputElement;
+        cantidad.value = '1';
+        cantidad.dispatchEvent(new Event('input'));
+        selector().value = selector().options[1].value;
+        selector().dispatchEvent(new Event('change'));
+        botonConfirmar().click();
+
+        http.expectOne((r) => r.method === 'POST' && r.url === `${API}/devoluciones`).flush({
+          reposiciones: [{ venta_detalle_id: 9, variante_devuelta_id: 7, variante_nueva_id: 8, cantidad: 1 }],
+          correo_programado: false,
+        });
+
+        expect(toast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            summary: 'Cambio registrado',
+            detail: 'Entrega la prenda nueva. El cliente no tiene correo: no se envió comprobante.',
+          }),
+        );
+      });
+
+      it('si no se pueden cargar las tallas lo avisa y la devolución simple sigue funcionando', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        historialConPlazos(pantalla, { 55: 3 * HORA_MS });
+        abrirDialogoDeLaFila(pantalla);
+        http.expectOne(urlPlazo(55)).flush(respuestaPlazo(55, 3 * HORA_MS));
+        http.expectOne(conIds('7')).flush({ detail: 'Error' }, { status: 500, statusText: 'Server Error' });
+        pantalla.fixture.detectChanges();
+
+        expect(document.body.querySelector('[data-estado="error-opciones-cambio"]')).not.toBeNull();
+        expect(selector()).toBeNull();
+        expect(botonConfirmar().disabled).toBe(false);
+      });
+    });
+
     describe('el cambio de prenda: devolución y luego nueva venta', () => {
       /** Hasta confirmar una devolución exitosa: la venta 55 se devuelve y el historial se vuelve a cargar. */
       function devolverVenta55(pantalla: Pantalla): void {

@@ -45,6 +45,27 @@
           </div>
         }
 
+        @if (plazo(); as plazo) {
+          <div class="plazo-cambio" [class.plazo-cambio--vencido]="!plazo.vigente" data-estado="plazo-cambio">
+            <fs-icono [nombre]="plazo.vigente ? 'reloj' : 'alerta'" [tam]="32" />
+            <div>
+              @if (plazo.vigente) {
+                <div class="plazo-cambio__titulo">
+                  Puedes cambiar tu prenda hasta el {{ fechaLocal(plazo.vence_en) | date: 'dd/MM/yyyy HH:mm' }}
+                </div>
+                <div class="plazo-cambio__texto">
+                  Lleva la prenda a la tienda y cambia la talla o el color en caja. Te enviaremos el comprobante a tu
+                  correo.
+                </div>
+              } @else {
+                <div class="plazo-cambio__titulo">
+                  El plazo para cambiar esta compra venció el {{ fechaLocal(plazo.vence_en) | date: 'dd/MM/yyyy HH:mm' }}
+                </div>
+              }
+            </div>
+          </div>
+        }
+
         @for (linea of lineas(); track linea.id) {
           <div class="linea">
             @if (linea.imagenPrincipal) {

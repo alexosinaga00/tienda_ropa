@@ -593,6 +593,22 @@ Decisiones de diseño (D15, D17, D19):
   `null` vuelve al del plan; deja bitácora `empresa/cambiar_plazo_cambio`). `GET /ventas/{id}/plazo-cambio` dice
   cuánto queda (fecha, plazo, vencimiento, vigente). El reloj de una venta offline es el del dispositivo: un
   cajero que adelante la fecha extiende el plazo del cliente.
+- **Cambio de talla o color (CU-17, `RegistrarDevolucion`).** Una línea de `POST /devoluciones` puede traer
+  `variante_nueva_id`: reingresa lo devuelto (movimiento `devolucion`) y SALE la variante nueva de la misma sucursal
+  (movimiento `venta`, `referencia_tipo='devolucion'`, observación "Cambio de talla o color") en UNA transacción; sin
+  stock de la nueva (o cualquier fallo) se revierte todo, 409 sin dejar devolución. La nueva debe ser del MISMO producto,
+  activa y del MISMO precio efectivo (`validar_cambio_de_variante`; otro producto o diferencia de precio dan 400, un id
+  de otra empresa 404): no hay diferencia de dinero porque el reembolso no existe. No hay tabla ni columna nueva: el kardex
+  guarda la salida y la respuesta del registro trae `reposiciones` y `correo_programado` (solo ahí; no se persisten). Una
+  prenda recibida en un cambio no se vuelve a cambiar (la línea de la venta queda agotada). La bitácora suma `cambios`
+  solo si hubo alguno. El plazo es el de siempre (D19) y se cuenta desde la venta, no desde la entrega.
+- **Comprobante por correo (Brevo).** Tras confirmar, y en segundo plano (`BackgroundTasks`), a quien compró (`Venta.cliente_id`
+  con usuario activo y correo; una venta presencial sin cliente no manda nada) le llega el comprobante de la devolución o
+  del cambio (`construir_correo_comprobante_devolucion`, en `comercial/politicas.py`). Sin Brevo configurado, o si falla,
+  la devolución queda igual. El cliente ve su plazo en "Mis compras" de la web y de la app (`GET /ventas/{id}/plazo-cambio`),
+  y la Caja web ofrece «Cambiar por» con las variantes del mismo producto y precio y su stock. Que el cliente SOLICITE el
+  cambio desde la web o la app (estado `pendiente` y aprobación del cajero) NO está hecho. Pruebas:
+  `tests/comercial/test_cambio_talla.py`.
 - **Conflicto de stock: forzar = ajuste positivo + venta, nunca stock negativo (D15).**
   `POST /sincronizacion/operaciones/{operacion_id}/resolver` con `{"accion": "forzar"|"rechazar", "motivo"}`
   (permiso `sincronizacion.resolver`: administrador y encargado; el encargado solo las de su sucursal, otra

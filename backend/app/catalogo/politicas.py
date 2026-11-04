@@ -204,6 +204,14 @@ def obtener_precio_efectivo(variante: ProductoVariante) -> Decimal:
     return variante.precio if variante.precio is not None else variante.producto.precio_base
 
 
+def describir_variante(db: Session, variante: ProductoVariante) -> str:
+    """Para que `comercial` nombre una variante en un comprobante o un correo sin consultar `talla` ni `color`:
+    "Polera Nike · talla M · Blanco"."""
+    talla = talla_repo.obtener(db, variante.talla_id)
+    color = color_repo.obtener(db, variante.color_id)
+    return f"{variante.producto.nombre} · talla {talla.codigo} · {color.nombre}"
+
+
 def obtener_info_promocion(variante: ProductoVariante) -> tuple[int, int, int | None]:
     """(producto_id, categoria_id, temporada_id) de una variante, para que
     `comercial` (ventas) busque promociones vigentes (promocion_alcance) sin consultar

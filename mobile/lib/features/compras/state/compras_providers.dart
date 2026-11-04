@@ -17,6 +17,7 @@ import '../models/cotizacion_envio.dart';
 import '../models/direccion_cliente.dart';
 import '../models/envio.dart';
 import '../models/linea_con_exhibicion.dart';
+import '../models/plazo_cambio.dart';
 import '../models/venta.dart';
 import '../models/zona_envio.dart';
 import 'carrito_controller.dart';
@@ -102,6 +103,15 @@ final envioDeCompraProvider = FutureProvider.autoDispose.family<Envio?, int>(
   (ref, ventaId) => ref.watch(enviosRepositoryProvider).obtenerPorVenta(ventaId),
 );
 
+/// Hasta cuándo se puede cambiar una compra (null si no se pudo saber: la pantalla simplemente no dice nada).
+final plazoCambioProvider = FutureProvider.autoDispose.family<PlazoCambio?, int>((ref, ventaId) async {
+  try {
+    return await ref.watch(ventasRepositoryProvider).plazoCambio(ventaId);
+  } catch (_) {
+    return null;
+  }
+});
+
 /// Después de pagar, cancelar o reintentar una compra cambian el stock, el
 /// carrito (cancelar devuelve las prendas) y el estado de la compra.
 void refrescarDespuesDeCompra(WidgetRef ref) {
@@ -110,6 +120,7 @@ void refrescarDespuesDeCompra(WidgetRef ref) {
   ref.invalidate(sucursalesConStockCarritoProvider);
   ref.invalidate(compraDetalleProvider);
   ref.invalidate(envioDeCompraProvider);
+  ref.invalidate(plazoCambioProvider);
   ref.read(carritoControllerProvider.notifier).cargar();
   ref.read(misComprasControllerProvider.notifier).cargar();
 }

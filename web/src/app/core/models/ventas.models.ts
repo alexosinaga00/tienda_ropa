@@ -54,6 +54,16 @@ export interface PlazoCambio {
 export interface DevolucionDetalleCrear {
   venta_detalle_id: number;
   cantidad: number;
+  /** Cambio de talla o color: la variante (del mismo producto y del mismo precio) que se entrega en su lugar. */
+  variante_nueva_id?: number;
+}
+
+/** Una prenda entregada en lugar de otra en un cambio (solo en la respuesta del registro). */
+export interface Reposicion {
+  venta_detalle_id: number;
+  variante_devuelta_id: number;
+  variante_nueva_id: number;
+  cantidad: number;
 }
 
 export interface DevolucionCrear {
@@ -77,6 +87,10 @@ export interface Devolucion {
   estado: 'pendiente' | 'aprobada' | 'rechazada';
   usuario_id: number | null;
   detalle: DevolucionDetalle[];
+  /** Lo que salió del stock en un cambio; vacío en una devolución simple. */
+  reposiciones?: Reposicion[];
+  /** El comprobante quedó programado por correo (el comprador tiene correo). */
+  correo_programado?: boolean;
 }
 
 export interface PromocionAlcance {

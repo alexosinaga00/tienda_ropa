@@ -310,6 +310,20 @@
   border-radius: var(--fs-radio-md);
 }
 
+.select-cambio {
+  min-width: 150px;
+  max-width: 100%;
+  min-height: var(--fs-toque);
+  box-sizing: border-box;
+  padding: 0 var(--fs-espacio-3);
+  font: inherit;
+  font-size: 15px;
+  color: var(--fs-texto);
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-campo-borde);
+  border-radius: var(--fs-radio-md);
+}
+
 // ---- Total y cobro ---------------------------------------------------------------------
 .total-panel {
   display: flex;

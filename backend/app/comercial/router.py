@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -321,11 +321,13 @@ devoluciones_router = APIRouter(
 @devoluciones_router.post("", response_model=DevolucionRespuesta, status_code=status.HTTP_201_CREATED)
 def registrar_devolucion(
     datos: DevolucionCrear,
+    segundo_plano: BackgroundTasks,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
     contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
 ) -> DevolucionRespuesta:
-    return cu_registrar_devolucion.ejecutar(db, usuario.id, datos, contexto)
+    # El comprobante por correo sale después de responder (segundo plano).
+    return cu_registrar_devolucion.ejecutar(db, usuario.id, datos, contexto, segundo_plano.add_task)
 
 
 # ---- /api/v1/promociones -------------------------------------------------------------

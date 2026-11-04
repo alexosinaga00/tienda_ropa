@@ -281,6 +281,11 @@ CASOS_FK: list[CasoFK] = [
     CasoFK("venta_digital.sucursal_id", "POST", "/ventas/digital", _carrito_con_prenda, ("sucursal_id",), "sucursal", token="cliente"),
     CasoFK("devolucion.venta_id", "POST", "/devoluciones", _linea_devolucion, ("venta_id",), "venta"),
     CasoFK("devolucion.venta_detalle_id", "POST", "/devoluciones", _linea_devolucion, ("detalle", 0, "venta_detalle_id"), "venta_detalle"),
+    # Un cambio de talla o color: el id cruzado se resuelve (404) ANTES de escribir nada. La petición positiva no se
+    # ejecuta aquí (el cambio válido necesita otra talla del mismo producto: lo prueban tests/comercial/test_cambio_talla.py).
+    CasoFK("devolucion.variante_nueva_id", "POST", "/devoluciones",
+           lambda a: {**_linea_devolucion(a), "detalle": [{**_linea_devolucion(a)["detalle"][0], "variante_nueva_id": a.ids["variante"]}]},
+           ("detalle", 0, "variante_nueva_id"), "variante", espejo=False),
     CasoFK("pago_caja.venta_id", "POST", "/pagos/caja",
            lambda a: {"venta_id": a.nuevo("venta_pendiente"), "metodo_pago": "efectivo", "monto_recibido": "99999"}, ("venta_id",), "venta"),
     CasoFK("pago_iniciar.venta_id", "POST", "/pagos/iniciar",

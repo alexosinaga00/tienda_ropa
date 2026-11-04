@@ -647,7 +647,10 @@
 >
   @if (ventaParaDevolucion(); as venta) {
     @let plazoDialogo = indicadorPlazo(venta.id);
-    <p class="ayuda">Venta {{ venta.codigo }} — indica cuánto se devuelve de cada línea.</p>
+    <p class="ayuda">
+      Venta {{ venta.codigo }} — indica cuánto se devuelve de cada línea. Para cambiar por otra talla o color, elígela en
+      «Cambiar por»: la devuelta vuelve al stock y la nueva sale en la misma operación.
+    </p>
     @if (plazoDialogo) {
       <p class="plazo plazo--dialogo" [class.plazo--vencido]="plazoDialogo.vencido" role="status" data-estado="plazo-cambio-dialogo">
         <fs-icono [nombre]="plazoDialogo.vencido ? 'alerta' : 'reloj'" [tam]="24" />
@@ -661,10 +664,12 @@
             <th>Variante</th>
             <th class="num">Vendido</th>
             <th class="num">A devolver</th>
+            <th>Cambiar por</th>
           </tr>
         </thead>
         <tbody>
           @for (linea of venta.detalle; track linea.id) {
+            @let opciones = opcionesCambio()[linea.id] ?? [];
             <tr>
               <td class="fuerte">{{ nombreVariante(linea.variante_id) }}</td>
               <td class="num">{{ linea.cantidad }}</td>
@@ -679,11 +684,40 @@
                   aria-label="Cantidad a devolver"
                 />
               </td>
+              <td>
+                @if (opciones.length > 0) {
+                  <select
+                    class="select-cambio"
+                    [ngModel]="cambiosElegidos()[linea.id] ?? null"
+                    (ngModelChange)="elegirCambio(linea.id, $event)"
+                    aria-label="Talla o color nuevo"
+                    data-estado="select-cambio"
+                  >
+                    <option [ngValue]="null">Solo devolver</option>
+                    @for (opcion of opciones; track opcion.variante_id) {
+                      <option [ngValue]="opcion.variante_id" [disabled]="opcion.disponible < 1">
+                        {{ opcion.etiqueta }} ({{ opcion.disponible < 1 ? 'sin stock' : opcion.disponible + ' disp.' }})
+                      </option>
+                    }
+                  </select>
+                } @else {
+                  <span class="ayuda">—</span>
+                }
+              </td>
             </tr>
           }
         </tbody>
       </table>
     </div>
+    @if (cargandoOpcionesCambio()) {
+      <p class="ayuda" role="status" data-estado="cargando-cambio">Buscando tallas y colores para el cambio…</p>
+    }
+    @if (errorOpcionesCambio()) {
+      <p class="fs-aviso fs-aviso--advertencia aviso-devolucion" role="status" data-estado="error-opciones-cambio">
+        <fs-icono nombre="alerta" [tam]="24" />
+        No se pudieron cargar las tallas para el cambio. Puedes registrar la devolución sin cambio.
+      </p>
+    }
     @if (errorDevolucion(); as mensaje) {
       <p class="fs-aviso fs-aviso--error aviso-devolucion" role="alert" data-estado="error-devolucion">
         <fs-icono nombre="alerta" [tam]="24" />

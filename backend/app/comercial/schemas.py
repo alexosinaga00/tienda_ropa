@@ -316,6 +316,10 @@ class VentaRespuesta(BaseModel):
 class DevolucionDetalleCrear(BaseModel):
     venta_detalle_id: int
     cantidad: int = Field(gt=0)
+    # Cambio de talla o color: la variante (del MISMO producto y del mismo precio) que se entrega en su lugar. Sale
+    # del stock de la sucursal de la venta, en la misma transacción que el reingreso de lo devuelto. Sin esto, la
+    # línea es una devolución simple.
+    variante_nueva_id: int | None = None
 
 
 class DevolucionCrear(BaseModel):
@@ -332,6 +336,15 @@ class DevolucionDetalleRespuesta(BaseModel):
     cantidad: int
 
 
+class ReposicionRespuesta(BaseModel):
+    """Una prenda entregada en lugar de otra en un cambio (solo en la respuesta del registro)."""
+
+    venta_detalle_id: int
+    variante_devuelta_id: int
+    variante_nueva_id: int
+    cantidad: int
+
+
 class DevolucionRespuesta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -343,6 +356,12 @@ class DevolucionRespuesta(BaseModel):
     estado: Literal["pendiente", "aprobada", "rechazada"]
     usuario_id: int | None
     detalle: list[DevolucionDetalleRespuesta]
+    # Lo que salió del stock en un cambio; vacío en una devolución simple. No se guarda en la devolución (el kardex
+    # lo registra con la referencia de la devolución): lo arma el registro y solo viaja en esa respuesta.
+    reposiciones: list[ReposicionRespuesta] = Field(default_factory=list)
+    # Verdadero si el comprobante quedó programado por correo (el comprador tiene correo y el envío está
+    # configurado). No garantiza que Brevo lo entregue: el envío es en segundo plano.
+    correo_programado: bool = False
 
 
 class PlazoCambioRespuesta(BaseModel):

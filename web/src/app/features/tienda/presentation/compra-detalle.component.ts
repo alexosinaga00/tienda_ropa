@@ -1,12 +1,13 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { ProductoImagenLookupItem } from '../../../core/models/catalogo.models';
 import { Envio, EstadoEnvio } from '../../../core/models/entregas.models';
-import { Venta, VentaDetalle } from '../../../core/models/ventas.models';
+import { SIN_TOAST_ERROR } from '../../../core/http-contexts';
+import { PlazoCambio, Venta, VentaDetalle } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { DireccionesService } from '../data/direcciones.service';
 import { PedidosService } from '../data/pedidos.service';
@@ -43,6 +44,8 @@ export class CompraDetalleComponent implements OnInit {
 
   protected readonly venta = signal<Venta | null>(null);
   protected readonly envio = signal<Envio | null>(null);
+  /** Hasta cuándo se puede cambiar la compra (lo dice el servidor). Sin dato, no se muestra nada. */
+  protected readonly plazo = signal<PlazoCambio | null>(null);
   protected readonly lineas = signal<LineaComprobante[]>([]);
   protected readonly cargando = signal(true);
   protected readonly error = signal(false);
@@ -55,6 +58,7 @@ export class CompraDetalleComponent implements OnInit {
         switchMap((venta) => {
           this.venta.set(venta);
           this.cargarSeguimiento(venta);
+          this.cargarPlazo(venta);
           const params = new HttpParams().set('variante_ids', venta.detalle.map((d) => d.variante_id).join(','));
           return this.http.get<ProductoImagenLookupItem[]>(`${environment.apiUrl}/catalogo/variantes/detalle`, {
             params,
@@ -94,6 +98,19 @@ export class CompraDetalleComponent implements OnInit {
   protected fechaLocal(iso: string): Date {
     const tieneZona = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
     return new Date(tieneZona ? iso : `${iso}Z`);
+  }
+
+  /**
+   * El plazo para cambiar la prenda, solo en una compra pagada o entregada (una pendiente o anulada no tiene nada
+   * que cambiar). Si la consulta falla, el comprobante igual se muestra, sin aviso ni mensaje de error.
+   */
+  private cargarPlazo(venta: Venta): void {
+    if (venta.estado !== 'pagada' && venta.estado !== 'entregada') return;
+    this.http
+      .get<PlazoCambio>(`${environment.apiUrl}/ventas/${venta.id}/plazo-cambio`, {
+        context: new HttpContext().set(SIN_TOAST_ERROR, true),
+      })
+      .subscribe({ next: (plazo) => this.plazo.set(plazo), error: () => this.plazo.set(null) });
   }
 
   /**

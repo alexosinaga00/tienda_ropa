@@ -21,17 +21,18 @@ import { MessageService } from 'primeng/api';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { TableModule } from 'primeng/table';
+import { forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
 import { ConectividadService } from '../../core/conectividad.service';
 import { fechaLocalIso } from '../../core/date-utils';
 import { SIN_TOAST_ERROR } from '../../core/http-contexts';
-import { VarianteBusqueda } from '../../core/models/catalogo.models';
+import { CatalogoDetalle, ProductoImagenLookupItem, VarianteBusqueda } from '../../core/models/catalogo.models';
 import { Empleado, Sucursal } from '../../core/models/organizacion.models';
 import { MetodoPagoCaja, Pago, PagoCajaRequest, PagoCajaRespuesta } from '../../core/models/pagos.models';
 import { FilaVentasPorSucursal, ReporteVentas } from '../../core/models/reportes.models';
 import { Reserva } from '../../core/models/reservas.models';
-import { DevolucionCrear, PlazoCambio, Venta, VentaPresencialCrear } from '../../core/models/ventas.models';
+import { Devolucion, DevolucionCrear, PlazoCambio, Venta, VentaPresencialCrear } from '../../core/models/ventas.models';
 import { CatalogoLocalService, VarianteBusquedaLocal } from '../../core/offline/catalogo-local.service';
 import { ColaSincronizacionService } from '../../core/offline/cola-sincronizacion.service';
 import { SesionOfflineService } from '../../core/offline/sesion-offline.service';
@@ -44,6 +45,15 @@ import {
 } from '../../core/offline/operaciones-offline.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { NombreIcono } from '../../shared/icono/iconos';
+
+/** Una talla o color por la que se puede cambiar una línea devuelta (mismo producto y mismo precio). */
+interface OpcionCambio {
+  variante_id: number;
+  /** "L · Azul". */
+  etiqueta: string;
+  /** Unidades disponibles en la sucursal de la venta. */
+  disponible: number;
+}
 
 interface LineaCarrito {
   variante_id: number;
@@ -287,6 +297,13 @@ export class CajaComponent implements OnInit, OnDestroy {
   protected readonly errorDevolucion = signal<string | null>(null);
   /** Se registró una devolución: el historial muestra el paso siguiente del CAMBIO (la nueva venta). */
   protected readonly cambioPendiente = signal(false);
+  /** Por línea de la venta (id del detalle): las tallas o colores por los que se puede cambiar. */
+  protected readonly opcionesCambio = signal<Record<number, OpcionCambio[]>>({});
+  /** Por línea de la venta: la variante nueva elegida (null o ausente = solo devolver). */
+  protected readonly cambiosElegidos = signal<Record<number, number | null>>({});
+  protected readonly cargandoOpcionesCambio = signal(false);
+  /** No se pudieron cargar las tallas: se avisa y la devolución simple sigue disponible. */
+  protected readonly errorOpcionesCambio = signal(false);
 
   // ---- Plazo para devolver o cambiar (D19) ---------------------------------------
   // El servidor decide: el plazo y su vencimiento salen de GET /ventas/{id}/plazo-cambio. El reloj
@@ -1125,22 +1142,100 @@ export class CajaComponent implements OnInit, OnDestroy {
     if (this.sinConexion()) return;
     this.ventaParaDevolucion.set(venta);
     this.cantidadesDevolucion.set(Object.fromEntries(venta.detalle.map((d) => [d.id, 0])));
+    this.cambiosElegidos.set({});
+    this.opcionesCambio.set({});
     this.errorDevolucion.set(null);
     this.devolucionVisible.set(true);
     // El dato fresco manda: el de la fila pudo quedar viejo mientras el cajero atendía.
     this.pedirPlazo(venta.id);
+    this.cargarOpcionesCambio(venta);
   }
 
   actualizarCantidadDevolucion(detalleId: number, cantidad: number | null): void {
     this.cantidadesDevolucion.update((actual) => ({ ...actual, [detalleId]: cantidad ?? 0 }));
   }
 
+  elegirCambio(detalleId: number, varianteNuevaId: number | null): void {
+    this.cambiosElegidos.update((actual) => ({ ...actual, [detalleId]: varianteNuevaId }));
+  }
+
+  /**
+   * Las tallas y colores por los que se puede cambiar cada línea: las demás variantes del MISMO producto y del MISMO
+   * precio (lo que el servidor exige), con su stock en la sucursal de la venta. También deja a la vista el nombre
+   * real de cada prenda. Si algo falla, la devolución simple sigue disponible.
+   */
+  private cargarOpcionesCambio(venta: Venta): void {
+    this.errorOpcionesCambio.set(false);
+    this.cargandoOpcionesCambio.set(true);
+    const url = `${environment.apiUrl}/catalogo`;
+    const idsVenta = [...new Set(venta.detalle.map((d) => d.variante_id))];
+    this.http
+      .get<ProductoImagenLookupItem[]>(`${url}/variantes/detalle`, { params: { variante_ids: idsVenta.join(',') } })
+      .pipe(
+        switchMap((propias) => {
+          const productos = [...new Set(propias.map((p) => p.producto_id))];
+          const detalles$ = productos.length
+            ? forkJoin(
+                productos.map((id) =>
+                  this.http.get<CatalogoDetalle>(`${url}/${id}`, { params: { sucursal_id: venta.sucursal_id } }),
+                ),
+              )
+            : of([] as CatalogoDetalle[]);
+          return detalles$.pipe(map((detalles) => ({ propias, detalles })));
+        }),
+        switchMap(({ propias, detalles }) => {
+          const hermanas = [...new Set(detalles.flatMap((d) => d.variantes.map((v) => v.id)))];
+          const nombres$ = hermanas.length
+            ? this.http.get<ProductoImagenLookupItem[]>(`${url}/variantes/detalle`, {
+                params: { variante_ids: hermanas.join(',') },
+              })
+            : of([] as ProductoImagenLookupItem[]);
+          return nombres$.pipe(map((nombres) => ({ propias, detalles, nombres })));
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: ({ propias, detalles, nombres }) => {
+          for (const p of propias) {
+            if (p.variante_id != null) {
+              this.nombresVariante[p.variante_id] = `${p.producto_nombre} · ${p.talla_codigo ?? ''} · ${p.color_nombre ?? ''}`;
+            }
+          }
+          const etiquetas = new Map(nombres.map((n) => [n.variante_id, `${n.talla_codigo ?? ''} · ${n.color_nombre ?? ''}`]));
+          const porLinea: Record<number, OpcionCambio[]> = {};
+          for (const linea of venta.detalle) {
+            const propia = propias.find((p) => p.variante_id === linea.variante_id);
+            const producto = detalles.find((d) => d.id === propia?.producto_id);
+            const original = producto?.variantes.find((v) => v.id === linea.variante_id);
+            if (!producto || !original) continue;
+            porLinea[linea.id] = producto.variantes
+              .filter((v) => v.id !== original.id && Number(v.precio_efectivo) === Number(original.precio_efectivo))
+              .map((v) => ({
+                variante_id: v.id,
+                etiqueta: etiquetas.get(v.id) ?? v.sku,
+                disponible: v.cantidad_disponible ?? 0,
+              }));
+          }
+          this.opcionesCambio.set(porLinea);
+          this.cargandoOpcionesCambio.set(false);
+        },
+        error: () => {
+          this.cargandoOpcionesCambio.set(false);
+          this.errorOpcionesCambio.set(true);
+        },
+      });
+  }
+
   confirmarDevolucion(): void {
     const venta = this.ventaParaDevolucion();
     if (!venta || this.sinConexion()) return;
+    const elegidos = this.cambiosElegidos();
     const detalle = Object.entries(this.cantidadesDevolucion())
       .filter(([, cantidad]) => cantidad > 0)
-      .map(([id, cantidad]) => ({ venta_detalle_id: Number(id), cantidad }));
+      .map(([id, cantidad]) => {
+        const nueva = elegidos[Number(id)];
+        return { venta_detalle_id: Number(id), cantidad, ...(nueva ? { variante_nueva_id: nueva } : {}) };
+      });
     if (detalle.length === 0) {
       this.messageService.add({ severity: 'warn', summary: 'Indica al menos una cantidad a devolver' });
       return;
@@ -1148,13 +1243,24 @@ export class CajaComponent implements OnInit, OnDestroy {
     const payload: DevolucionCrear = { venta_id: venta.id, detalle };
     this.registrandoDevolucion.set(true);
     this.errorDevolucion.set(null);
-    this.http.post(`${environment.apiUrl}/devoluciones`, payload).subscribe({
-      next: () => {
+    this.http.post<Devolucion>(`${environment.apiUrl}/devoluciones`, payload).subscribe({
+      next: (respuesta) => {
         this.registrandoDevolucion.set(false);
-        this.messageService.add({ severity: 'success', summary: 'Devolución registrada' });
         this.devolucionVisible.set(false);
-        // Un cambio de prenda es esta devolución más una venta nueva: el historial dice cuál es el paso siguiente.
-        this.cambioPendiente.set(true);
+        if ((respuesta?.reposiciones ?? []).length > 0) {
+          // Un cambio de talla o color ya está completo: la talla devuelta volvió al stock y la nueva salió.
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Cambio registrado',
+            detail: respuesta.correo_programado
+              ? 'Entrega la prenda nueva. Se envió el comprobante al correo del cliente.'
+              : 'Entrega la prenda nueva. El cliente no tiene correo: no se envió comprobante.',
+          });
+        } else {
+          this.messageService.add({ severity: 'success', summary: 'Devolución registrada' });
+          // Un cambio de OTRA prenda es esta devolución más una venta nueva: el historial dice el paso siguiente.
+          this.cambioPendiente.set(true);
+        }
         this.abrirHistorial();
       },
       error: (error: HttpErrorResponse) => {

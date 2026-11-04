@@ -60,6 +60,35 @@
   }
 }
 
+// Plazo para cambiar la prenda: aviso discreto sobre las líneas de la compra.
+.plazo-cambio {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--fs-exito-suave);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+  color: var(--fs-exito);
+
+  &--vencido {
+    background: var(--fs-advertencia-suave);
+    color: var(--fs-advertencia);
+  }
+}
+
+.plazo-cambio__titulo {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fs-texto);
+}
+
+.plazo-cambio__texto {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
 .seguimiento__estado {
   font-size: 16px;
   font-weight: 600;
