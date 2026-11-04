@@ -22,6 +22,20 @@
 
 @include c.linea-prenda;
 
+// Aviso de compra sin pagar, sobre el carrito (vacío o no).
+.aviso-pendiente {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.aviso-pendiente__enlace {
+  margin-left: 6px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 .linea__no-disponible {
   display: flex;
   align-items: center;

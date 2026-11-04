@@ -1,6 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { HorarioSucursal, Sucursal } from '../../../core/models/organizacion.models';
 import { ReservaCrear } from '../../../core/models/reservas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
@@ -19,7 +19,7 @@ function aIso(fecha: Date): string {
 @Component({
   selector: 'app-reserva-confirmar',
   standalone: true,
-  imports: [FormsModule, IconoComponent],
+  imports: [FormsModule, RouterLink, IconoComponent],
   templateUrl: './reserva-confirmar.component.html',
   styleUrl: './reserva-confirmar.component.scss',
 })
@@ -28,7 +28,7 @@ export class ReservaConfirmarComponent implements OnInit {
   private readonly disponibilidadService = inject(DisponibilidadService);
   private readonly reservasService = inject(ReservasClienteService);
   private readonly router = inject(Router);
-  private readonly tienda = inject(TiendaActualService);
+  protected readonly tienda = inject(TiendaActualService);
 
   protected readonly sucursales = signal<Sucursal[]>([]);
   protected readonly cargandoSucursales = signal(true);
@@ -82,8 +82,10 @@ export class ReservaConfirmarComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    // Sin prendas apartadas no hay nada que confirmar: la pantalla lo explica (antes volvía al inicio sin decir
+    // nada y parecía un fallo del icono).
     if (this.reservaCarritoService.cantidad() === 0) {
-      this.router.navigate(this.tienda.ruta());
+      this.cargandoSucursales.set(false);
       return;
     }
     const lineas = this.reservaCarritoService.lista().map((item) => ({ varianteId: item.varianteId, cantidad: 1 }));

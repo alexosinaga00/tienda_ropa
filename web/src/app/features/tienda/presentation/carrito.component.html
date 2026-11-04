@@ -10,6 +10,30 @@
     </a>
   </div>
 
+  @if (comprasPendientes().length > 0) {
+    <div class="fs-aviso fs-aviso--advertencia aviso-pendiente" role="status" data-estado="compras-pendientes">
+      <fs-icono nombre="reloj" [tam]="24" />
+      <span>
+        {{
+          comprasPendientes().length === 1
+            ? 'Tienes una compra sin pagar'
+            : 'Tienes ' + comprasPendientes().length + ' compras sin pagar'
+        }}
+        (sus prendas ya no están en el carrito).
+        <a
+          class="aviso-pendiente__enlace"
+          [routerLink]="
+            comprasPendientes().length === 1
+              ? tienda.ruta('mis-compras', '' + comprasPendientes()[0].id)
+              : tienda.ruta('mis-compras')
+          "
+        >
+          Pagar o cancelar
+        </a>
+      </span>
+    </div>
+  }
+
   @if (cargando()) {
     <p class="fs-estado-vacio" role="status">Cargando…</p>
   } @else if (carritoService.lineas().length === 0) {

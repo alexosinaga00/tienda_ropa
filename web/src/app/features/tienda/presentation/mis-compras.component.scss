@@ -21,6 +21,13 @@
   padding-block: 32px;
 }
 
+.aviso-pendiente {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .estado-error {
   flex-wrap: wrap;
 }

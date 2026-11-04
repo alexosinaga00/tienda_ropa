@@ -190,6 +190,34 @@ describe('CarritoComponent', () => {
     expect(navegar).toHaveBeenCalledWith(['/t', 'acme', 'checkout', 'entrega']);
   });
 
+  it('con una compra sin pagar avisa que sus prendas ya no están aquí y enlaza a ella', () => {
+    const { el, fixture } = montar();
+    http.expectOne(`${environment.apiUrl}/carrito`).flush({ ...carrito(true), detalle: [] });
+    http.expectOne(`${environment.apiUrl}/ventas/mis-compras`).flush([
+      { id: 9, codigo: 'V-0009', estado: 'pendiente_pago', total: 149, detalle: [] },
+      { id: 8, codigo: 'V-0008', estado: 'pagada', total: 50, detalle: [] },
+    ]);
+    fixture.detectChanges();
+
+    const aviso = el.querySelector('[data-estado="compras-pendientes"]');
+    expect((aviso?.textContent ?? '').replace(/\s+/g, ' ')).toContain('Tienes una compra sin pagar');
+    expect(aviso?.querySelector('a')?.getAttribute('href')).toBe('/t/acme/mis-compras/9');
+    // El carrito sigue diciendo que está vacío: las prendas pasaron a la compra.
+    expect(el.textContent).toContain('Todavía no has agregado ninguna prenda.');
+  });
+
+  it('sin compras pendientes (o si no se pudieron leer) no muestra aviso', () => {
+    const { el, fixture } = montar();
+    http.expectOne(`${environment.apiUrl}/carrito`).flush({ ...carrito(true), detalle: [] });
+    http
+      .expectOne(`${environment.apiUrl}/ventas/mis-compras`)
+      .flush({ detail: 'x' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-estado="compras-pendientes"]')).toBeNull();
+    expect(el.textContent).toContain('Todavía no has agregado ninguna prenda.');
+  });
+
   it('con una prenda que ya no está disponible avisa (en tuteo) y bloquea "Continuar"', () => {
     const { el, fixture } = montar();
     cargarCon(false, fixture);

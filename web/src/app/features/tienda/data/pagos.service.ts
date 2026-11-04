@@ -15,6 +15,11 @@ export class PagosService {
     });
   }
 
+  /** Cancela una compra sin pagar: el backend libera el stock y devuelve las prendas al carrito. */
+  cancelarCompra(ventaId: number): Observable<unknown> {
+    return this.http.post(`${environment.apiUrl}/pagos/venta/${ventaId}/cancelar`, {});
+  }
+
   obtenerEstado(pagoId: number): Observable<Pago> {
     return this.http.get<Pago>(`${environment.apiUrl}/pagos/${pagoId}/estado`);
   }

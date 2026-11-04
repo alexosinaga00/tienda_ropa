@@ -23,6 +23,74 @@
 
     <div class="columnas">
       <div class="columnas__principal">
+        @if (canceladaAhora()) {
+          <p class="fs-aviso fs-aviso--exito aviso-compra" role="status" data-estado="compra-cancelada">
+            <fs-icono nombre="check" [tam]="24" />
+            <span>
+              Compra cancelada. Tus prendas volvieron al carrito.
+              <a class="aviso-compra__enlace" [routerLink]="tienda.ruta('carrito')">Ir a mi carrito</a>
+            </span>
+          </p>
+        }
+
+        @if (esPendiente()) {
+          <section class="pendiente" data-estado="compra-pendiente">
+            <div class="pendiente__encabezado">
+              <fs-icono nombre="reloj" [tam]="32" />
+              <div>
+                <div class="pendiente__titulo">Esta compra todavía no está pagada</div>
+                <div class="pendiente__texto">
+                  Págala ahora o cancélala. Si no, se cancela sola a los 30 minutos y tus prendas vuelven al carrito.
+                </div>
+              </div>
+            </div>
+
+            @if (!confirmandoCancelar()) {
+              <div class="fs-pill-fila" role="group" aria-label="Método de pago">
+                @for (opcion of metodos; track opcion.codigo) {
+                  <button
+                    type="button"
+                    class="fs-pill"
+                    [class.activa]="metodo() === opcion.codigo"
+                    [attr.aria-pressed]="metodo() === opcion.codigo"
+                    (click)="elegirMetodo(opcion.codigo)"
+                  >
+                    {{ opcion.etiqueta }}
+                  </button>
+                }
+              </div>
+            }
+
+            @if (errorPago()) {
+              <p class="fs-error-texto" role="alert">
+                <fs-icono nombre="alerta" [tam]="24" />
+                {{ errorPago() }}
+              </p>
+            }
+
+            @if (confirmandoCancelar()) {
+              <p class="pendiente__texto" role="alert">¿Cancelar esta compra? Las prendas vuelven a tu carrito.</p>
+              <div class="pendiente__acciones">
+                <button type="button" class="fs-btn fs-btn--primario" [disabled]="procesando()" (click)="cancelarCompra()">
+                  {{ procesando() ? 'Cancelando...' : 'Sí, cancelar' }}
+                </button>
+                <button type="button" class="fs-btn fs-btn--secundario" [disabled]="procesando()" (click)="noCancelar()">
+                  No
+                </button>
+              </div>
+            } @else {
+              <div class="pendiente__acciones">
+                <button type="button" class="fs-btn fs-btn--primario" [disabled]="procesando()" (click)="pagarAhora()">
+                  {{ procesando() ? 'Procesando...' : 'Pagar ahora' }}
+                </button>
+                <button type="button" class="fs-btn fs-btn--secundario" [disabled]="procesando()" (click)="pedirCancelar()">
+                  Cancelar compra
+                </button>
+              </div>
+            }
+          </section>
+        }
+
         @if (envio(); as envio) {
           <div class="seguimiento">
             <span class="seguimiento__icono" [class]="'seguimiento__icono seguimiento__icono--' + envio.estado">

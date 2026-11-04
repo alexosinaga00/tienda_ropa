@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EstadoVenta, Venta } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
@@ -33,6 +33,8 @@ export class MisComprasComponent implements OnInit {
   protected readonly tienda = inject(TiendaActualService);
 
   protected readonly compras = signal<Venta[]>([]);
+  /** Compras que quedaron sin pagar: se avisa arriba para que no pasen desapercibidas. */
+  protected readonly pendientes = computed(() => this.compras().filter((c) => c.estado === 'pendiente_pago'));
   protected readonly cargando = signal(true);
   protected readonly error = signal(false);
 

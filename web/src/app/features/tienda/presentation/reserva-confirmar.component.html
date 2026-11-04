@@ -7,6 +7,20 @@
     </div>
   </div>
 
+  @if (reservaCarritoService.cantidad() === 0) {
+    <div class="fs-estado-vacio vacio" data-estado="reserva-vacia">
+      <fs-icono nombre="calendario" [tam]="52" />
+      <p class="vacio__titulo">Todavía no apartaste ninguna prenda</p>
+      <p class="vacio__texto">
+        Entra a una prenda y toca «Reservar para probarte»: la apartamos y te esperamos en la sucursal que elijas, sin
+        pagar. Las que ya confirmaste están en «Mis reservas».
+      </p>
+      <div class="vacio__acciones">
+        <a class="fs-btn fs-btn--primario fs-btn--sm" [routerLink]="tienda.ruta()">Ver colección</a>
+        <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta('mis-reservas')">Ver mis reservas</a>
+      </div>
+    </div>
+  } @else {
   <div class="lineas">
     @for (item of reservaCarritoService.lista(); track item.varianteId) {
       <div class="linea">
@@ -120,4 +134,5 @@
       Confirmar reserva
     }
   </button>
+  }
 </div>

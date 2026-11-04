@@ -50,19 +50,30 @@
 
       <div class="cab__iconos">
         @if (esPortada()) {
-          <button type="button" class="cab__icono cab__icono--buscar" aria-label="Buscar prendas" (click)="irAColeccion($event, true)">
+          <button
+            type="button"
+            class="cab__icono cab__icono--buscar"
+            aria-label="Buscar prendas"
+            title="Buscar prendas"
+            (click)="irAColeccion($event, true)"
+          >
             <fs-icono nombre="busqueda" [tam]="28" />
           </button>
         }
 
-        <a class="cab__icono" [routerLink]="tienda.ruta('reserva', 'confirmar')" aria-label="Ver reserva">
+        <a
+          class="cab__icono"
+          [routerLink]="tienda.ruta('reserva', 'confirmar')"
+          aria-label="Ver reserva"
+          title="Mi reserva: prendas apartadas para probártelas en la tienda"
+        >
           <fs-icono nombre="calendario" [tam]="28" />
           @if (reservaCarritoService.cantidad() > 0) {
             <span class="cab__badge">{{ reservaCarritoService.cantidad() }}</span>
           }
         </a>
 
-        <a class="cab__icono" [routerLink]="tienda.ruta('carrito')" aria-label="Ver carrito">
+        <a class="cab__icono" [routerLink]="tienda.ruta('carrito')" aria-label="Ver carrito" title="Mi carrito de compra">
           <fs-icono nombre="carrito" [tam]="28" />
           @if (carritoService.cantidadLineas() > 0) {
             <span class="cab__badge">{{ carritoService.cantidadLineas() }}</span>

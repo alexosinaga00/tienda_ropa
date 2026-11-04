@@ -26,6 +26,19 @@
       <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta()">Ver catálogo</a>
     </div>
   } @else {
+    @if (pendientes().length > 0) {
+      <p class="fs-aviso fs-aviso--advertencia aviso-pendiente" role="status" data-estado="compras-pendientes">
+        <fs-icono nombre="reloj" [tam]="24" />
+        <span>
+          {{
+            pendientes().length === 1
+              ? 'Tienes una compra sin pagar.'
+              : 'Tienes ' + pendientes().length + ' compras sin pagar.'
+          }}
+          Ábrela para pagarla o cancelarla; si no, se cancela sola a los 30 minutos.
+        </span>
+      </p>
+    }
     <div class="lista">
       @for (venta of compras(); track venta.id) {
         <a class="fila" [routerLink]="tienda.ruta('mis-compras', '' + venta.id)">

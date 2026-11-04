@@ -60,6 +60,54 @@
   }
 }
 
+// Compra que quedó sin pagar: pagar o cancelar desde aquí.
+.pendiente {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--fs-advertencia-suave);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.pendiente__encabezado {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  color: var(--fs-advertencia);
+}
+
+.pendiente__titulo {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fs-texto);
+}
+
+.pendiente__texto {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.pendiente__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.aviso-compra {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.aviso-compra__enlace {
+  margin-left: 6px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 // Plazo para cambiar la prenda: aviso discreto sobre las líneas de la compra.
 .plazo-cambio {
   display: flex;

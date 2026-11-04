@@ -157,6 +157,16 @@ describe('TiendaShellComponent', () => {
       expect(el.querySelector('.cab__enlace--activo')?.textContent).toContain('Inicio');
     });
 
+    it('los tres iconos dicen qué son al pasar el cursor (buscar, reserva y carrito)', async () => {
+      await TestBed.inject(Router).navigateByUrl('/t/acme');
+      const el = crear();
+
+      expect(el.querySelector('button[aria-label="Buscar prendas"]')?.getAttribute('title')).toBe('Buscar prendas');
+      expect(el.querySelector('a[aria-label="Ver reserva"]')?.getAttribute('title')).toContain('Mi reserva');
+      expect(el.querySelector('a[aria-label="Ver reserva"]')?.getAttribute('title')).toContain('probártelas');
+      expect(el.querySelector('a[aria-label="Ver carrito"]')?.getAttribute('title')).toBe('Mi carrito de compra');
+    });
+
     it('en las demás páginas es clara y sin búsqueda', async () => {
       await TestBed.inject(Router).navigateByUrl('/t/acme/carrito');
       const el = crear();
