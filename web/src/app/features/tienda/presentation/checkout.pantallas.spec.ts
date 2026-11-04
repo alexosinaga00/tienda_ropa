@@ -154,7 +154,9 @@ describe('pantallas del checkout', () => {
       expect(el.querySelector('li.paso--vigente .paso__titulo')?.textContent).toContain('Pago');
       expect(el.textContent).toContain('Pagar Bs 409.20');
       expect(el.textContent).toContain('Costo de envío Bs 15.00');
-      expect(el.textContent).toContain('Libélula');
+      // Solo QR y PayPal: Libélula ya no se ofrece.
+      expect(Array.from(el.querySelectorAll('.metodo__nombre')).map((n) => n.textContent?.trim())).toEqual(['QR', 'PayPal']);
+      expect(el.textContent).not.toContain('Libélula');
       expect(el.querySelector('a.entrega__cambiar')).not.toBeNull();
     });
 

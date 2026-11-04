@@ -15,11 +15,11 @@ import { TiendaActualService } from '../state/tienda-actual.service';
 import { PasosCompraComponent } from './pasos-compra.component';
 import { ResumenCompraComponent } from './resumen-compra.component';
 
-// QR primero y por defecto: Libélula es un simulador que nunca confirma el pago (ver backend/app/comercial/pasarela.py).
+// QR primero y por defecto. Libélula ya no se ofrece al comprar (era un simulador que nunca confirmaba el pago; la
+// app móvil tampoco lo ofrece). El backend sigue aceptándolo por si una compra antigua lo tenía.
 const METODOS: { codigo: MetodoPagoPasarela; etiqueta: string; texto: string; icono: NombreIcono }[] = [
   { codigo: 'qr_online', etiqueta: 'QR', texto: 'Escanea el código desde la app de tu banco.', icono: 'qr' },
   { codigo: 'paypal', etiqueta: 'PayPal', texto: 'Paga con tu cuenta PayPal o con tarjeta.', icono: 'tarjeta' },
-  { codigo: 'libelula', etiqueta: 'Libélula', texto: 'Paga desde la pasarela de pagos Libélula.', icono: 'libelula' },
 ];
 
 @Component({
