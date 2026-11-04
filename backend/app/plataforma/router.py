@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.auditoria import ContextoAuditoria, contexto_anonimo, obtener_contexto_auditoria
@@ -161,8 +161,11 @@ def yo(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> Usua
 
 @auth_router.post("/recuperar", response_model=RecuperarRespuesta, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("5/minute")
-def recuperar(request: Request, datos: RecuperarRequest, db: Session = Depends(get_db)) -> RecuperarRespuesta:
-    token = cu_recuperar_contrasena.solicitar(db, datos.empresa, datos.email)
+def recuperar(
+    request: Request, datos: RecuperarRequest, segundo_plano: BackgroundTasks, db: Session = Depends(get_db)
+) -> RecuperarRespuesta:
+    # El correo sale después de responder (segundo plano): la respuesta no depende de que el correo exista.
+    token = cu_recuperar_contrasena.solicitar(db, datos.empresa, datos.email, segundo_plano.add_task)
     token_dev = token if get_settings().environment == "local" else None
     return RecuperarRespuesta(
         detail="Si el correo está registrado, se enviarán instrucciones de recuperación.",

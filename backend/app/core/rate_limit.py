@@ -6,6 +6,7 @@ import math
 import threading
 import time
 from collections import OrderedDict, deque
+from collections.abc import Callable
 
 from fastapi import Request
 from slowapi import Limiter
@@ -50,14 +51,22 @@ class LimitadorIntentos:
     Redis. La memoria esta acotada: se descartan las claves vencidas en cada
     operacion y, pasadas `max_claves`, las mas antiguas."""
 
-    def __init__(self, max_claves: int = 10_000, reloj=time.monotonic) -> None:
+    def __init__(
+        self,
+        max_claves: int = 10_000,
+        reloj=time.monotonic,
+        limites: Callable[[], tuple[int, int]] | None = None,
+    ) -> None:
+        """`limites` devuelve (máximo, ventana en segundos); por defecto los del inicio de sesión. Otra instancia
+        con sus propios límites sirve para contar otra cosa por cuenta (p. ej. solicitudes de recuperación)."""
         self._fallos: OrderedDict[str, deque[float]] = OrderedDict()
         self._max_claves = max_claves
         self._reloj = reloj
         self._cerrojo = threading.Lock()
+        self._limites = limites or self._limites_de_login
 
     @staticmethod
-    def _limites() -> tuple[int, int]:
+    def _limites_de_login() -> tuple[int, int]:
         ajustes = get_settings()
         return ajustes.login_max_intentos, ajustes.login_ventana_segundos
 
@@ -112,3 +121,13 @@ class LimitadorIntentos:
 
 
 limitador_intentos = LimitadorIntentos()
+
+
+def _limites_de_recuperacion() -> tuple[int, int]:
+    ajustes = get_settings()
+    return ajustes.recuperar_max_solicitudes, ajustes.recuperar_ventana_segundos
+
+
+# Solicitudes de recuperación de contraseña por cuenta (empresa + correo). Cuenta TODAS las solicitudes (no son
+# "fallos"), existan o no la empresa y el correo: así el límite no revela nada.
+limitador_recuperacion = LimitadorIntentos(limites=_limites_de_recuperacion)

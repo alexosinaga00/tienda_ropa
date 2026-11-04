@@ -21,6 +21,7 @@ os.environ.setdefault("PAYPAL_WEBHOOK_SECRET", "secreto-paypal-de-pruebas")
 for _clave in (
     "GROQ_API_KEY", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET",
     "GOOGLE_CREDENTIALS_JSON", "VERTEX_PROJECT_ID", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET",
+    "BREVO_API_KEY", "CORREO_REMITENTE_EMAIL",
 ):  # fmt: skip
     os.environ[_clave] = ""
 
@@ -31,7 +32,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
-from app.core.rate_limit import limiter, limitador_intentos
+from app.core.rate_limit import limiter, limitador_intentos, limitador_recuperacion
 from app.main import app
 from app.catalogo import models as _catalogo_models  # noqa: F401  (registra las tablas)
 from app.catalogo.repository import VW_INVENTARIO_CONSOLIDADO_V2_SQL
@@ -63,9 +64,11 @@ def _limpiar_limite_de_trafico():
     producción dentro de cada prueba)."""
     limiter.reset()
     limitador_intentos.reiniciar()
+    limitador_recuperacion.reiniciar()
     yield
     limiter.reset()
     limitador_intentos.reiniciar()
+    limitador_recuperacion.reiniciar()
 
 
 def crear_empresa(db, codigo: str, plan: str = "profesional", nombre: str | None = None) -> Empresa:

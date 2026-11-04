@@ -7,6 +7,8 @@ import datetime as dt
 import logging
 import re
 from dataclasses import dataclass
+from html import escape
+from urllib.parse import quote
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -15,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auditoria import ENTIDAD_BITACORA, ACCION_PURGAR, ContextoAuditoria, sanear_datos
 from app.core.config import get_settings
+from app.core.correo import MensajeCorreo
 from app.core.deps import ParametrosPaginacion
 from app.core.exceptions import (
     ConflictoError,
@@ -720,6 +723,61 @@ def obtener_empleado_por_usuario(db: Session, usuario_id: int) -> Empleado | Non
     """Para que `comercial` (ventas y pagos) resuelva el cajero (empleado) a partir
     del usuario logueado, sin consultar `empleado` directamente."""
     return empleado_repo.obtener_por_usuario(db, usuario_id)
+
+
+# ---- Correo de recuperación de contraseña (CU-01) ----
+# Reglas y plantilla del correo; el envío (Brevo) vive en `core/correo.py`.
+
+ROL_CLIENTE = "cliente"
+MINUTOS_VIGENCIA_RECUPERACION = 30  # el mismo plazo de `core.security.crear_reset_token`
+
+
+def es_solo_cliente(usuario: Usuario) -> bool:
+    """Un usuario con rol cliente y ningún otro entra por la tienda; el personal, por el acceso del personal."""
+    nombres = {rol.nombre for rol in usuario.roles}
+    return bool(nombres) and nombres == {ROL_CLIENTE}
+
+
+def enlace_de_recuperacion(codigo_empresa: str, token: str, *, es_cliente: bool) -> str:
+    """El enlace que va en el correo: la pantalla de nueva contraseña de la web, según por dónde entra la persona.
+    Cliente: dentro de su tienda (`/t/<codigo>/restablecer`); personal: `/restablecer`. El token es el único dato."""
+    base = get_settings().frontend_public_url.rstrip("/")
+    ruta = f"/t/{quote(codigo_empresa, safe='')}/restablecer" if es_cliente else "/restablecer"
+    return f"{base}{ruta}?token={quote(token, safe='')}"
+
+
+def construir_correo_recuperacion(*, para_email: str, nombre: str, nombre_empresa: str, enlace: str) -> MensajeCorreo:
+    """El correo de "recupera tu contraseña": versión HTML y de texto. Todo dato variable se escapa en el HTML."""
+    marca = get_settings().correo_remitente_nombre or "FashionStore"
+    asunto = f"Recupera tu contraseña de {nombre_empresa}"
+    texto = (
+        f"Hola {nombre},\n\n"
+        f"Recibimos una solicitud para cambiar tu contraseña en {nombre_empresa}. "
+        f"Abre este enlace para elegir una nueva (vale {MINUTOS_VIGENCIA_RECUPERACION} minutos y se usa una sola vez):\n\n"
+        f"{enlace}\n\n"
+        "Si no fuiste tú, ignora este mensaje: tu contraseña no cambia.\n\n"
+        f"{marca}\n"
+    )
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412">'
+        '<div style="max-width:480px;margin:0 auto;padding:24px">'
+        f'<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(marca)}</p>"
+        f'<h1 style="font-size:22px;margin:0 0 12px">Recupera tu contraseña</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)}, recibimos una solicitud para cambiar tu '
+        f"contraseña en <strong>{escape(nombre_empresa)}</strong>.</p>"
+        f'<p style="margin:24px 0"><a href="{escape(enlace, quote=True)}" style="background:#151515;color:#ffffff;'
+        'padding:12px 20px;border-radius:4px;text-decoration:none;font-size:15px;display:inline-block">'
+        "Elegir una contraseña nueva</a></p>"
+        f'<p style="font-size:13px;line-height:1.5;color:#6B645C">El enlace vale {MINUTOS_VIGENCIA_RECUPERACION} minutos '
+        "y se usa una sola vez. Si el botón no abre, copia esta dirección en tu navegador:<br>"
+        f'<span style="word-break:break-all">{escape(enlace)}</span></p>'
+        '<p style="font-size:13px;line-height:1.5;color:#6B645C">Si no fuiste tú, ignora este mensaje: tu contraseña '
+        "no cambia.</p>"
+        "</div></body></html>"
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
 
 
 # ---- Bitácora ----

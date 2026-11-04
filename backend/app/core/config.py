@@ -158,6 +158,17 @@ class Settings(BaseSettings):
     # Minutos que un pedido sin pagar sigue abierto; pasado el plazo y sin aprobación en PayPal pasa a `vencido`.
     pedido_expira_minutos: int = 60
 
+    # Correo transaccional (core/correo.py, Brevo por HTTP). La clave va SOLO en el entorno (regla 9) y el remitente
+    # debe estar verificado en Brevo; es uno solo para todas las empresas. Sin clave o sin remitente no se envía nada
+    # (la recuperación de contraseña sigue respondiendo igual; en local entrega `token_dev`).
+    brevo_api_key: str = ""
+    correo_remitente_email: str = ""
+    correo_remitente_nombre: str = "FashionStore"
+    # Solicitudes de recuperación de contraseña por cuenta (empresa + correo) dentro de la ventana: pasado el máximo
+    # no se emite token ni se envía correo (la respuesta al cliente no cambia). Evita llenar la bandeja de alguien.
+    recuperar_max_solicitudes: int = 3
+    recuperar_ventana_segundos: int = 3600
+
     # Búsqueda por voz (paquete `inteligencia`, P6.1): Groq expone una API
     # HTTP compatible con OpenAI, sin SDK propio en requirements.txt (se
     # llama con httpx, igual que catalogo/casos_uso/cu11_probar_prenda_con_ia.py

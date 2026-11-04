@@ -21,6 +21,7 @@ contraseña. Cada clase es un controlador del caso de uso."""
 import datetime as dt
 import hmac
 import logging
+from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
@@ -34,7 +35,8 @@ from app.core.auditoria import (
 )
 from app.core.config import get_settings
 from app.core.exceptions import DemasiadosIntentosError, NoAutenticadoError
-from app.core.rate_limit import limitador_intentos
+from app.core.correo import MensajeCorreo, enviar_correo_sin_romper, envio_configurado
+from app.core.rate_limit import limitador_intentos, limitador_recuperacion
 from app.core.tenant import fijar_empresa, fijar_empresa_de_usuario
 from app.core.security import (
     crear_access_token,
@@ -47,8 +49,13 @@ from app.core.security import (
 )
 from app.plataforma.models import Cliente, Usuario
 from app.plataforma.politicas import (
+    ROL_CLIENTE,
+    construir_correo_recuperacion,
+    enlace_de_recuperacion,
+    es_solo_cliente,
     identidad_del_token_valida,
     normalizar_nombre_empresa,
+    obtener_empresa,
     obtener_empresa_por_codigo,
     obtener_perfil_cliente,
     obtener_usuario_para_auth,
@@ -65,8 +72,6 @@ from app.plataforma.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-ROL_CLIENTE = "cliente"
 
 # Hash bcrypt fijo (de un password que no le pertenece a nadie) para que
 # ejecutar() siempre corra verificar_password() con costo real, exista o no
@@ -250,26 +255,57 @@ class RecuperarContrasena:
     def __init__(self) -> None:
         self._usuarios = UsuarioRepository()
 
-    def solicitar(self, db: Session, empresa: str | None, email: str) -> str | None:
-        """Genera un token de recuperación si el email existe en esa empresa.
+    def solicitar(
+        self,
+        db: Session,
+        empresa: str | None,
+        email: str,
+        programar_envio: Callable[[Callable[[MensajeCorreo], object], MensajeCorreo], object] | None = None,
+    ) -> str | None:
+        """Genera un token de recuperación si el email existe en esa empresa y le manda el enlace por correo (Brevo).
 
-        Todavía no hay un servicio de correo en el proyecto, así que el token
-        se deja en el log para pruebas manuales, y se devuelve acá para que
-        el router lo incluya en la respuesta solo en entorno local (ver
-        `RecuperarRespuesta.token_dev`). La respuesta al cliente es siempre
-        genérica (ver router) para no revelar si la empresa o el email
-        existen. Sin empresa (superadministrador) no se emite token: su
-        contraseña solo se cambia con scripts/crear_superadmin.py --restablecer.
+        El correo NO sale dentro de la petición: `programar_envio(funcion, mensaje)` lo deja para después de
+        responder (el router pasa `BackgroundTasks.add_task`), así la respuesta tarda igual exista o no el correo y
+        no se puede adivinar por el tiempo. Sin `programar_envio` se envía en el acto. Un fallo del envío no cambia
+        nada para quien llama (queda una línea en el log sin el correo ni el token).
+
+        El token también se devuelve para que el router lo incluya en la respuesta SOLO en entorno local (ver
+        `RecuperarRespuesta.token_dev`) y se deja en el log local para pruebas manuales. La respuesta al cliente es
+        siempre genérica (ver router) para no revelar si la empresa o el email existen. Sin empresa
+        (superadministrador) no se emite token: su contraseña solo se cambia con
+        scripts/crear_superadmin.py --restablecer.
+
+        Límite por cuenta (`recuperar_max_solicitudes` por `recuperar_ventana_segundos`): cuenta TODAS las
+        solicitudes, exista o no la cuenta; pasado el máximo no hay token ni correo y la respuesta es la misma.
         """
         if empresa is None:
             return None
         usuario = _usuario_de_empresa_por_correo(db, self._usuarios, empresa, email)
+
+        clave = f"{normalizar_nombre_empresa(empresa)}|{email}"
+        if limitador_recuperacion.bloqueado(clave) is not None:
+            return None
+        limitador_recuperacion.registrar_fallo(clave)  # cuenta la solicitud (aquí "fallo" = intento a limitar)
+
         if usuario is None or not usuario.activo:
             return None
 
         token = crear_reset_token(usuario.id, empresa_id=usuario.empresa_id, password_hash=usuario.password_hash)
         if get_settings().environment == "local":  # mismo criterio que token_dev en el router
             logger.info("Token de recuperación para %s: %s", email, token)
+
+        registro = obtener_empresa(db, usuario.empresa_id) if usuario.empresa_id is not None else None
+        if registro is not None and envio_configurado():
+            mensaje = construir_correo_recuperacion(
+                para_email=usuario.email,
+                nombre=usuario.nombre,
+                nombre_empresa=registro.nombre,
+                enlace=enlace_de_recuperacion(registro.codigo, token, es_cliente=es_solo_cliente(usuario)),
+            )
+            if programar_envio is None:
+                enviar_correo_sin_romper(mensaje)
+            else:
+                programar_envio(enviar_correo_sin_romper, mensaje)
         return token
 
     def confirmar(self, db: Session, token: str, password: str, contexto: ContextoAuditoria | None = None) -> None:

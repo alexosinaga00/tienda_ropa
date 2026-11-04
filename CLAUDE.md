@@ -32,6 +32,7 @@ Proyecto académico, Sistemas II, UAGRM. Primer parcial: PUDS. Segundo parcial
 - Machine Learning (E11): `numpy`, `scipy` y `scikit-learn` (sin pandas), con versión fija; sus
   imports van dentro de las funciones (scikit-learn tarda ~1,3 s en importarse)
 - Pagos: Libélula y PayPal, ambos en sandbox
+- Correo: Brevo por su API HTTP (`core/correo.py`; hoy solo la recuperación de contraseña)
 - Despliegue: Railway sin Docker, y Vercel para el Angular
 
 ## Arquitectura
@@ -304,6 +305,17 @@ funciona hasta que se adapten (E15, E16, E18).
   base bastan por sí solos. Cambiar `JWT_SECRET_KEY` invalida TODAS las sesiones.
 - El token de recuperación es de un solo uso (claim `ph` = huella del hash de la
   contraseña vigente). Sin empresa no se emite token de recuperación.
+- **Correo de recuperación (Brevo, `core/correo.py`).** `POST /auth/recuperar` manda el enlace por correo EN SEGUNDO
+  PLANO (el router pasa `BackgroundTasks.add_task` a `RecuperarContrasena.solicitar`; la respuesta tarda igual exista o
+  no la cuenta y sigue siendo siempre la misma). El enlace va a la web: `{frontend_public_url}/t/<codigo>/restablecer?token=`
+  para quien solo es cliente, `{frontend_public_url}/restablecer?token=` para el personal. Variables: `BREVO_API_KEY`,
+  `CORREO_REMITENTE_EMAIL` (remitente verificado en Brevo, uno para todas las empresas) y `CORREO_REMITENTE_NOMBRE`; sin
+  clave o remitente no se envía y todo responde igual (en local sigue el `token_dev`). Un fallo de Brevo no rompe la
+  petición: queda `correo_no_enviado motivo=... estado_http=...` en el log, sin correo ni token. Límite por cuenta
+  (`limitador_recuperacion`: `RECUPERAR_MAX_SOLICITUDES` = 3 por `RECUPERAR_VENTANA_SEGUNDOS` = 3600, cuenta también las
+  cuentas que no existen); pasado el máximo no hay token ni correo y la respuesta no cambia. La plantilla vive en
+  `plataforma/politicas.py` (`construir_correo_recuperacion`). Pruebas: `tests/plataforma/test_recuperar_correo.py` con
+  `tests/correo_simulado.py` (ninguna sale a la red; `tests/conftest.py` vacía la clave).
 - El correo se guarda y se busca en minúsculas (`CorreoNormalizado`).
 - Los clientes se registran por tienda: `POST /public/{codigo}/registro`
   (`/auth/registro` ya no existe). Staff y administradores los crea un
