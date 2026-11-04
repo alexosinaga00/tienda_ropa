@@ -445,6 +445,23 @@
         <fs-icono nombre="historial" [tam]="24" />
         Ventas recientes
       </button>
+
+      <button
+        type="button"
+        class="btn-texto btn-historial"
+        data-estado="abrir-solicitudes"
+        [disabled]="sinConexion()"
+        [attr.title]="sinConexion() ? 'Requiere conexión' : 'Cambios de talla o color que pidieron los clientes'"
+        (click)="abrirSolicitudes()"
+      >
+        <fs-icono nombre="bandeja" [tam]="24" />
+        Solicitudes de cambio
+        @if (solicitudesPendientes() > 0) {
+          <span class="fs-chip fs-chip--advertencia chip-devolucion" data-estado="solicitudes-pendientes">
+            {{ solicitudesPendientes() }}
+          </span>
+        }
+      </button>
     </aside>
   </div>
 }
@@ -655,6 +672,18 @@
       </ng-template>
     </p-table>
   </div>
+</p-dialog>
+
+<!-- ================= Solicitudes de cambio de los clientes ================= -->
+<p-dialog
+  header="Solicitudes de cambio"
+  [(visible)]="solicitudesVisible"
+  [modal]="true"
+  [style]="{ width: '720px', maxWidth: '96vw' }"
+>
+  @if (solicitudesVisible() && sucursalId() !== null) {
+    <app-solicitudes-cambio [sucursalId]="sucursalId()!" (pendientes)="solicitudesPendientes.set($event)" />
+  }
 </p-dialog>
 
 <!-- ================= Devolución ================= -->

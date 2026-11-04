@@ -80,6 +80,8 @@ ACCION_ENTRENAR = "entrenar"  # E11
 # Compra de un plan con PayPal (pedido_contratacion).
 ACCION_CAPTURAR = "capturar"  # el pago se cobró y la empresa se creó
 ACCION_CANCELAR = "cancelar"
+ACCION_SOLICITAR = "solicitar"  # el cliente pide un cambio de talla o color (CU-17, Etapa 2)
+ACCION_APROBAR = "aprobar"  # el personal aprueba esa solicitud
 ACCION_VENCER = "vencer"
 ACCION_PAGADO_SIN_EMPRESA = "pagado_sin_empresa"  # se cobró pero la empresa no se pudo crear (reembolso manual)
 ACCION_PAGO_NO_COINCIDE = "pago_no_coincide"  # PayPal informó otro monto u otra moneda: no se cobró

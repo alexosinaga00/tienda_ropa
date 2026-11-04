@@ -227,7 +227,9 @@ class Devolucion(EmpresaMixin, Base):
     __tablename__ = "devolucion"
     __table_args__ = (
         UniqueConstraint("empresa_id", "codigo", name="uq_devolucion_empresa_codigo"),
-        CheckConstraint("estado IN ('pendiente','aprobada','rechazada')", name="ck_devolucion_estado"),
+        CheckConstraint(
+            "estado IN ('pendiente','aprobada','rechazada','cancelada','vencida')", name="ck_devolucion_estado"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -236,7 +238,13 @@ class Devolucion(EmpresaMixin, Base):
     fecha: Mapped[dt.datetime] = mapped_column(server_default=func.now())
     motivo: Mapped[str | None] = mapped_column(String(300))
     estado: Mapped[str] = mapped_column(String(20), nullable=False, default="pendiente")
+    # Quien la registró (el cajero) o, en una SOLICITUD de cambio, el cliente que la pidió.
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    # Solo en una solicitud de cambio (Etapa 2): quién la aprobó o rechazó, cuándo y por qué. Una solicitud que vence
+    # sola o que cancela el cliente deja `resuelta_en` y ningún `resuelta_por_id` (el cliente cancela: queda su id).
+    resuelta_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    resuelta_en: Mapped[dt.datetime | None] = mapped_column()
+    motivo_rechazo: Mapped[str | None] = mapped_column(String(300))
 
     detalle: Mapped[list["DevolucionDetalle"]] = relationship(
         back_populates="devolucion", order_by="DevolucionDetalle.id", cascade="all, delete-orphan"
@@ -251,6 +259,8 @@ class DevolucionDetalle(EmpresaMixin, Base):
     devolucion_id: Mapped[int] = mapped_column(ForeignKey("devolucion.id", ondelete="CASCADE"), nullable=False)
     venta_detalle_id: Mapped[int] = mapped_column(ForeignKey("venta_detalle.id"), nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Cambio de talla o color: la variante que se entrega en lugar de la devuelta (NULL = devolución simple).
+    variante_nueva_id: Mapped[int | None] = mapped_column(ForeignKey("producto_variante.id"))
 
     devolucion: Mapped[Devolucion] = relationship(back_populates="detalle")
 

@@ -1,0 +1,164 @@
+<div class="barra">
+  <div class="filtros" role="group" aria-label="Qué solicitudes ver">
+    <button
+      type="button"
+      class="filtro"
+      [class.filtro--activo]="filtro() === 'pendiente'"
+      [attr.aria-pressed]="filtro() === 'pendiente'"
+      data-estado="filtro-pendientes"
+      (click)="cambiarFiltro('pendiente')"
+    >
+      Pendientes
+    </button>
+    <button
+      type="button"
+      class="filtro"
+      [class.filtro--activo]="filtro() === 'todas'"
+      [attr.aria-pressed]="filtro() === 'todas'"
+      data-estado="filtro-todas"
+      (click)="cambiarFiltro('todas')"
+    >
+      Todas
+    </button>
+  </div>
+  <button type="button" class="btn-actualizar" data-estado="actualizar" [disabled]="cargando()" (click)="actualizar()">
+    <fs-icono nombre="refrescar" [tam]="24" [class.giro]="cargando()" />
+    Actualizar
+  </button>
+</div>
+
+<p class="ayuda">
+  El cliente pidió cambiar la talla o el color de su compra. Cuando traiga la prenda, revísala y aprueba el cambio: entra la
+  prenda devuelta, sale la nueva y le llega el comprobante. Si no corresponde, rechaza la solicitud con un motivo.
+</p>
+
+@if (errorCarga()) {
+  <div class="fs-aviso fs-aviso--error" role="alert" data-estado="error-solicitudes">
+    No se pudieron cargar las solicitudes. Revisa tu conexión e inténtalo de nuevo.
+  </div>
+} @else if (cargando() && solicitudes().length === 0) {
+  <p class="vacio" role="status">Cargando solicitudes…</p>
+} @else if (solicitudes().length === 0) {
+  <p class="vacio" data-estado="sin-solicitudes">
+    {{ filtro() === 'pendiente' ? 'No hay solicitudes de cambio pendientes.' : 'Todavía no hay solicitudes de cambio.' }}
+  </p>
+} @else {
+  <ul class="lista">
+    @for (solicitud of solicitudes(); track solicitud.id) {
+      <li class="solicitud" [attr.data-solicitud]="solicitud.codigo">
+        <div class="solicitud__cabecera">
+          <div>
+            <span class="solicitud__codigo">{{ solicitud.codigo }}</span>
+            <span class="solicitud__venta">Compra {{ solicitud.venta_codigo }}</span>
+          </div>
+          <span [class]="'fs-chip ' + estado(solicitud).clase" data-estado="estado-solicitud">{{ estado(solicitud).texto }}</span>
+        </div>
+
+        <p class="solicitud__cliente">
+          {{ solicitud.cliente_nombre || 'Cliente' }} · pidió el {{ solicitud.fecha | date: 'dd/MM HH:mm' }}
+        </p>
+
+        <ul class="lineas">
+          @for (linea of solicitud.detalle; track linea.venta_detalle_id) {
+            <li class="linea">
+              <span class="linea__devuelve">
+                <span class="etiqueta">Devuelve</span>
+                {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span>
+              </span>
+              <fs-icono nombre="deshacer" [tam]="20" class="linea__flecha" aria-hidden="true" />
+              <span class="linea__quiere">
+                <span class="etiqueta">Quiere</span>
+                {{ linea.prenda_nueva }}
+              </span>
+              @if (solicitud.estado === 'pendiente' && linea.disponible_nueva !== null) {
+                <span
+                  class="fs-chip"
+                  [class.fs-chip--exito]="hayStock(linea)"
+                  [class.fs-chip--error]="!hayStock(linea)"
+                  data-estado="disponible-nueva"
+                >
+                  {{ textoDisponible(linea) }}
+                </span>
+              }
+            </li>
+          }
+        </ul>
+
+        @if (solicitud.motivo) {
+          <p class="solicitud__nota"><span class="etiqueta">Motivo del cliente</span> {{ solicitud.motivo }}</p>
+        }
+
+        @if (solicitud.estado === 'pendiente') {
+          <p class="solicitud__plazo">
+            <fs-icono nombre="reloj" [tam]="20" />
+            Atender hasta el {{ solicitud.atender_hasta | date: 'dd/MM HH:mm' }}
+          </p>
+        } @else if (solicitud.estado === 'rechazada' && solicitud.motivo_rechazo) {
+          <p class="solicitud__nota"><span class="etiqueta">Motivo del rechazo</span> {{ solicitud.motivo_rechazo }}</p>
+        } @else if (solicitud.resuelta_en) {
+          <p class="solicitud__plazo">
+            <fs-icono nombre="check" [tam]="20" />
+            {{ estado(solicitud).texto }} el {{ solicitud.resuelta_en | date: 'dd/MM HH:mm' }}
+          </p>
+        }
+
+        @if (errores()[solicitud.id]; as mensaje) {
+          <div class="fs-aviso fs-aviso--error" role="alert" data-estado="error-solicitud">{{ mensaje }}</div>
+        }
+
+        @if (solicitud.estado === 'pendiente') {
+          @if (rechazandoId() === solicitud.id) {
+            <div class="rechazo">
+              <label class="rechazo__etiqueta" [for]="'motivo-' + solicitud.id">Motivo del rechazo (se lo enviamos al cliente)</label>
+              <textarea
+                class="rechazo__campo"
+                [id]="'motivo-' + solicitud.id"
+                rows="2"
+                maxlength="300"
+                data-estado="motivo-rechazo"
+                [ngModel]="motivoRechazo()"
+                (ngModelChange)="motivoRechazo.set($event)"
+              ></textarea>
+              <div class="acciones">
+                <button type="button" class="fs-btn fs-btn--contorno" [disabled]="resolviendo() !== null" (click)="cancelarRechazo()">
+                  Volver
+                </button>
+                <button
+                  type="button"
+                  class="fs-btn fs-btn--primario"
+                  data-estado="confirmar-rechazo"
+                  [disabled]="resolviendo() !== null || !motivoValido()"
+                  (click)="confirmarRechazo(solicitud)"
+                >
+                  Rechazar solicitud
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="acciones">
+              <button
+                type="button"
+                class="fs-btn fs-btn--contorno"
+                data-estado="rechazar"
+                [disabled]="resolviendo() !== null"
+                (click)="empezarRechazo(solicitud)"
+              >
+                Rechazar
+              </button>
+              <button
+                type="button"
+                class="fs-btn fs-btn--primario"
+                data-estado="aprobar"
+                [disabled]="resolviendo() !== null || !alcanzaElStock(solicitud)"
+                [attr.title]="alcanzaElStock(solicitud) ? null : 'No hay stock de la prenda nueva: rechaza la solicitud o repón la prenda y actualiza'"
+                (click)="aprobar(solicitud)"
+              >
+                {{ resolviendo() === solicitud.id ? 'Aprobando…' : 'Aprobar cambio' }}
+              </button>
+            </div>
+          }
+        }
+      </li>
+    }
+  </ul>
+}

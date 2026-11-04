@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -13,7 +15,13 @@ from app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital import Gestio
 from app.comercial.casos_uso.cu14_registrar_venta_presencial import RegistrarVentaPresencial
 from app.comercial.casos_uso.cu15_consultar_ventas import ConsultarHistorialCompras, ConsultarVentasSucursal
 from app.comercial.casos_uso.cu16_gestionar_promociones import GestionarPromociones
-from app.comercial.casos_uso.cu17_gestionar_devoluciones_cambios import ConsultarPlazoCambio, RegistrarDevolucion
+from app.comercial.casos_uso.cu17_gestionar_devoluciones_cambios import (
+    ConsultarPlazoCambio,
+    ConsultarSolicitudesCambio,
+    RegistrarDevolucion,
+    ResolverSolicitudCambio,
+    SolicitarCambio,
+)
 from app.comercial.casos_uso.cu18_procesar_pagos import (
     ConfirmarRechazarTransaccion,
     PagarPasarelaDigital,
@@ -60,6 +68,9 @@ from app.comercial.schemas import (
     ReservaCrear,
     ReservaRespuesta,
     SeleccionActualizar,
+    SolicitudCambioCrear,
+    SolicitudCambioRechazar,
+    SolicitudCambioRespuesta,
     VentaDigitalCrear,
     VentaPresencialCrear,
     VentaRespuesta,
@@ -207,6 +218,9 @@ cu_gestionar_promociones = GestionarPromociones()
 cu_ventas_sucursal = ConsultarVentasSucursal()
 cu_registrar_devolucion = RegistrarDevolucion()
 cu_plazo_cambio = ConsultarPlazoCambio()
+cu_solicitar_cambio = SolicitarCambio()
+cu_resolver_solicitud = ResolverSolicitudCambio()
+cu_consultar_solicitudes = ConsultarSolicitudesCambio()
 
 
 def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
@@ -336,6 +350,87 @@ def registrar_devolucion(
     return cu_registrar_devolucion.ejecutar(db, usuario.id, datos, contexto, segundo_plano.add_task)
 
 
+# ---- /api/v1/solicitudes-cambio ------------------------------------------------------
+# Etapa 2 del CU-17: el cliente pide cambiar la talla o el color de una prenda de su compra y el personal de la
+# sucursal la aprueba o la rechaza cuando el cliente trae la prenda.
+
+solicitudes_cambio_router = APIRouter(
+    prefix="/api/v1/solicitudes-cambio", tags=["solicitudes de cambio"], dependencies=[plan_gestion_ventas]
+)
+
+
+@solicitudes_cambio_router.post(
+    "", response_model=SolicitudCambioRespuesta, status_code=status.HTTP_201_CREATED, dependencies=[digital_requerido]
+)
+def solicitar_cambio(
+    datos: SolicitudCambioCrear,
+    segundo_plano: BackgroundTasks,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> SolicitudCambioRespuesta:
+    return cu_solicitar_cambio.solicitar(db, usuario.id, datos, contexto, segundo_plano.add_task)
+
+
+@solicitudes_cambio_router.get("/mias", response_model=list[SolicitudCambioRespuesta], dependencies=[digital_requerido])
+def listar_mis_solicitudes_cambio(
+    venta_id: int | None = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[SolicitudCambioRespuesta]:
+    return cu_consultar_solicitudes.listar_mias(db, usuario.id, venta_id)
+
+
+@solicitudes_cambio_router.post(
+    "/{solicitud_id}/cancelar", response_model=SolicitudCambioRespuesta, dependencies=[digital_requerido]
+)
+def cancelar_solicitud_cambio(
+    solicitud_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> SolicitudCambioRespuesta:
+    return cu_solicitar_cambio.cancelar(db, usuario.id, solicitud_id, contexto)
+
+
+@solicitudes_cambio_router.get(
+    "/sucursal/{sucursal_id}", response_model=list[SolicitudCambioRespuesta], dependencies=[staff_ventas_requerido]
+)
+def listar_solicitudes_cambio_sucursal(
+    sucursal_id: int,
+    estado: Literal["pendiente", "aprobada", "rechazada", "cancelada", "vencida", "todas"] = "pendiente",
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[SolicitudCambioRespuesta]:
+    return cu_consultar_solicitudes.listar_sucursal(db, usuario.id, sucursal_id, estado)
+
+
+@solicitudes_cambio_router.post(
+    "/{solicitud_id}/aprobar", response_model=SolicitudCambioRespuesta, dependencies=[staff_ventas_requerido]
+)
+def aprobar_solicitud_cambio(
+    solicitud_id: int,
+    segundo_plano: BackgroundTasks,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> SolicitudCambioRespuesta:
+    # El comprobante por correo sale después de responder (segundo plano).
+    return cu_resolver_solicitud.aprobar(db, usuario.id, solicitud_id, contexto, segundo_plano.add_task)
+
+
+@solicitudes_cambio_router.post(
+    "/{solicitud_id}/rechazar", response_model=SolicitudCambioRespuesta, dependencies=[staff_ventas_requerido]
+)
+def rechazar_solicitud_cambio(
+    solicitud_id: int,
+    datos: SolicitudCambioRechazar,
+    segundo_plano: BackgroundTasks,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> SolicitudCambioRespuesta:
+    return cu_resolver_solicitud.rechazar(db, usuario.id, solicitud_id, datos, contexto, segundo_plano.add_task)
+
+
 # ---- /api/v1/promociones -------------------------------------------------------------
 
 promociones_router = APIRouter(prefix="/api/v1/promociones", tags=["promociones"], dependencies=[plan_gestion_ventas])
@@ -376,7 +471,7 @@ def desactivar_promocion(promocion_id: int, db: Session = Depends(get_db)) -> Pr
     return cu_gestionar_promociones.desactivar(db, promocion_id)
 
 
-_routers_ventas = [carrito_router, ventas_router, devoluciones_router, promociones_router]
+_routers_ventas = [carrito_router, ventas_router, devoluciones_router, solicitudes_cambio_router, promociones_router]
 
 
 # ---- Pagos ----

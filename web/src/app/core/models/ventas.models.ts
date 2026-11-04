@@ -86,6 +86,41 @@ export interface DevolucionDetalle {
   id: number;
   venta_detalle_id: number;
   cantidad: number;
+  /** Cambio de talla o color: la variante que se entregó en lugar de la devuelta (null = devolución simple). */
+  variante_nueva_id?: number | null;
+}
+
+export type EstadoSolicitudCambio = 'pendiente' | 'aprobada' | 'rechazada' | 'cancelada' | 'vencida';
+
+/** Una prenda de una solicitud de cambio: lo que el cliente devuelve y lo que quiere en su lugar. */
+export interface SolicitudCambioLinea {
+  venta_detalle_id: number;
+  cantidad: number;
+  variante_devuelta_id: number;
+  prenda_devuelta: string;
+  variante_nueva_id: number | null;
+  prenda_nueva: string | null;
+  /** Unidades de la prenda nueva disponibles hoy en la sucursal (solo informativo; no se reservan). */
+  disponible_nueva: number | null;
+}
+
+/** `GET /solicitudes-cambio/sucursal/{id}`: lo que el cliente pidió desde su compra y el personal resuelve (CU-17, Etapa 2). */
+export interface SolicitudCambio {
+  id: number;
+  codigo: string;
+  venta_id: number;
+  venta_codigo: string;
+  sucursal_id: number;
+  cliente_nombre: string | null;
+  fecha: string;
+  estado: EstadoSolicitudCambio;
+  motivo: string | null;
+  motivo_rechazo: string | null;
+  resuelta_en: string | null;
+  /** Hasta cuándo se puede aprobar (plazo de cambio más tolerancia); pasado ese instante vence sola. */
+  atender_hasta: string;
+  detalle: SolicitudCambioLinea[];
+  correo_programado?: boolean;
 }
 
 export interface Devolucion {
@@ -94,7 +129,7 @@ export interface Devolucion {
   venta_id: number;
   fecha: string;
   motivo: string | null;
-  estado: 'pendiente' | 'aprobada' | 'rechazada';
+  estado: EstadoSolicitudCambio;
   usuario_id: number | null;
   detalle: DevolucionDetalle[];
   /** Lo que salió del stock en un cambio; vacío en una devolución simple. */

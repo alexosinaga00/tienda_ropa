@@ -51,6 +51,7 @@ PARAMETROS = {
     "generacion_id": "generacion",
     "stock_id": "stock",
     "copia_id": "copia_seguridad",
+    "solicitud_id": "solicitud_cambio",
 }
 
 # --- token con el que A pide cada ruta ----------------------------------------------------
@@ -70,6 +71,8 @@ TOKEN_CLIENTE = {
     ("GET", f"{_BASE}/ventas/{{venta_id}}/plazo-cambio"),
     ("GET", f"{_BASE}/reservas/mis-reservas"),
     ("GET", f"{_BASE}/clientes/direcciones"),
+    # Solo quien pidió la solicitud puede cancelarla.
+    ("POST", f"{_BASE}/solicitudes-cambio/{{solicitud_id}}/cancelar"),
 }
 
 
@@ -104,6 +107,7 @@ CUERPOS = {
     },
     ("PUT", f"{_BASE}/promociones/{{promocion_id}}"): lambda u: {"nombre": f"Promo {_n(u)}"},
     ("POST", f"{_BASE}/sincronizacion/operaciones/{{operacion_id}}/resolver"): lambda u: {"accion": "rechazar", "motivo": "prueba"},
+    ("POST", f"{_BASE}/solicitudes-cambio/{{solicitud_id}}/rechazar"): lambda u: {"motivo": "prueba de aislamiento"},
     ("PUT", f"{_BASE}/proveedores/{{proveedor_id}}"): lambda u: {"contacto": f"Contacto {_n(u)}"},
     ("POST", f"{_BASE}/proveedores/{{proveedor_id}}/productos"): lambda u: {"producto_id": u.nuevo("producto")},
     ("PUT", f"{_BASE}/reservas/{{reserva_id}}/seleccion"): lambda u: {"lineas": [{"variante_id": u.ids["variante"], "seleccionada": True}]},
@@ -148,6 +152,7 @@ NUEVO_PARA_ESPEJO = {
     "producto": "producto",
     "promocion": "promocion",
     "proveedor": "proveedor",
+    "solicitud_cambio": "solicitud_cambio",
     "reserva": "reserva",
     "sucursal": "sucursal",
     "talla": "talla",

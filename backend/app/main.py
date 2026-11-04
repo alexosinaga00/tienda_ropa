@@ -18,7 +18,11 @@ from sqlalchemy.orm import Session
 load_dotenv()
 
 from app.catalogo.router import routers as catalogo_routers
-from app.comercial.politicas import expirar_reservas_de_todas_las_empresas, expirar_ventas_de_todas_las_empresas
+from app.comercial.politicas import (
+    expirar_reservas_de_todas_las_empresas,
+    expirar_ventas_de_todas_las_empresas,
+    vencer_solicitudes_de_todas_las_empresas,
+)
 from app.comercial.router import routers as comercial_routers
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
@@ -45,6 +49,7 @@ def _correr_tareas_periodicas() -> None:
     for nombre, tarea in (
         ("ventas pendientes", expirar_ventas_de_todas_las_empresas),
         ("reservas", expirar_reservas_de_todas_las_empresas),
+        ("solicitudes de cambio", vencer_solicitudes_de_todas_las_empresas),
         ("suscripciones", vencer_suscripciones),
     ):
         db = SessionLocal()

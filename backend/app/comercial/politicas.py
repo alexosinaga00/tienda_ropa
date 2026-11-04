@@ -35,6 +35,7 @@ from app.comercial import repository as comercial_repo
 from app.comercial.models import (
     Carrito,
     CarritoDetalle,
+    Devolucion,
     EstadoVenta,
     MetodoPago,
     Pago,
@@ -60,7 +61,12 @@ from app.comercial.repository import (
     TransaccionPasarelaRepository,
     VentaRepository,
 )
-from app.comercial.schemas import PagoRespuesta, ReservaCrear
+from app.comercial.schemas import (
+    PagoRespuesta,
+    ReservaCrear,
+    SolicitudCambioLineaRespuesta,
+    SolicitudCambioRespuesta,
+)
 from app.core.config import get_settings
 from app.core.codigos import generar_codigo
 from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
@@ -70,6 +76,7 @@ from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
     DomainError,
+    NoEncontradoError,
     PermisoDenegadoError,
     PlazoCambioVencidoError,
     StockInsuficienteError,
@@ -822,22 +829,33 @@ def _plazo_legible(plazo_horas: int) -> str:
     return "1 hora" if plazo_horas == 1 else f"{plazo_horas} horas"
 
 
-def validar_plazo_cambio(fecha_venta: dt.datetime, plazo_horas: int, ahora: dt.datetime) -> None:
-    """Pura: 409 si `ahora` pasó `fecha_venta + plazo_horas`. El límite es
-    inclusivo (a las 24:00:00 exactas aún se acepta; a las 24:00:01 no)."""
-    if ahora > fecha_venta + dt.timedelta(hours=plazo_horas):
+def validar_plazo_cambio(
+    fecha_venta: dt.datetime, plazo_horas: int, ahora: dt.datetime, tolerancia_horas: int = 0
+) -> None:
+    """Pura: 409 si `ahora` pasó `fecha_venta + plazo_horas (+ tolerancia_horas)`. El límite es
+    inclusivo (a las 24:00:00 exactas aún se acepta; a las 24:00:01 no). La tolerancia solo se usa al ATENDER una
+    solicitud que el cliente hizo dentro del plazo (el cliente puede llegar a la tienda unas horas después)."""
+    if ahora > fecha_venta + dt.timedelta(hours=plazo_horas + tolerancia_horas):
+        extra = ""
+        if tolerancia_horas:
+            extra = f" (más {_plazo_legible(tolerancia_horas)} de tolerancia para atender la solicitud)"
         raise PlazoCambioVencidoError(
             "El plazo para cambiar prendas de esta venta ya venció: se hizo hace "
-            f"{_duracion_legible(ahora - fecha_venta)} y el plazo es de {_plazo_legible(plazo_horas)}."
+            f"{_duracion_legible(ahora - fecha_venta)} y el plazo es de {_plazo_legible(plazo_horas)}{extra}."
         )
 
 
-def exigir_plazo_cambio(db: Session, venta: Venta, ahora: dt.datetime | None = None) -> None:
+def exigir_plazo_cambio(
+    db: Session, venta: Venta, ahora: dt.datetime | None = None, tolerancia_horas: int = 0
+) -> None:
     """Aplica el plazo de la empresa de la sesión a la venta. Se cuenta desde
     `Venta.fecha`, que en una venta offline es la fecha de la operación y no la
     de la sincronización."""
     validar_plazo_cambio(
-        venta.fecha, plataforma_politicas.obtener_plazo_cambio_horas(db), ahora or ahora_utc_naive()
+        venta.fecha,
+        plataforma_politicas.obtener_plazo_cambio_horas(db),
+        ahora or ahora_utc_naive(),
+        tolerancia_horas,
     )
 
 
@@ -949,6 +967,184 @@ def construir_correo_comprobante_devolucion(
         "esta operación, responde a la tienda.</p></div></body></html>"
     )
     return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
+
+
+# ---- Solicitud de cambio de talla o color del cliente (Etapa 2 de CU-17) -------------------
+
+
+def atender_solicitud_hasta(db: Session, venta: Venta) -> dt.datetime:
+    """Hasta cuándo se puede aprobar una solicitud de esa venta: fin del plazo de cambio más la tolerancia. Pasado
+    ese instante la solicitud pendiente vence sola."""
+    horas = plataforma_politicas.obtener_plazo_cambio_horas(db) + get_settings().solicitud_cambio_tolerancia_horas
+    return venta.fecha + dt.timedelta(hours=horas)
+
+
+def _nombre_del_comprador(db: Session, venta: Venta) -> str | None:
+    if venta.cliente_id is None:
+        return None
+    cliente = plataforma_politicas.obtener_cliente(db, venta.cliente_id)
+    usuario = plataforma_politicas.obtener_usuario(db, cliente.usuario_id)
+    return f"{usuario.nombre} {usuario.apellido}".strip()
+
+
+def _disponible_en_sucursal(db: Session, variante_id: int, sucursal_id: int) -> int:
+    try:
+        return int(catalogo_politicas.obtener_stock(db, variante_id, sucursal_id).cantidad_disponible)
+    except NoEncontradoError:
+        return 0
+
+
+def construir_respuesta_solicitud(
+    db: Session, devolucion: Devolucion, venta: Venta, correo_programado: bool = False
+) -> SolicitudCambioRespuesta:
+    """La solicitud con lo que las pantallas necesitan: las prendas con su nombre y, mientras esté pendiente, cuánto
+    hay hoy de la prenda nueva en la sucursal (informativo; no se reserva)."""
+    lineas_venta = {linea.id: linea for linea in venta.detalle}
+    pendiente = devolucion.estado == "pendiente"
+    detalle = []
+    for linea in devolucion.detalle:
+        original = catalogo_politicas.obtener_variante(db, lineas_venta[linea.venta_detalle_id].variante_id)
+        nueva = (
+            catalogo_politicas.obtener_variante(db, linea.variante_nueva_id)
+            if linea.variante_nueva_id is not None
+            else None
+        )
+        detalle.append(
+            SolicitudCambioLineaRespuesta(
+                venta_detalle_id=linea.venta_detalle_id,
+                cantidad=linea.cantidad,
+                variante_devuelta_id=original.id,
+                prenda_devuelta=catalogo_politicas.describir_variante(db, original),
+                variante_nueva_id=linea.variante_nueva_id,
+                prenda_nueva=catalogo_politicas.describir_variante(db, nueva) if nueva is not None else None,
+                disponible_nueva=(
+                    _disponible_en_sucursal(db, nueva.id, venta.sucursal_id) if pendiente and nueva is not None else None
+                ),
+            )
+        )
+    return SolicitudCambioRespuesta(
+        id=devolucion.id,
+        codigo=devolucion.codigo,
+        venta_id=venta.id,
+        venta_codigo=venta.codigo,
+        sucursal_id=venta.sucursal_id,
+        cliente_nombre=_nombre_del_comprador(db, venta),
+        fecha=devolucion.fecha,
+        estado=devolucion.estado,
+        motivo=devolucion.motivo,
+        motivo_rechazo=devolucion.motivo_rechazo,
+        resuelta_en=devolucion.resuelta_en,
+        atender_hasta=atender_solicitud_hasta(db, venta),
+        detalle=detalle,
+        correo_programado=correo_programado,
+    )
+
+
+def _correo_de_solicitud(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    asunto: str,
+    titulo: str,
+    intro: str,
+    lineas: list[str],
+    cierre: str,
+) -> MensajeCorreo:
+    """Cuerpo común de los correos de una solicitud. Todo dato variable se escapa en el HTML."""
+    texto = f"Hola {nombre},\n\n{intro}\n\n" + "\n".join(f"- {linea}" for linea in lineas) + f"\n\n{cierre}\n"
+    items = "".join(f'<li style="margin:0 0 8px">{escape(linea)}</li>' for linea in lineas)
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412"><div style="max-width:480px;margin:0 auto;padding:24px">'
+        '<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(nombre_empresa)}</p>"
+        f'<h1 style="font-size:22px;margin:0 0 12px">{escape(titulo)}</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)}, {escape(intro)}</p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{items}</ul>'
+        f'<p style="font-size:13px;line-height:1.5;color:#6B645C">{escape(cierre)}</p></div></body></html>'
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
+
+
+def construir_correo_solicitud_recibida(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    codigo_solicitud: str,
+    codigo_venta: str,
+    sucursal: str,
+    atender_hasta: dt.datetime,
+    lineas: list[tuple[str, str, int]],
+) -> MensajeCorreo:
+    """Aviso de que la solicitud quedó registrada y adónde llevar la prenda. `lineas`: (prenda que devuelve, prenda
+    que quiere, cantidad)."""
+    return _correo_de_solicitud(
+        para_email=para_email,
+        nombre=nombre,
+        nombre_empresa=nombre_empresa,
+        asunto=f"Recibimos tu solicitud de cambio {codigo_solicitud} · {nombre_empresa}",
+        titulo="Recibimos tu solicitud de cambio",
+        intro=(
+            f"registramos tu solicitud {codigo_solicitud} sobre tu compra {codigo_venta}. "
+            f"Lleva la prenda a la sucursal {sucursal} hasta el {_fecha_legible(atender_hasta)}: allí la revisan y, "
+            "si hay stock de lo que pides, te la cambian."
+        ),
+        lineas=[f"Devuelves: {devuelta} (x{cantidad}) · Quieres: {nueva}" for devuelta, nueva, cantidad in lineas],
+        cierre=(
+            "Todavía no reservamos la prenda nueva: se confirma cuando la tienda revisa la prenda que llevas. "
+            "Si ya no quieres el cambio, cancélalo desde tu compra."
+        ),
+    )
+
+
+def construir_correo_solicitud_rechazada(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    codigo_solicitud: str,
+    codigo_venta: str,
+    motivo: str,
+) -> MensajeCorreo:
+    return _correo_de_solicitud(
+        para_email=para_email,
+        nombre=nombre,
+        nombre_empresa=nombre_empresa,
+        asunto=f"Tu solicitud de cambio {codigo_solicitud} no fue aprobada · {nombre_empresa}",
+        titulo="Tu solicitud de cambio no fue aprobada",
+        intro=f"revisamos tu solicitud {codigo_solicitud} sobre la compra {codigo_venta} y no pudimos aprobarla.",
+        lineas=[f"Motivo: {motivo}"],
+        cierre="Si tienes dudas, responde a la tienda o acércate a la sucursal de tu compra.",
+    )
+
+
+def vencer_solicitudes_cambio(db: Session) -> int:
+    """Pasa a 'vencida' las solicitudes pendientes de la empresa de la sesión que ya pasaron su `atender_hasta`
+    (nadie las atendió a tiempo). Cada una se bloquea y se vuelve a mirar antes de tocarla: si un cajero la aprobó
+    justo ahora, no se pisa. Devuelve cuántas venció."""
+    ahora = ahora_utc_naive()
+    vencidas = 0
+    for devolucion, venta in devolucion_repo.listar_pendientes_con_venta(db):
+        if ahora <= atender_solicitud_hasta(db, venta):
+            continue
+        bloqueada = devolucion_repo.obtener_bloqueado(db, devolucion.id)
+        if bloqueada.estado != "pendiente":
+            db.rollback()
+            continue
+        bloqueada.estado = "vencida"
+        bloqueada.resuelta_en = ahora
+        db.commit()
+        vencidas += 1
+    return vencidas
+
+
+def vencer_solicitudes_de_todas_las_empresas(db: Session) -> int:
+    """`vencer_solicitudes_cambio` una vez por cada empresa activa (tarea periódica, sin actor humano). Una empresa
+    que falla no frena a las demás."""
+    resultados = por_cada_empresa(db, plataforma_politicas.listar_empresas_activas(db), vencer_solicitudes_cambio)
+    return sum(r or 0 for r in resultados)
 
 
 # ---- Puntos de entrada para `inteligencia` (reportes y recomendador) ----------

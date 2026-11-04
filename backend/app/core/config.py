@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # lo definen (p. ej. datos de prueba). D19.
     plazo_cambio_horas_respaldo: int = 24
 
+    # Solicitud de cambio de talla o color del cliente (Etapa 2 del CU-17). El cliente solicita DENTRO del plazo; el
+    # cajero la aprueba hasta `tolerancia` horas después de que el plazo terminó (el cliente puede llegar a la tienda
+    # unas horas más tarde), y pasada esa tolerancia la solicitud pendiente vence sola. Por cuenta, como máximo
+    # `max` solicitudes por ventana (anti abuso).
+    solicitud_cambio_tolerancia_horas: int = 48
+    solicitud_cambio_max_por_ventana: int = 5
+    solicitud_cambio_ventana_segundos: int = 3600
+
     # Dias que se conserva la bitacora de auditoria; POST /tareas/purgar-bitacora
     # borra lo anterior.
     bitacora_retencion_dias: int = 365

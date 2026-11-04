@@ -409,13 +409,77 @@ class DevolucionRepository:
         """Suma de todo lo ya devuelto de esa línea, en TODAS las
         devoluciones anteriores (no solo la que se está creando ahora):
         evita devolver más de lo que se vendió a través de varias
-        devoluciones parciales."""
+        devoluciones parciales. Solo cuentan las APROBADAS: una solicitud pendiente, rechazada, cancelada o
+        vencida no movió ninguna prenda."""
         total = db.scalar(
-            select(func.coalesce(func.sum(DevolucionDetalle.cantidad), 0)).where(
-                DevolucionDetalle.venta_detalle_id == venta_detalle_id
-            )
+            select(func.coalesce(func.sum(DevolucionDetalle.cantidad), 0))
+            .join(Devolucion, Devolucion.id == DevolucionDetalle.devolucion_id)
+            .where(DevolucionDetalle.venta_detalle_id == venta_detalle_id, Devolucion.estado == "aprobada")
         )
         return int(total or 0)
+
+    def cantidad_pendiente(self, db: Session, venta_detalle_id: int) -> int:
+        """Unidades de esa línea que están en una solicitud de cambio PENDIENTE (todavía no se atendió)."""
+        total = db.scalar(
+            select(func.coalesce(func.sum(DevolucionDetalle.cantidad), 0))
+            .join(Devolucion, Devolucion.id == DevolucionDetalle.devolucion_id)
+            .where(DevolucionDetalle.venta_detalle_id == venta_detalle_id, Devolucion.estado == "pendiente")
+        )
+        return int(total or 0)
+
+    def obtener_bloqueado(self, db: Session, devolucion_id: int) -> Devolucion:
+        """Con SELECT FOR UPDATE (PostgreSQL): dos cajeros que aprueban la misma solicitud a la vez se ponen en fila y
+        el segundo la ve ya resuelta. `populate_existing` refresca el estado si otra transacción lo cambió."""
+        consulta = self._consulta_base().where(Devolucion.id == devolucion_id)
+        if db.get_bind().dialect.name == "postgresql":
+            consulta = consulta.with_for_update()
+        devolucion = db.scalars(consulta.execution_options(populate_existing=True)).one_or_none()
+        if devolucion is None:
+            raise NoEncontradoError("Solicitud no encontrada")
+        return devolucion
+
+    # Una SOLICITUD es una devolución que pidió un cliente: toda la que no está aprobada (solo las solicitudes nacen
+    # pendientes) o la aprobada que resolvió un empleado. Una devolución que el cajero registró directo nace aprobada
+    # y sin `resuelta_por_id`.
+    @staticmethod
+    def _es_solicitud():
+        return or_(Devolucion.estado != "aprobada", Devolucion.resuelta_por_id.is_not(None))
+
+    def listar_solicitudes_de_usuario(self, db: Session, usuario_id: int, venta_id: int | None = None) -> list[Devolucion]:
+        """Las solicitudes que pidió ese usuario (cliente), la más reciente primero."""
+        consulta = self._consulta_base().where(Devolucion.usuario_id == usuario_id, self._es_solicitud())
+        if venta_id is not None:
+            consulta = consulta.where(Devolucion.venta_id == venta_id)
+        return list(db.scalars(consulta.order_by(Devolucion.fecha.desc(), Devolucion.id.desc())))
+
+    def listar_solicitudes_de_sucursal(
+        self, db: Session, sucursal_id: int, estado: str | None = "pendiente"
+    ) -> list[Devolucion]:
+        """Las solicitudes de las ventas de una sucursal (`estado=None`: de todos los estados). Las pendientes se
+        listan de la más antigua a la más nueva (la que lleva más esperando, primero); el resto, al revés."""
+        consulta = (
+            self._consulta_base()
+            .join(Venta, Venta.id == Devolucion.venta_id)
+            .where(Venta.sucursal_id == sucursal_id, self._es_solicitud())
+        )
+        if estado is not None:
+            consulta = consulta.where(Devolucion.estado == estado)
+        orden = (
+            (Devolucion.fecha.asc(), Devolucion.id.asc())
+            if estado == "pendiente"
+            else (Devolucion.fecha.desc(), Devolucion.id.desc())
+        )
+        return list(db.scalars(consulta.order_by(*orden)))
+
+    def listar_pendientes_con_venta(self, db: Session) -> list[tuple[Devolucion, Venta]]:
+        """Todas las solicitudes pendientes de la empresa de la sesión con su venta (para vencer las atrasadas)."""
+        filas = db.execute(
+            select(Devolucion, Venta)
+            .join(Venta, Venta.id == Devolucion.venta_id)
+            .where(Devolucion.estado == "pendiente")
+            .order_by(Devolucion.id)
+        ).all()
+        return [(devolucion, venta) for devolucion, venta in filas]
 
 
 # ---- Consultas para reportes ---------------------------------------------------------

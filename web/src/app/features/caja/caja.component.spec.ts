@@ -1289,6 +1289,8 @@ describe('CajaComponent', () => {
       http
         .expectOne(`${API}/ventas/${VENTA.id}/plazo-cambio`)
         .flush(respuestaPlazo(VENTA.id, 5 * HORA_MS));
+      // Y el conteo de solicitudes de cambio que se pide al conocer la sucursal (CU-17, Etapa 2).
+      http.match((r) => r.url.includes('/solicitudes-cambio/')).forEach((peticion) => peticion.flush([]));
       fixture.detectChanges();
       const devolucion = () => botonDe('Devolución') as HTMLButtonElement;
       expect(devolucion().disabled).toBe(false);
@@ -2131,6 +2133,99 @@ describe('CajaComponent', () => {
         http.expectNone(urlPlazo(55));
         expect(botonDeFila(filas()[0]).getAttribute('title')).toBe('Requiere conexión');
       });
+    });
+  });
+
+  describe('solicitudes de cambio de los clientes (CU-17, Etapa 2)', () => {
+    const urlSolicitudes = `${API}/solicitudes-cambio/sucursal/1`;
+    const botonSolicitudes = (el: HTMLElement) =>
+      el.querySelector('[data-estado="abrir-solicitudes"]') as HTMLButtonElement;
+    const numero = (el: HTMLElement) =>
+      el.querySelector('[data-estado="solicitudes-pendientes"]')?.textContent?.trim() ?? null;
+    const pendiente = (id: number) => ({
+      id,
+      codigo: `SOL-${id}`,
+      venta_id: 55,
+      venta_codigo: 'V-0055',
+      sucursal_id: 1,
+      cliente_nombre: 'Ana Pérez',
+      fecha: '2026-11-04T15:00:00Z',
+      estado: 'pendiente',
+      motivo: null,
+      motivo_rechazo: null,
+      resuelta_en: null,
+      atender_hasta: '2026-11-07T15:00:00Z',
+      detalle: [],
+    });
+
+    it('al conocer la sucursal cuenta las solicitudes pendientes y las muestra junto al botón', () => {
+      configurar(['cajero']);
+      const { fixture, el } = abrir(1);
+
+      const peticion = http.expectOne((r) => r.url === urlSolicitudes);
+      expect(peticion.request.params.get('estado')).toBe('pendiente');
+      expect(peticion.request.context.get(SIN_TOAST_ERROR)).toBe(true); // un fallo no molesta al cajero
+      peticion.flush([pendiente(1), pendiente(2)]);
+      fixture.detectChanges();
+
+      expect(numero(el)).toBe('2');
+    });
+
+    it('sin solicitudes pendientes no muestra ningún número', () => {
+      configurar(['cajero']);
+      const { fixture, el } = abrir(1);
+
+      http.expectOne((r) => r.url === urlSolicitudes).flush([]);
+      fixture.detectChanges();
+
+      expect(numero(el)).toBeNull();
+      expect(botonSolicitudes(el).textContent).toContain('Solicitudes de cambio');
+    });
+
+    it('si el conteo falla el botón sigue ahí, sin número y sin avisos', () => {
+      configurar(['cajero']);
+      const { fixture, el } = abrir(1);
+
+      http.expectOne((r) => r.url === urlSolicitudes).flush({}, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(numero(el)).toBeNull();
+      expect(botonSolicitudes(el).disabled).toBe(false);
+    });
+
+    it('el botón abre la bandeja, que lee las pendientes, y el número se actualiza con lo que ella cuenta', () => {
+      configurar(['cajero']);
+      const { fixture, el } = abrir(1);
+      http.expectOne((r) => r.url === urlSolicitudes).flush([pendiente(1)]);
+      fixture.detectChanges();
+
+      botonSolicitudes(el).click();
+      fixture.detectChanges();
+      expect(document.body.querySelector('.p-dialog-title')?.textContent).toContain('Solicitudes de cambio');
+      http.expectOne((r) => r.url === urlSolicitudes).flush([pendiente(1), pendiente(2), pendiente(3)]);
+      fixture.detectChanges();
+
+      expect(document.body.querySelector('app-solicitudes-cambio')?.textContent).toContain('SOL-3');
+      expect(numero(el)).toBe('3');
+    });
+
+    it('sin conexión el botón está deshabilitado, no abre nada y no consulta', () => {
+      const estado = signal<EstadoConexion>('sin_conexion');
+      configurar(['cajero'], 'Boutique Andina', [
+        { provide: ConectividadService, useValue: { estado } },
+        {
+          provide: SesionOfflineService,
+          useValue: { guardarSucursalDeCaja: () => Promise.resolve(), sucursalDeCajaGuardada: async () => null },
+        },
+      ]);
+      const { fixture, el } = abrir(1);
+
+      expect(botonSolicitudes(el).disabled).toBe(true);
+      expect(botonSolicitudes(el).getAttribute('title')).toBe('Requiere conexión');
+      http.expectNone((r) => r.url === urlSolicitudes);
+      (fixture.componentInstance as unknown as { abrirSolicitudes(): void }).abrirSolicitudes();
+      fixture.detectChanges();
+      expect(document.body.querySelector('app-solicitudes-cambio')).toBeNull();
     });
   });
 });

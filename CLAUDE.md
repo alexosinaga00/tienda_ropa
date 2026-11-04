@@ -606,9 +606,41 @@ Decisiones de diseño (D15, D17, D19):
   con usuario activo y correo; una venta presencial sin cliente no manda nada) le llega el comprobante de la devolución o
   del cambio (`construir_correo_comprobante_devolucion`, en `comercial/politicas.py`). Sin Brevo configurado, o si falla,
   la devolución queda igual. El cliente ve su plazo en "Mis compras" de la web y de la app (`GET /ventas/{id}/plazo-cambio`),
-  y la Caja web ofrece «Cambiar por» con las variantes del mismo producto y precio y su stock. Que el cliente SOLICITE el
-  cambio desde la web o la app (estado `pendiente` y aprobación del cajero) NO está hecho. Pruebas:
+  y la Caja web ofrece «Cambiar por» con las variantes del mismo producto y precio y su stock. Pruebas:
   `tests/comercial/test_cambio_talla.py`.
+- **Solicitud de cambio del cliente (CU-17, Etapa 2; migración `d2f8a6c14b97`).** El CLIENTE pide el cambio desde su
+  compra y el personal de la sucursal lo aprueba cuando trae la prenda. Hecho: backend y bandeja de la Caja web;
+  pendientes: la tienda web y la app (botón «Solicitar cambio» y estado de la solicitud). Una SOLICITUD es una
+  `devolucion` en estado `pendiente` (no hay tabla nueva); la migración suma `devolucion_detalle.variante_nueva_id`
+  (también se llena en los cambios que registra el cajero), `devolucion.resuelta_por_id`, `resuelta_en`,
+  `motivo_rechazo` y los estados `cancelada` y `vencida`. La devolución que el cajero registra en el acto sigue naciendo
+  `aprobada` y sin `resuelta_por_id`; una SOLICITUD es toda devolución no aprobada o aprobada con `resuelta_por_id`.
+  Clases de control nuevas en `cu17_...py`: `SolicitarCambio` (`solicitar`, `cancelar`), `ResolverSolicitudCambio`
+  (`aprobar`, `rechazar`) y `ConsultarSolicitudesCambio` (`listar_mias`, `listar_sucursal`); aprobar reutiliza
+  `_resolver_lineas` y `_mover_stock` (los mismos del registro en la Caja: mismo bloqueo, misma transacción, mismo
+  comprobante).
+  - **Rutas** `/api/v1/solicitudes-cambio` (plan `gestion_ventas`): cliente (`ventas.digital`) `POST` (201),
+    `GET /mias?venta_id=`, `POST /{id}/cancelar`; personal (`ventas.gestionar_sucursal`) `GET /sucursal/{id}?estado=`
+    (por defecto `pendiente`; `todas` para el historial), `POST /{id}/aprobar` y `POST /{id}/rechazar` (`{motivo}` de 3 a
+    300 caracteres). Quien resuelve es el personal de la sucursal de la venta; el administrador, el de cualquiera.
+  - **Reglas.** Se pide solo sobre una venta PROPIA (otra se ve inexistente, 404) pagada o entregada y DENTRO del plazo
+    (estricto). Cada línea lleva `variante_nueva_id` (mismo producto, activo y mismo precio; otro producto o diferencia de
+    precio dan 400). Una sola solicitud pendiente por línea (409); la cantidad no pasa de lo vendido menos lo ya devuelto
+    (solo cuentan las devoluciones APROBADAS). No se reserva stock al pedir: `disponible_nueva` es informativo y todo se
+    revalida al aprobar (precio, talla activa, cantidades, plazo, stock). Aprobar sin stock (409) o con un cambio ya inválido
+    (400) NO cambia nada: la solicitud sigue pendiente para rechazarla con un motivo. El plazo al aprobar admite
+    `SOLICITUD_CAMBIO_TOLERANCIA_HORAS` (48) sobre el de la empresa; pasada esa tolerancia la pendiente VENCE sola
+    (`vencer_solicitudes_de_todas_las_empresas`, tarea periódica de `app/main.py`; sin ruta ni correo). Límite por cuenta de
+    cliente: `SOLICITUD_CAMBIO_MAX_POR_VENTANA` (5) por `SOLICITUD_CAMBIO_VENTANA_SEGUNDOS` (3600), en memoria como el de
+    recuperar contraseña; cuenta lo que se pidió, no lo que la validación rechazó (429 con `Retry-After`).
+  - **Correos (Brevo, en segundo plano).** Pedir: «Recibimos tu solicitud» con la sucursal y hasta cuándo llevar la prenda;
+    aprobar: el comprobante de siempre; rechazar: el motivo. Sin Brevo, sin correo del comprador o si falla, la operación
+    queda igual (`correo_programado`).
+  - **Bitácora:** `devolucion/solicitar`, `aprobar`, `rechazar` y `cancelar` (solo ids y conteos; el motivo no se guarda).
+  - **Web (Caja):** `features/caja/solicitudes-cambio.component.*`, bandeja en un diálogo del botón «Solicitudes de cambio»
+    (con el número de pendientes) que aprueba o rechaza con motivo y muestra el faltante de stock.
+  - Pruebas: `tests/comercial/test_solicitud_cambio.py` (33) y las 6 rutas en `tests/aislamiento/rutas_esperadas.py`
+    (`Universo._solicitud_pendiente` inserta una pendiente por A y por B).
 - **Conflicto de stock: forzar = ajuste positivo + venta, nunca stock negativo (D15).**
   `POST /sincronizacion/operaciones/{operacion_id}/resolver` con `{"accion": "forzar"|"rechazar", "motivo"}`
   (permiso `sincronizacion.resolver`: administrador y encargado; el encargado solo las de su sucursal, otra

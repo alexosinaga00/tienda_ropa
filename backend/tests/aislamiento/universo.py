@@ -28,6 +28,8 @@ from sqlalchemy import select
 
 from app.catalogo.models import ActivoProbador, ProbadorGeneracion, ProductoImagen
 from app.comercial.models import (
+    Devolucion,
+    DevolucionDetalle,
     Envio,
     EstadoPago,
     MetodoPago,
@@ -274,6 +276,7 @@ class Universo:
             h,
         )["id"]
         ids["venta_con_devolucion"] = ultima[0]["id"]
+        ids["solicitud_cambio"] = self._solicitud_pendiente()
         self._pendiente_con_pasarela()
         self._envio(ventas[1][0]["id"] if len(ventas) > 1 else venta["id"])
 
@@ -328,6 +331,32 @@ class Universo:
             self.cliente = SimpleNamespace(id=perfil.id, usuario_id=usuario.id, headers=token_de_usuario(db, usuario))
         self.ids["cliente"] = self.cliente.id
         self.headers["cliente"] = self.cliente.headers
+
+    def _solicitud_pendiente(self) -> int:
+        """Una solicitud de cambio PENDIENTE del cliente sobre la venta del universo (Etapa 2 de CU-17). Se inserta
+        directo: no mueve stock ni cuenta como devuelta, y la talla nueva es la misma (la regla de negocio la rechaza
+        al aprobar con 400: para la prueba espejo basta con que la ruta ENCUENTRE el recurso)."""
+        ids = self.ids
+        with self.orm() as db:
+            devolucion = Devolucion(
+                codigo=f"SOL-U{self.tag}{self.n()}",
+                venta_id=ids["venta"],
+                motivo=self.m("solicitud"),
+                estado="pendiente",
+                usuario_id=self.cliente.usuario_id,
+            )
+            db.add(devolucion)
+            db.flush()
+            db.add(
+                DevolucionDetalle(
+                    devolucion_id=devolucion.id,
+                    venta_detalle_id=ids["venta_detalle"],
+                    cantidad=1,
+                    variante_nueva_id=ids["variante"],
+                )
+            )
+            db.flush()
+            return devolucion.id
 
     def _transferencia(self, enviar: bool) -> int:
         ids = self.ids
@@ -474,6 +503,7 @@ class Universo:
             "reserva": lambda: self._reserva_nueva(n),
             "venta_pendiente": lambda: self._venta_pendiente()["id"],
             "pago": lambda: self._pago_nuevo(),
+            "solicitud_cambio": self._solicitud_pendiente,
             "notificacion": lambda: self._insertar(Notificacion(usuario_id=self.empresa.admin_id, titulo=f"aviso {n}", tipo="aviso")),
             "activo_probador": lambda: self._insertar(
                 ActivoProbador(variante_id=self._variante_nueva(n), tipo="overlay_2d", url=f"activo-{n}", estado="pendiente")

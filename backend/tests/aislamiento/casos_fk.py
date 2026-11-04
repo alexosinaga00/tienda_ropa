@@ -105,6 +105,14 @@ def _linea_devolucion(a: Universo) -> dict:
     return {"venta_id": a.ids["venta"], "motivo": "FK", "detalle": [{"venta_detalle_id": a.ids["venta_detalle"], "cantidad": 1}]}
 
 
+def _solicitud_cambio(a: Universo) -> dict:
+    return {
+        "venta_id": a.ids["venta"],
+        "motivo": "FK",
+        "detalle": [{"venta_detalle_id": a.ids["venta_detalle"], "cantidad": 1, "variante_nueva_id": a.ids["variante"]}],
+    }
+
+
 def _carrito_con_prenda(a: Universo) -> dict:
     variante = a.nuevo("variante")
     crear(a.client, "/inventario/ajustes", {"variante_id": variante, "sucursal_id": a.ids["sucursal"], "cantidad": 5}, a.admin)
@@ -286,6 +294,14 @@ CASOS_FK: list[CasoFK] = [
     CasoFK("devolucion.variante_nueva_id", "POST", "/devoluciones",
            lambda a: {**_linea_devolucion(a), "detalle": [{**_linea_devolucion(a)["detalle"][0], "variante_nueva_id": a.ids["variante"]}]},
            ("detalle", 0, "variante_nueva_id"), "variante", espejo=False),
+    # Solicitud de cambio del cliente (Etapa 2): los tres ids del cuerpo se resuelven (404) ANTES de escribir nada.
+    # Una petición positiva válida necesita otra talla del mismo producto: la prueba tests/comercial/test_solicitud_cambio.py.
+    CasoFK("solicitud_cambio.venta_id", "POST", "/solicitudes-cambio", _solicitud_cambio, ("venta_id",), "venta",
+           token="cliente", espejo=False),
+    CasoFK("solicitud_cambio.venta_detalle_id", "POST", "/solicitudes-cambio", _solicitud_cambio,
+           ("detalle", 0, "venta_detalle_id"), "venta_detalle", token="cliente", espejo=False),
+    CasoFK("solicitud_cambio.variante_nueva_id", "POST", "/solicitudes-cambio", _solicitud_cambio,
+           ("detalle", 0, "variante_nueva_id"), "variante", token="cliente", espejo=False),
     CasoFK("pago_caja.venta_id", "POST", "/pagos/caja",
            lambda a: {"venta_id": a.nuevo("venta_pendiente"), "metodo_pago": "efectivo", "monto_recibido": "99999"}, ("venta_id",), "venta"),
     CasoFK("pago_iniciar.venta_id", "POST", "/pagos/iniciar",

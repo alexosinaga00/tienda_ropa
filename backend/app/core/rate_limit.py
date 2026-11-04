@@ -131,3 +131,12 @@ def _limites_de_recuperacion() -> tuple[int, int]:
 # Solicitudes de recuperación de contraseña por cuenta (empresa + correo). Cuenta TODAS las solicitudes (no son
 # "fallos"), existan o no la empresa y el correo: así el límite no revela nada.
 limitador_recuperacion = LimitadorIntentos(limites=_limites_de_recuperacion)
+
+
+def _limites_de_solicitud_cambio() -> tuple[int, int]:
+    ajustes = get_settings()
+    return ajustes.solicitud_cambio_max_por_ventana, ajustes.solicitud_cambio_ventana_segundos
+
+
+# Solicitudes de cambio de talla o color por cuenta de cliente (clave: empresa + usuario).
+limitador_solicitud_cambio = LimitadorIntentos(limites=_limites_de_solicitud_cambio)

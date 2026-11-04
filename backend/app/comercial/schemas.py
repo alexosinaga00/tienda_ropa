@@ -338,9 +338,10 @@ class DevolucionDetalleRespuesta(BaseModel):
     id: int
     venta_detalle_id: int
     cantidad: int
+    variante_nueva_id: int | None = None
 
 
-class ReposicionRespuesta(BaseModel):
+class ReposicionCambioRespuesta(BaseModel):
     """Una prenda entregada en lugar de otra en un cambio (solo en la respuesta del registro)."""
 
     venta_detalle_id: int
@@ -357,14 +358,68 @@ class DevolucionRespuesta(BaseModel):
     venta_id: int
     fecha: dt.datetime
     motivo: str | None
-    estado: Literal["pendiente", "aprobada", "rechazada"]
+    estado: Literal["pendiente", "aprobada", "rechazada", "cancelada", "vencida"]
     usuario_id: int | None
     detalle: list[DevolucionDetalleRespuesta]
     # Lo que salió del stock en un cambio; vacío en una devolución simple. No se guarda en la devolución (el kardex
     # lo registra con la referencia de la devolución): lo arma el registro y solo viaja en esa respuesta.
-    reposiciones: list[ReposicionRespuesta] = Field(default_factory=list)
+    reposiciones: list[ReposicionCambioRespuesta] = Field(default_factory=list)
     # Verdadero si el comprobante quedó programado por correo (el comprador tiene correo y el envío está
     # configurado). No garantiza que Brevo lo entregue: el envío es en segundo plano.
+    correo_programado: bool = False
+
+
+# ---- Solicitud de cambio de talla o color (Etapa 2 de CU-17) ----------------------------------
+
+
+EstadoSolicitudCambio = Literal["pendiente", "aprobada", "rechazada", "cancelada", "vencida"]
+
+
+class SolicitudCambioLineaCrear(BaseModel):
+    venta_detalle_id: int
+    cantidad: int = Field(gt=0)
+    # La talla o el color que el cliente quiere en su lugar (del MISMO producto y precio).
+    variante_nueva_id: int
+
+
+class SolicitudCambioCrear(BaseModel):
+    venta_id: int
+    motivo: str | None = Field(default=None, max_length=300)
+    detalle: list[SolicitudCambioLineaCrear] = Field(min_length=1, max_length=20)
+
+
+class SolicitudCambioRechazar(BaseModel):
+    motivo: str = Field(min_length=3, max_length=300)
+
+
+class SolicitudCambioLineaRespuesta(BaseModel):
+    venta_detalle_id: int
+    cantidad: int
+    variante_devuelta_id: int
+    prenda_devuelta: str
+    variante_nueva_id: int | None
+    prenda_nueva: str | None
+    # Unidades de la prenda nueva disponibles hoy en la sucursal de la venta (informativo: no se reservan al solicitar).
+    disponible_nueva: int | None = None
+
+
+class SolicitudCambioRespuesta(BaseModel):
+    id: int
+    codigo: str
+    venta_id: int
+    venta_codigo: str
+    sucursal_id: int
+    cliente_nombre: str | None
+    fecha: FechaUTC
+    estado: EstadoSolicitudCambio
+    motivo: str | None
+    motivo_rechazo: str | None
+    resuelta_en: FechaUTC | None
+    # Hasta cuándo se puede aprobar: fin del plazo de cambio de la venta más la tolerancia. Pasado ese instante una
+    # solicitud pendiente vence sola.
+    atender_hasta: FechaUTC
+    detalle: list[SolicitudCambioLineaRespuesta]
+    # Verdadero si el correo (recibida, comprobante o rechazo) quedó programado; no garantiza que Brevo lo entregue.
     correo_programado: bool = False
 
 

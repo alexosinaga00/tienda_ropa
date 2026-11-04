@@ -52,6 +52,7 @@ import {
 } from '../../core/offline/operaciones-offline.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { NombreIcono } from '../../shared/icono/iconos';
+import { SolicitudesCambioComponent } from './solicitudes-cambio.component';
 
 /** Una talla o color por la que se puede cambiar una línea devuelta (mismo producto y mismo precio). */
 interface OpcionCambio {
@@ -136,6 +137,7 @@ const OPCIONES_METODO_PAGO: { label: string; value: MetodoPagoCaja; icono: Nombr
     ButtonModule,
     DialogModule,
     IconoComponent,
+    SolicitudesCambioComponent,
     TableModule,
   ],
   templateUrl: './caja.component.html',
@@ -306,6 +308,12 @@ export class CajaComponent implements OnInit, OnDestroy {
   });
   protected readonly etiquetaDevolucion = etiquetaDevolucion;
 
+  // ---- Solicitudes de cambio del cliente (CU-17, Etapa 2) -----------------------------
+  // El cliente pide el cambio de talla o color desde su compra; aquí se ve cuántas esperan y se abre la bandeja.
+
+  protected readonly solicitudesVisible = signal(false);
+  protected readonly solicitudesPendientes = signal(0);
+
   // ---- Devoluciones --------------------------------------------------------------
 
   protected readonly devolucionVisible = signal(false);
@@ -349,6 +357,34 @@ export class CajaComponent implements OnInit, OnDestroy {
         if (!historial) this.cambioPendiente.set(false);
       });
     });
+    // Al conocer la sucursal se cuenta cuántas solicitudes de cambio esperan (el número junto al botón).
+    effect(() => {
+      const sucursal = this.sucursalId();
+      untracked(() => {
+        if (sucursal === null) this.solicitudesPendientes.set(0);
+        else this.cargarConteoSolicitudes(sucursal);
+      });
+    });
+  }
+
+  /** Cuántas solicitudes de cambio están pendientes en la sucursal. Un fallo no molesta: el botón sigue sin número. */
+  private cargarConteoSolicitudes(sucursalId: number): void {
+    if (this.sinConexion()) return;
+    this.http
+      .get<unknown[]>(`${environment.apiUrl}/solicitudes-cambio/sucursal/${sucursalId}`, {
+        params: { estado: 'pendiente' },
+        context: new HttpContext().set(SIN_TOAST_ERROR, true),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (lista) => this.solicitudesPendientes.set(Array.isArray(lista) ? lista.length : 0),
+        error: () => undefined,
+      });
+  }
+
+  protected abrirSolicitudes(): void {
+    if (this.sucursalId() === null || this.sinConexion()) return;
+    this.solicitudesVisible.set(true);
   }
 
   ngOnDestroy(): void {
@@ -515,7 +551,13 @@ export class CajaComponent implements OnInit, OnDestroy {
    * del input y necesitan preventDefault selectivo. */
   @HostListener('window:keydown', ['$event'])
   onAtajoGlobal(evento: KeyboardEvent): void {
-    if (this.comprobanteVisible() || this.historialVisible() || this.devolucionVisible() || this.sinStockVisible()) {
+    if (
+      this.comprobanteVisible() ||
+      this.historialVisible() ||
+      this.devolucionVisible() ||
+      this.solicitudesVisible() ||
+      this.sinStockVisible()
+    ) {
       return;
     }
     if (evento.key === 'F2' && this.fase() === 'armando') {
