@@ -142,6 +142,15 @@
           </div>
         }
 
+        @if (permiteCambio()) {
+          <app-solicitar-cambio
+            [venta]="venta()!"
+            [lineas]="lineasParaCambio()"
+            [plazo]="plazo()"
+            [sucursalNombre]="sucursalNombre()"
+          />
+        }
+
         @for (linea of lineas(); track linea.id) {
           <div class="linea">
             @if (linea.imagenPrincipal) {

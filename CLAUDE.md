@@ -609,8 +609,8 @@ Decisiones de diseño (D15, D17, D19):
   y la Caja web ofrece «Cambiar por» con las variantes del mismo producto y precio y su stock. Pruebas:
   `tests/comercial/test_cambio_talla.py`.
 - **Solicitud de cambio del cliente (CU-17, Etapa 2; migración `d2f8a6c14b97`).** El CLIENTE pide el cambio desde su
-  compra y el personal de la sucursal lo aprueba cuando trae la prenda. Hecho: backend y bandeja de la Caja web;
-  pendientes: la tienda web y la app (botón «Solicitar cambio» y estado de la solicitud). Una SOLICITUD es una
+  compra y el personal de la sucursal lo aprueba cuando trae la prenda. Hecho: backend, bandeja de la Caja web, tienda
+  web y app móvil (sección «Cambiar talla o color» en el detalle de la compra). Una SOLICITUD es una
   `devolucion` en estado `pendiente` (no hay tabla nueva); la migración suma `devolucion_detalle.variante_nueva_id`
   (también se llena en los cambios que registra el cajero), `devolucion.resuelta_por_id`, `resuelta_en`,
   `motivo_rechazo` y los estados `cancelada` y `vencida`. La devolución que el cajero registra en el acto sigue naciendo
@@ -639,6 +639,14 @@ Decisiones de diseño (D15, D17, D19):
   - **Bitácora:** `devolucion/solicitar`, `aprobar`, `rechazar` y `cancelar` (solo ids y conteos; el motivo no se guarda).
   - **Web (Caja):** `features/caja/solicitudes-cambio.component.*`, bandeja en un diálogo del botón «Solicitudes de cambio»
     (con el número de pendientes) que aprueba o rechaza con motivo y muestra el faltante de stock.
+  - **Web (tienda):** `features/tienda/presentation/solicitar-cambio.component.*` dentro del detalle de la compra (pagada o
+    entregada, plazo vigente y con conexión): por prenda cantidad y «Cambiar por» (otras tallas o colores del mismo
+    precio y con stock en la sucursal de la compra, del catálogo público), varias prendas en una sola solicitud, lista
+    «Tus solicitudes» con estado, motivo del rechazo y cancelar; chip «Cambio pendiente» en Mis compras.
+    `features/tienda/data/cambios.service.ts`. Sin conexión no se puede pedir (los cambios son solo en línea, D19).
+  - **App móvil:** `features/compras/presentation/solicitar_cambio_seccion.dart` (+ repositorio, modelos y providers
+    en `features/compras/`), lo mismo que la web; la cantidad máxima por prenda es lo comprado y el servidor responde 400
+    si ya se devolvió parte.
   - Pruebas: `tests/comercial/test_solicitud_cambio.py` (33) y las 6 rutas en `tests/aislamiento/rutas_esperadas.py`
     (`Universo._solicitud_pendiente` inserta una pendiente por A y por B).
 - **Conflicto de stock: forzar = ajuste positivo + venta, nunca stock negativo (D15).**

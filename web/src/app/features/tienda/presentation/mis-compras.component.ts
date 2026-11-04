@@ -3,6 +3,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EstadoVenta, Venta, etiquetaDevolucion } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
+import { CambiosService } from '../data/cambios.service';
 import { PedidosService } from '../data/pedidos.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
 
@@ -32,7 +33,11 @@ export class MisComprasComponent implements OnInit {
   private readonly pedidosService = inject(PedidosService);
   protected readonly tienda = inject(TiendaActualService);
 
+  private readonly cambiosService = inject(CambiosService);
+
   protected readonly compras = signal<Venta[]>([]);
+  /** Ids de las compras con una solicitud de cambio de talla o color pendiente. */
+  protected readonly conCambioPendiente = signal<Set<number>>(new Set());
   /** Compras que quedaron sin pagar: se avisa arriba para que no pasen desapercibidas. */
   protected readonly pendientes = computed(() => this.compras().filter((c) => c.estado === 'pendiente_pago'));
   protected readonly cargando = signal(true);
@@ -49,11 +54,21 @@ export class MisComprasComponent implements OnInit {
       next: (compras) => {
         this.compras.set(compras);
         this.cargando.set(false);
+        this.cargarCambiosPendientes();
       },
       error: () => {
         this.cargando.set(false);
         this.error.set(true);
       },
+    });
+  }
+
+  /** Las compras con una solicitud de cambio pendiente. Si la consulta falla, la lista queda como siempre. */
+  private cargarCambiosPendientes(): void {
+    this.cambiosService.mias().subscribe({
+      next: (solicitudes) =>
+        this.conCambioPendiente.set(new Set(solicitudes.filter((s) => s.estado === 'pendiente').map((s) => s.venta_id))),
+      error: () => this.conCambioPendiente.set(new Set()),
     });
   }
 

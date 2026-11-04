@@ -109,6 +109,28 @@ describe('CompraDetalleComponent: plazo para cambiar la prenda', () => {
     expect(aviso(fixture)).toBeNull();
   });
 
+  it('una compra pagada ofrece pedir el cambio y lee sus solicitudes; una pendiente de pago no', () => {
+    const fixture = montar();
+    cargar(fixture, 'pagada');
+    http.expectOne(`${API}/ventas/42/plazo-cambio`).flush(plazo(true));
+    const mias = http.expectOne((r) => r.url === `${API}/solicitudes-cambio/mias`);
+    expect(mias.request.params.get('venta_id')).toBe('42');
+    mias.flush([]);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-estado="solicitar-cambio"]')).not.toBeNull();
+    expect((el.querySelector('[data-estado="abrir-cambio"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('una compra pendiente de pago no muestra la solicitud de cambio ni la consulta', () => {
+    const fixture = montar();
+    cargar(fixture, 'pendiente_pago');
+
+    http.expectNone((r) => r.url.includes('/solicitudes-cambio'));
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-estado="solicitar-cambio"]')).toBeNull();
+  });
+
   it('si la consulta del plazo falla, el comprobante se ve igual y sin aviso', () => {
     const fixture = montar();
     cargar(fixture, 'pagada');

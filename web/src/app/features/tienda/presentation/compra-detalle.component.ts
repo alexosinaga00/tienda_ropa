@@ -18,6 +18,7 @@ import { PedidosService } from '../data/pedidos.service';
 import { CheckoutService } from '../state/checkout.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
 import { ResumenCompraComponent } from './resumen-compra.component';
+import { LineaParaCambio, SolicitarCambioComponent } from './solicitar-cambio.component';
 
 const ETIQUETAS_ENVIO: Record<EstadoEnvio, string> = {
   programado: 'Programado',
@@ -33,6 +34,7 @@ const METODOS_REINTENTO: { codigo: MetodoPagoPasarela; etiqueta: string }[] = [
 ];
 
 interface LineaComprobante extends VentaDetalle {
+  productoId?: number | null;
   productoNombre?: string;
   imagenPrincipal?: string | null;
   tallaCodigo?: string | null;
@@ -42,7 +44,7 @@ interface LineaComprobante extends VentaDetalle {
 @Component({
   selector: 'app-compra-detalle',
   standalone: true,
-  imports: [RouterLink, DatePipe, DecimalPipe, IconoComponent, ResumenCompraComponent],
+  imports: [RouterLink, DatePipe, DecimalPipe, IconoComponent, ResumenCompraComponent, SolicitarCambioComponent],
   templateUrl: './compra-detalle.component.html',
   styleUrl: './compra-detalle.component.scss',
 })
@@ -80,6 +82,21 @@ export class CompraDetalleComponent implements OnInit {
   /** Hasta cuándo se puede cambiar la compra (lo dice el servidor). Sin dato, no se muestra nada. */
   protected readonly plazo = signal<PlazoCambio | null>(null);
   protected readonly lineas = signal<LineaComprobante[]>([]);
+  /** Las prendas de la compra, como las necesita la solicitud de cambio de talla o color. */
+  protected readonly lineasParaCambio = computed<LineaParaCambio[]>(() =>
+    this.lineas().map((linea) => ({
+      id: linea.id,
+      varianteId: linea.variante_id,
+      productoId: linea.productoId ?? null,
+      cantidad: linea.cantidad,
+      nombre: linea.productoNombre ?? 'Prenda',
+      detalle: [linea.tallaCodigo, linea.colorNombre].filter(Boolean).join(' · '),
+    })),
+  );
+  protected readonly permiteCambio = computed(() => {
+    const estado = this.venta()?.estado;
+    return estado === 'pagada' || estado === 'entregada';
+  });
   protected readonly cargando = signal(true);
   protected readonly error = signal(false);
 
@@ -108,6 +125,7 @@ export class CompraDetalleComponent implements OnInit {
               const item = porVariante.get(linea.variante_id);
               return {
                 ...linea,
+                productoId: item?.producto_id ?? null,
                 productoNombre: item?.producto_nombre,
                 imagenPrincipal: item?.imagen_principal,
                 tallaCodigo: item?.talla_codigo,

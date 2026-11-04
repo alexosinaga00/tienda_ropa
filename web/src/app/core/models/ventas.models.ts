@@ -123,6 +123,19 @@ export interface SolicitudCambio {
   correo_programado?: boolean;
 }
 
+/** Una prenda que el cliente quiere cambiar y la talla o el color que quiere en su lugar (`POST /solicitudes-cambio`). */
+export interface SolicitudCambioLineaCrear {
+  venta_detalle_id: number;
+  cantidad: number;
+  variante_nueva_id: number;
+}
+
+export interface SolicitudCambioCrear {
+  venta_id: number;
+  motivo?: string | null;
+  detalle: SolicitudCambioLineaCrear[];
+}
+
 export interface Devolucion {
   id: number;
   codigo: string;

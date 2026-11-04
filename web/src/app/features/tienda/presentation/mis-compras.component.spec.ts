@@ -81,3 +81,47 @@ describe('MisComprasComponent: compras sin pagar', () => {
     expect(aviso(el)).toBeNull();
   });
 });
+
+describe('MisComprasComponent: solicitudes de cambio pendientes', () => {
+  let http: HttpTestingController;
+
+  function montar(compras: object[], respuesta: { solicitudes?: object[]; falla?: boolean }) {
+    TestBed.configureTestingModule({ providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(TiendaActualService).fijar('acme', 'lista', {
+      codigo: 'acme',
+      nombre: 'Acme',
+      logo_url: null,
+      color_acento: null,
+    });
+    http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(MisComprasComponent);
+    fixture.detectChanges();
+    http.expectOne(`${API}/ventas/mis-compras`).flush(compras);
+    const mias = http.expectOne(`${API}/solicitudes-cambio/mias`);
+    if (respuesta.falla) mias.flush({}, { status: 500, statusText: 'Server Error' });
+    else mias.flush(respuesta.solicitudes ?? []);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  const solicitud = (ventaId: number, estado: string) => ({ id: ventaId * 10, venta_id: ventaId, estado });
+  const chips = (el: HTMLElement) =>
+    Array.from(el.querySelectorAll('.fila')).map(
+      (fila) => fila.querySelector('[data-estado="cambio-pendiente"]')?.textContent?.trim() ?? null,
+    );
+
+  it('marca solo las compras con una solicitud de cambio pendiente', () => {
+    const el = montar([compra(1, 'pagada'), compra(2, 'pagada'), compra(3, 'entregada')], {
+      solicitudes: [solicitud(1, 'pendiente'), solicitud(2, 'rechazada'), solicitud(2, 'aprobada')],
+    });
+
+    expect(chips(el)).toEqual(['Cambio pendiente', null, null]);
+  });
+
+  it('si la consulta de solicitudes falla, la lista de compras se ve igual y sin marcas', () => {
+    const el = montar([compra(1, 'pagada')], { falla: true });
+
+    expect(chips(el)).toEqual([null]);
+    expect(el.textContent).toContain('V-1');
+  });
+});

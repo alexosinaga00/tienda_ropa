@@ -51,6 +51,9 @@
           @if (marcaDevolucion(venta); as marca) {
             <span class="fs-chip fs-chip--advertencia" data-estado="con-devolucion">{{ marca }}</span>
           }
+          @if (conCambioPendiente().has(venta.id)) {
+            <span class="fs-chip fs-chip--advertencia" data-estado="cambio-pendiente">Cambio pendiente</span>
+          }
           <span class="fila__total fs-num">Bs {{ venta.total | number: '1.2-2' }}</span>
           <fs-icono class="fila__chevron" nombre="chevron-derecha" [tam]="28" />
         </a>

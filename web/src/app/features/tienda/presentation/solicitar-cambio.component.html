@@ -1,0 +1,233 @@
+@if (esDeCambio()) {
+  <section class="cambio" data-estado="solicitar-cambio" aria-label="Cambiar talla o color">
+    <div class="cambio__encabezado">
+      <fs-icono nombre="deshacer" [tam]="32" />
+      <div>
+        <div class="cambio__titulo">Cambiar talla o color</div>
+        <div class="cambio__texto">
+          Pídelo aquí y lleva la prenda a {{ sucursalNombre() ? 'la sucursal ' + sucursalNombre() : 'la tienda' }}. Solo se
+          cambia por otra talla o color de la misma prenda.
+        </div>
+      </div>
+    </div>
+
+    @if (enviada(); as solicitud) {
+      <p class="fs-aviso fs-aviso--exito cambio__aviso" role="status" data-estado="solicitud-enviada">
+        <fs-icono nombre="check" [tam]="24" />
+        <span>
+          Recibimos tu solicitud {{ solicitud.codigo }}. Lleva la prenda a
+          {{ sucursalNombre() ? 'la sucursal ' + sucursalNombre() : 'la tienda' }} antes del
+          {{ fecha(solicitud.atender_hasta) | date: 'dd/MM/yyyy HH:mm' }}. Te avisaremos por correo.
+        </span>
+      </p>
+    }
+
+    @if (!abierto()) {
+      @if (vigente()) {
+        <div class="cambio__acciones">
+          <button
+            type="button"
+            class="fs-btn fs-btn--secundario"
+            data-estado="abrir-cambio"
+            [disabled]="sinConexion() || lineasDisponibles().length === 0"
+            [attr.title]="sinConexion() ? 'Requiere conexión' : null"
+            (click)="abrir()"
+          >
+            Solicitar cambio
+          </button>
+          @if (sinConexion()) {
+            <span class="cambio__nota" data-estado="cambio-sin-conexion">Requiere conexión</span>
+          } @else if (lineasDisponibles().length === 0) {
+            <span class="cambio__nota">Ya pediste el cambio de todas las prendas de esta compra.</span>
+          }
+        </div>
+      } @else if (plazo()) {
+        <p class="cambio__nota" data-estado="plazo-vencido-cambio">
+          El plazo para pedir un cambio de esta compra ya venció.
+        </p>
+      }
+    } @else {
+      <div class="formulario" data-estado="formulario-cambio">
+        @if (cargandoOpciones()) {
+          <p class="cambio__nota" role="status">Buscando las tallas y colores disponibles…</p>
+        } @else if (errorOpciones()) {
+          <p class="fs-error-texto" role="alert" data-estado="error-opciones">
+            <fs-icono nombre="alerta" [tam]="24" />
+            No pudimos ver las tallas disponibles.
+            <button type="button" class="enlace" (click)="abrir()">Reintentar</button>
+          </p>
+        } @else {
+          <p class="cambio__nota">Marca cuántas unidades quieres cambiar y por cuál talla o color.</p>
+          @for (linea of lineasDisponibles(); track linea.id) {
+            <div class="fila" [attr.data-linea]="linea.id">
+              <div class="fila__prenda">
+                <span class="fila__nombre">{{ linea.nombre }}</span>
+                @if (linea.detalle) {
+                  <span class="fila__detalle">{{ linea.detalle }}</span>
+                }
+              </div>
+
+              <div class="cantidad" role="group" [attr.aria-label]="'Unidades a cambiar de ' + linea.nombre">
+                <button
+                  type="button"
+                  class="cantidad__boton"
+                  aria-label="Una menos"
+                  [disabled]="cantidadDe(linea) === 0"
+                  (click)="cambiarCantidad(linea, -1)"
+                >
+                  −
+                </button>
+                <span class="cantidad__valor fs-num" data-estado="cantidad">{{ cantidadDe(linea) }} de {{ linea.cantidad }}</span>
+                <button
+                  type="button"
+                  class="cantidad__boton"
+                  aria-label="Una más"
+                  [disabled]="cantidadDe(linea) >= linea.cantidad"
+                  (click)="cambiarCantidad(linea, 1)"
+                >
+                  +
+                </button>
+              </div>
+
+              @if (opcionesDe(linea).length === 0) {
+                <span class="cambio__nota fila__sin" data-estado="sin-opciones">
+                  No hay otra talla o color disponible en esta sucursal.
+                </span>
+              } @else {
+                <select
+                  class="fs-input fila__select"
+                  [attr.aria-label]="'Cambiar ' + linea.nombre + ' por'"
+                  data-estado="cambiar-por"
+                  [disabled]="cantidadDe(linea) === 0"
+                  [ngModel]="elegidaDe(linea)"
+                  (ngModelChange)="elegir(linea, $event)"
+                >
+                  <option [ngValue]="null">Cambiar por…</option>
+                  @for (opcion of opcionesDe(linea); track opcion.varianteId) {
+                    <option [ngValue]="opcion.varianteId">
+                      {{ opcion.etiqueta }}{{ opcion.disponible <= 3 ? ' (quedan ' + opcion.disponible + ')' : '' }}
+                    </option>
+                  }
+                </select>
+              }
+
+              @if (faltaStock(linea)) {
+                <p class="fs-error-texto fila__error" role="alert" data-estado="falta-stock">
+                  Solo quedan unidades para cambiar menos prendas. Baja la cantidad.
+                </p>
+              }
+            </div>
+          }
+
+          <label class="motivo">
+            <span class="motivo__etiqueta">Motivo (opcional)</span>
+            <textarea
+              class="fs-input"
+              rows="2"
+              maxlength="300"
+              placeholder="Por ejemplo: me queda grande"
+              data-estado="motivo-cambio"
+              [ngModel]="motivo()"
+              (ngModelChange)="motivo.set($event)"
+            ></textarea>
+          </label>
+
+          @if (errorEnvio()) {
+            <p class="fs-error-texto" role="alert" data-estado="error-cambio">
+              <fs-icono nombre="alerta" [tam]="24" />
+              {{ errorEnvio() }}
+            </p>
+          }
+
+          <p class="cambio__nota">
+            No reservamos la prenda nueva: la tienda la confirma cuando revisa la prenda que llevas.
+          </p>
+        }
+
+        <div class="cambio__acciones">
+          <button type="button" class="fs-btn fs-btn--secundario" [disabled]="enviando()" (click)="cerrar()">Volver</button>
+          <button
+            type="button"
+            class="fs-btn fs-btn--primario"
+            data-estado="enviar-cambio"
+            [disabled]="!puedeEnviar()"
+            (click)="enviar()"
+          >
+            {{ enviando() ? 'Enviando…' : 'Enviar solicitud' }}
+          </button>
+        </div>
+      </div>
+    }
+
+    @if (errorCancelar()) {
+      <p class="fs-error-texto" role="alert" data-estado="error-cancelar">
+        <fs-icono nombre="alerta" [tam]="24" />
+        {{ errorCancelar() }}
+      </p>
+    }
+
+    @if (solicitudes().length > 0) {
+      <div class="historial" data-estado="solicitudes-cambio">
+        <div class="historial__titulo">Tus solicitudes de cambio</div>
+        @for (solicitud of solicitudes(); track solicitud.id) {
+          <div class="solicitud" [attr.data-solicitud]="solicitud.codigo">
+            <div class="solicitud__cabecera">
+              <span class="fs-num solicitud__codigo">{{ solicitud.codigo }}</span>
+              <span [class]="'fs-chip ' + estado(solicitud).clase" data-estado="estado-solicitud">
+                {{ estado(solicitud).texto }}
+              </span>
+            </div>
+            <ul class="solicitud__lineas">
+              @for (linea of solicitud.detalle; track linea.venta_detalle_id) {
+                <li>
+                  {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span> →
+                  {{ linea.prenda_nueva }}
+                </li>
+              }
+            </ul>
+            @if (solicitud.estado === 'pendiente') {
+              <p class="cambio__nota">
+                Lleva la prenda a {{ sucursalNombre() ? 'la sucursal ' + sucursalNombre() : 'la tienda' }} antes del
+                {{ fecha(solicitud.atender_hasta) | date: 'dd/MM/yyyy HH:mm' }}.
+              </p>
+              @if (confirmandoCancelar() === solicitud.id) {
+                <p class="cambio__nota" role="alert">¿Cancelar esta solicitud?</p>
+                <div class="cambio__acciones">
+                  <button
+                    type="button"
+                    class="fs-btn fs-btn--primario fs-btn--sm"
+                    data-estado="confirmar-cancelar"
+                    [disabled]="cancelando() !== null"
+                    (click)="cancelar(solicitud)"
+                  >
+                    {{ cancelando() === solicitud.id ? 'Cancelando…' : 'Sí, cancelar' }}
+                  </button>
+                  <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="noCancelar()">No</button>
+                </div>
+              } @else {
+                <div class="cambio__acciones">
+                  <button
+                    type="button"
+                    class="fs-btn fs-btn--secundario fs-btn--sm"
+                    data-estado="cancelar-solicitud"
+                    [disabled]="sinConexion()"
+                    [attr.title]="sinConexion() ? 'Requiere conexión' : null"
+                    (click)="pedirCancelar(solicitud)"
+                  >
+                    Cancelar solicitud
+                  </button>
+                </div>
+              }
+            } @else if (solicitud.estado === 'rechazada' && solicitud.motivo_rechazo) {
+              <p class="cambio__nota" data-estado="motivo-rechazo">Motivo: {{ solicitud.motivo_rechazo }}</p>
+            } @else if (solicitud.estado === 'aprobada') {
+              <p class="cambio__nota">Cambio hecho. Te enviamos el comprobante a tu correo.</p>
+            } @else if (solicitud.estado === 'vencida') {
+              <p class="cambio__nota">No llevaste la prenda a tiempo. Si aún estás dentro del plazo, pide otra.</p>
+            }
+          </div>
+        }
+      </div>
+    }
+  </section>
+}
