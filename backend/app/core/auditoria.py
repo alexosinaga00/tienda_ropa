@@ -45,6 +45,7 @@ ENTIDAD_OPERACION_SYNC = "operacion_sync"  # E08
 ENTIDAD_COPIA_SEGURIDAD = "copia_seguridad"  # E22
 ENTIDAD_CIERRE_CAJA = "cierre_caja"  # E21
 ENTIDAD_MODELO_ML = "modelo_ml"  # E11
+ENTIDAD_PEDIDO_CONTRATACION = "pedido_contratacion"  # compra de un plan con PayPal (CU-04)
 
 # ---- Acciones (máximo 40 caracteres: columna `accion`) ----
 ACCION_CREAR = "crear"
@@ -76,6 +77,12 @@ ACCION_FALLAR = "fallar"  # E22 (la copia no se pudo crear)
 ACCION_ABRIR = "abrir"  # E21
 ACCION_CERRAR = "cerrar"  # E21
 ACCION_ENTRENAR = "entrenar"  # E11
+# Compra de un plan con PayPal (pedido_contratacion).
+ACCION_CAPTURAR = "capturar"  # el pago se cobró y la empresa se creó
+ACCION_CANCELAR = "cancelar"
+ACCION_VENCER = "vencer"
+ACCION_PAGADO_SIN_EMPRESA = "pagado_sin_empresa"  # se cobró pero la empresa no se pudo crear (reembolso manual)
+ACCION_PAGO_NO_COINCIDE = "pago_no_coincide"  # PayPal informó otro monto u otra moneda: no se cobró
 
 # ---- Contexto: quién y desde dónde ----
 

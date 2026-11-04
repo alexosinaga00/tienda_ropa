@@ -7,6 +7,7 @@ import datetime as dt
 import logging
 import re
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -52,6 +53,7 @@ from app.plataforma.repository import (
     EmpleadoRepository,
     HorarioRepository,
     NotificacionRepository,
+    PedidoContratacionRepository,
     SucursalRepository,
     UsuarioRepository,
 )
@@ -129,6 +131,31 @@ def normalizar_nombre_empresa(nombre: str) -> str:
     longitud de `empresa.codigo`; E04 la reutiliza para generar el codigo."""
     guionado = re.sub(r"[^a-z0-9]+", "-", quitar_tildes(nombre).lower()).strip("-")
     return guionado[:_LONGITUD_CODIGO_EMPRESA].strip("-")
+
+
+# Códigos que ninguna empresa puede tomar: chocarían con una ruta `/api/v1/public/<x>` (la ruta fija gana y la
+# tienda quedaría inalcanzable), con un prefijo de `RUTAS_SIN_SUSCRIPCION` o con una ruta de la web.
+CODIGOS_EMPRESA_RESERVADOS = frozenset({
+    "api", "admin", "administrador", "superadmin", "superadministrador", "plataforma", "planes", "tiendas", "t",
+    "contratacion", "contratar", "pedidos", "pedido", "prueba", "pruebas", "public", "publico", "health", "auth",
+    "login", "registro", "recuperar", "restablecer", "mi-empresa", "tareas", "pagos", "webhook", "qr",
+    "sincronizacion", "sin-conexion", "docs", "redoc", "openapi", "static", "assets", "www", "root", "null",
+    "undefined",
+})  # fmt: skip
+# `RUTAS_SIN_SUSCRIPCION` usa `startswith` con "/api/v1/public/planes" y "/api/v1/public/tiendas" (sin barra
+# final): un código que EMPIECE así ("planes-ropa") heredaría la exención de suscripción. Tampoco se permite.
+PREFIJOS_CODIGO_EMPRESA_RESERVADOS = ("planes", "tiendas")
+
+
+def validar_codigo_empresa_disponible(codigo: str) -> None:
+    """422 `nombre_empresa_reservado` si el código (ya normalizado) es una palabra reservada. Lo exige TODA alta
+    de empresa (la del superadministrador y la prueba gratuita pública)."""
+    if codigo in CODIGOS_EMPRESA_RESERVADOS or codigo.startswith(PREFIJOS_CODIGO_EMPRESA_RESERVADOS):
+        raise ErrorFuncional(
+            "nombre_empresa_reservado",
+            "Ese nombre de empresa no se puede usar. Elige otro",
+            422,
+        )
 
 
 def empresa_esta_activa(db: Session, empresa_id: int) -> bool:
@@ -360,7 +387,11 @@ def administrador_principal(db: Session) -> Usuario | None:
 def vencer_suscripciones(db: Session) -> int:
     """Persiste `vencida` en las suscripciones activas cuya fecha de
     vencimiento ya pasó, en TODAS las empresas (una sola pasada: no toca datos
-    de negocio). Idempotente. Devuelve cuántas cambió."""
+    de negocio). Idempotente. Devuelve cuántas cambió.
+
+    En la misma pasada (y el mismo commit) vencen los pedidos de contratación sin pagar
+    (`vencer_pedidos_contratacion`): así no hace falta otra tarea ni otra ruta. Su conteo no
+    se devuelve, para no cambiar el contrato de `/tareas/vencer-suscripciones`."""
     consulta = (
         update(Suscripcion)
         .where(Suscripcion.estado == "activa", Suscripcion.fecha_vencimiento < hoy_utc())
@@ -368,8 +399,85 @@ def vencer_suscripciones(db: Session) -> int:
         .execution_options(synchronize_session=False)
     )
     cambiadas = db.execute(sin_filtro(consulta)).rowcount
+    vencer_pedidos_contratacion(db, confirmar=False)
     db.commit()
     return cambiadas
+
+
+# ---- Contratación de planes (compra con PayPal) ----
+
+CENTAVOS = Decimal("0.01")
+CUATRO_DECIMALES = Decimal("0.0001")
+PERIODOS_CONTRATACION = ("mensual", "anual")
+# Días de uso que compra cada periodo. El vencimiento de la suscripción es INCLUSIVO: hoy + N.
+DIAS_POR_PERIODO = {"mensual": 30, "anual": 365}
+MESES_POR_PERIODO = {"mensual": 1, "anual": 12}
+
+
+@dataclass(frozen=True)
+class PrecioContratacion:
+    """Lo que cuesta un plan en un periodo: bolivianos, dólares y el tipo de cambio usado (el que se guarda en el pedido)."""
+
+    monto_bs: Decimal
+    monto_usd: Decimal
+    tipo_cambio: Decimal
+
+
+def redondear_monto(valor: Decimal) -> Decimal:
+    """A 2 decimales, mitad hacia arriba (no el redondeo bancario de `round`)."""
+    return valor.quantize(CENTAVOS, rounding=ROUND_HALF_UP)
+
+
+def _error_plan_sin_precio() -> ErrorFuncional:
+    return ErrorFuncional("plan_sin_precio", "Este plan no tiene un precio publicado, no se puede comprar", 409)
+
+
+def monto_bs_del_plan(plan: Plan, periodo: str, descuento_anual_porcentaje: Decimal | None = None) -> Decimal:
+    """Monto en bolivianos de `plan` para el `periodo`: el precio mensual, o `mensual x 12` con el descuento anual
+    (por defecto `Settings.descuento_anual_porcentaje`, 20 %). Se calcula SIEMPRE aquí: jamás se confía en un monto
+    del cliente. `plan_sin_precio` (409) si el plan no tiene precio o es 0 (PayPal no cobra 0)."""
+    precio = plan.precio_mensual_bs
+    if precio is None or precio <= 0:
+        raise _error_plan_sin_precio()
+    if periodo not in MESES_POR_PERIODO:
+        raise DomainError("El periodo debe ser 'mensual' o 'anual'", 422)
+    bruto = Decimal(precio) * MESES_POR_PERIODO[periodo]
+    if periodo == "anual":
+        descuento = (
+            get_settings().descuento_anual_porcentaje if descuento_anual_porcentaje is None else descuento_anual_porcentaje
+        )
+        bruto = bruto * (Decimal(100) - descuento) / Decimal(100)
+    return redondear_monto(bruto)
+
+
+def convertir_bs_a_usd(monto_bs: Decimal, tipo_cambio: Decimal) -> Decimal:
+    """Bolivianos a dólares con el tipo de cambio dado (Bs por USD), a 2 decimales."""
+    return redondear_monto(monto_bs / tipo_cambio)
+
+
+def calcular_precio_contratacion(plan: Plan, periodo: str) -> PrecioContratacion:
+    """El monto en Bs, su conversión a USD y el tipo de cambio de referencia (de `Settings`, a 4 decimales: lo que
+    cabe en el pedido). `plan_sin_precio` si el plan no tiene precio o si en dólares quedaría en cero."""
+    tipo_cambio = get_settings().tipo_cambio_bs_por_usd.quantize(CUATRO_DECIMALES, rounding=ROUND_HALF_UP)
+    if tipo_cambio <= 0:
+        raise ErrorFuncional("tipo_cambio_no_configurado", "El tipo de cambio no está configurado", 503)
+    monto_bs = monto_bs_del_plan(plan, periodo)
+    monto_usd = convertir_bs_a_usd(monto_bs, tipo_cambio)
+    if monto_usd <= 0:
+        raise _error_plan_sin_precio()
+    return PrecioContratacion(monto_bs=monto_bs, monto_usd=monto_usd, tipo_cambio=tipo_cambio)
+
+
+def vencer_pedidos_contratacion(db: Session, confirmar: bool = True) -> int:
+    """Pasa a `vencido` los pedidos `pendiente` cuyo `expira_en` ya pasó (los de prueba gratuita no tienen plazo y
+    nacen completados). Idempotente. Un pedido en medio de una captura está bloqueado: el UPDATE espera, ve que ya no
+    está pendiente y no lo toca. Devuelve cuántos cambió."""
+    cambiados = PedidoContratacionRepository().vencer_vencidos(db, ahora_utc_naive())
+    if confirmar:
+        db.commit()
+    if cambiados:
+        logger.info("Pedidos de contratación vencidos: %s", cambiados)
+    return cambiados
 
 
 # ---- Notificaciones ----

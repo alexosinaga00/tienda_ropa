@@ -1,0 +1,256 @@
+<app-contratar-marco>
+  <ol pasos class="pasos" aria-label="Progreso">
+    @for (p of pasos(); track p.id; let i = $index) {
+      <li class="pasos__item" [class.pasos__item--activo]="p.id === paso()" [attr.aria-current]="p.id === paso() ? 'step' : null">
+        <span class="pasos__numero" aria-hidden="true">{{ i + 1 }}</span>
+        {{ p.nombre }}
+      </li>
+    }
+  </ol>
+
+  @if (paso() === 'listo' && resultado(); as r) {
+    <app-contratacion-listo
+      [empresaCodigo]="r.empresa_codigo"
+      [empresaNombre]="r.empresa_nombre"
+      [planNombre]="r.plan_nombre"
+      [esPrueba]="r.es_prueba"
+      [fechaVencimiento]="r.fecha_vencimiento"
+      [correo]="correoListo()"
+    />
+  } @else {
+    <div class="contratar">
+      <div class="contratar__principal">
+        @if (paso() === 'datos') {
+          <form [formGroup]="formulario" (ngSubmit)="enviar()" novalidate>
+            <h1 class="titulo">Crea tu tienda</h1>
+            <p class="sub">
+              @if (alPagar()) {
+                Pagas con PayPal y tu tienda se crea apenas se confirma el pago.
+              } @else {
+                {{ diasPrueba }} días gratis, sin tarjeta. Tu tienda queda lista al instante.
+              }
+            </p>
+
+            <div class="grupo">
+              <span class="grupo__etiqueta" id="et-modo">¿Cómo quieres empezar?</span>
+              <div class="elige elige--2" role="group" aria-labelledby="et-modo">
+                <button type="button" [attr.aria-pressed]="!alPagar()" (click)="elegirModo('prueba')">
+                  Probar {{ diasPrueba }} días gratis
+                </button>
+                <button type="button" [attr.aria-pressed]="alPagar()" (click)="elegirModo('pago')">Contratar ahora</button>
+              </div>
+            </div>
+
+            <div class="grupo">
+              <span class="grupo__etiqueta" id="et-plan">Plan</span>
+              @if (planesPublicos.cargando()) {
+                <p class="estado" aria-busy="true">Cargando planes…</p>
+              } @else if (planesPublicos.error()) {
+                <div class="aviso aviso--error" role="alert">
+                  <fs-icono nombre="alerta" [tam]="24" />
+                  <span>No pudimos cargar los planes.</span>
+                  <button type="button" class="aviso__accion" (click)="reintentarPlanes()">Reintentar</button>
+                </div>
+              } @else {
+                <div class="elige elige--planes" role="group" aria-labelledby="et-plan">
+                  @for (p of planesPublicos.planes(); track p.codigo) {
+                    <button type="button" [attr.aria-pressed]="p.codigo === codigoPlan()" (click)="elegirPlan(p.codigo)">
+                      <span class="elige__nombre">{{ p.nombre }}</span>
+                      <span class="elige__precio">{{ precioDe(p.precio_mensual_bs) }}</span>
+                    </button>
+                  }
+                </div>
+                @if (planNoDisponible()) {
+                  <p class="ayuda ayuda--aviso" role="status">El plan que elegiste ya no está disponible. Elige otro.</p>
+                }
+              }
+            </div>
+
+            <div class="fs-etiqueta-campo campo">
+              <label for="ct-empresa">Nombre de tu empresa</label>
+              <input
+                id="ct-empresa"
+                type="text"
+                class="fs-input"
+                formControlName="empresa"
+                maxlength="120"
+                autocomplete="organization"
+                placeholder="Ej. Mi Boutique"
+                [attr.aria-invalid]="errorDe('empresa') ? true : null"
+                [attr.aria-describedby]="errorDe('empresa') ? 'ct-error-empresa' : 'ct-ayuda-empresa'"
+              />
+              @if (errorDe('empresa'); as mensaje) {
+                <p id="ct-error-empresa" class="fs-error-texto" role="alert">{{ mensaje }}</p>
+              } @else {
+                <span id="ct-ayuda-empresa" class="ayuda">Tu tienda tendrá su propia dirección.</span>
+              }
+            </div>
+
+            <div class="campos2">
+              <div class="fs-etiqueta-campo campo">
+                <label for="ct-nombre">Tu nombre</label>
+                <input
+                  id="ct-nombre"
+                  type="text"
+                  class="fs-input"
+                  formControlName="nombre"
+                  maxlength="60"
+                  autocomplete="given-name"
+                  [attr.aria-invalid]="errorDe('nombre') ? true : null"
+                  [attr.aria-describedby]="errorDe('nombre') ? 'ct-error-nombre' : null"
+                />
+                @if (errorDe('nombre'); as mensaje) {
+                  <p id="ct-error-nombre" class="fs-error-texto" role="alert">{{ mensaje }}</p>
+                }
+              </div>
+              <div class="fs-etiqueta-campo campo">
+                <label for="ct-apellido">Tu apellido</label>
+                <input
+                  id="ct-apellido"
+                  type="text"
+                  class="fs-input"
+                  formControlName="apellido"
+                  maxlength="60"
+                  autocomplete="family-name"
+                  [attr.aria-invalid]="errorDe('apellido') ? true : null"
+                  [attr.aria-describedby]="errorDe('apellido') ? 'ct-error-apellido' : null"
+                />
+                @if (errorDe('apellido'); as mensaje) {
+                  <p id="ct-error-apellido" class="fs-error-texto" role="alert">{{ mensaje }}</p>
+                }
+              </div>
+            </div>
+
+            <div class="campos2">
+              <div class="fs-etiqueta-campo campo">
+                <label for="ct-email">Correo</label>
+                <input
+                  id="ct-email"
+                  type="email"
+                  class="fs-input"
+                  formControlName="email"
+                  maxlength="120"
+                  autocomplete="email"
+                  placeholder="ana@miboutique.bo"
+                  [attr.aria-invalid]="errorDe('email') ? true : null"
+                  [attr.aria-describedby]="errorDe('email') ? 'ct-error-email' : 'ct-ayuda-email'"
+                />
+                @if (errorDe('email'); as mensaje) {
+                  <p id="ct-error-email" class="fs-error-texto" role="alert">{{ mensaje }}</p>
+                } @else {
+                  <span id="ct-ayuda-email" class="ayuda">Con este correo entras al panel.</span>
+                }
+              </div>
+              <div class="fs-etiqueta-campo campo">
+                <label for="ct-telefono">Teléfono <span class="ayuda">(opcional)</span></label>
+                <input
+                  id="ct-telefono"
+                  type="tel"
+                  class="fs-input"
+                  formControlName="telefono"
+                  maxlength="20"
+                  autocomplete="tel"
+                  [attr.aria-invalid]="errorDe('telefono') ? true : null"
+                />
+                @if (errorDe('telefono'); as mensaje) {
+                  <p class="fs-error-texto" role="alert">{{ mensaje }}</p>
+                }
+              </div>
+            </div>
+
+            <div class="fs-etiqueta-campo campo">
+              <label for="ct-password">Contraseña</label>
+              <span class="fs-campo">
+                <input
+                  id="ct-password"
+                  [type]="verClave() ? 'text' : 'password'"
+                  class="fs-input fs-input--accion"
+                  formControlName="password"
+                  maxlength="72"
+                  autocomplete="new-password"
+                  [attr.aria-invalid]="errorDe('password') ? true : null"
+                  [attr.aria-describedby]="errorDe('password') ? 'ct-error-password' : 'ct-ayuda-password'"
+                />
+                <button
+                  type="button"
+                  class="fs-campo__accion"
+                  [attr.aria-label]="verClave() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  [attr.aria-pressed]="verClave()"
+                  (click)="verClave.set(!verClave())"
+                >
+                  <fs-icono [nombre]="verClave() ? 'ojo-tachado' : 'ojo'" [tam]="24" />
+                </button>
+              </span>
+              @if (errorDe('password'); as mensaje) {
+                <p id="ct-error-password" class="fs-error-texto" role="alert">{{ mensaje }}</p>
+              } @else {
+                <span id="ct-ayuda-password" class="ayuda">De 8 a 72 caracteres.</span>
+              }
+            </div>
+
+            @if (error(); as e) {
+              <div class="aviso aviso--error" role="alert">
+                <fs-icono nombre="alerta" [tam]="24" />
+                <span>{{ e.mensaje }}</span>
+              </div>
+            }
+
+            <button type="submit" class="fs-btn fs-btn--acento enviar" [disabled]="enviando()">
+              {{ enviando() ? 'Creando tu tienda…' : alPagar() ? 'Continuar al pago' : 'Empezar mi prueba gratis' }}
+              <fs-icono nombre="flecha-derecha" [tam]="24" />
+            </button>
+          </form>
+        } @else {
+          <section aria-labelledby="ct-titulo-pago">
+            <h1 id="ct-titulo-pago" class="titulo">Revisa y paga</h1>
+            <p class="sub">Pagas con PayPal. Tu tienda se crea apenas PayPal confirma el pago.</p>
+
+            <dl class="resumen">
+              <div>
+                <dt>Empresa</dt>
+                <dd>{{ formulario.controls.empresa.value.trim() }}</dd>
+              </div>
+              <div>
+                <dt>Plan</dt>
+                <dd>{{ plan()?.nombre }}</dd>
+              </div>
+              <div>
+                <dt>Periodo</dt>
+                <dd>{{ textoPeriodo() }}</dd>
+              </div>
+              <div class="resumen__total">
+                <dt>Total</dt>
+                <dd>{{ totalMostrado() }}</dd>
+              </div>
+            </dl>
+            <p class="ayuda">
+              PayPal cobra en dólares (USD) al tipo de cambio de referencia; el monto exacto lo verás en PayPal antes de
+              aprobar. Si no lo apruebas, no se cobra nada.
+            </p>
+
+            @if (error(); as e) {
+              <div class="aviso aviso--error" role="alert">
+                <fs-icono nombre="alerta" [tam]="24" />
+                <span>{{ e.mensaje }}</span>
+              </div>
+            }
+
+            <button type="button" class="fs-btn fs-btn--acento enviar" [disabled]="enviando()" (click)="pagar()">
+              {{ enviando() ? 'Llevándote a PayPal…' : 'Pagar con PayPal' }}
+              <fs-icono nombre="flecha-derecha" [tam]="24" />
+            </button>
+            <button type="button" class="enlace" [disabled]="enviando()" (click)="volverADatos()">Volver a mis datos</button>
+          </section>
+        }
+      </div>
+
+      <app-resumen-plan
+        class="contratar__lado"
+        [plan]="plan()"
+        [modo]="modo()"
+        [periodo]="periodo()"
+        (periodoCambia)="elegirPeriodo($event)"
+      />
+    </div>
+  }
+</app-contratar-marco>

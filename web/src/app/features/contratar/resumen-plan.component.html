@@ -1,0 +1,50 @@
+<aside class="lado" aria-label="Resumen de tu plan">
+  <p class="lado__etiqueta">Tu plan</p>
+
+  @if (plan(); as p) {
+    <p class="lado__nombre">{{ p.nombre }}</p>
+
+    @if (conPrecio()) {
+      <p class="lado__precio">
+        <span class="lado__monto">{{ precio() }}</span>
+        <small>{{ sufijo() }}</small>
+      </p>
+    } @else {
+      <p class="lado__precio"><span class="lado__monto lado__monto--consultar">A consultar</span></p>
+    }
+
+    @if (alPagar() && conPrecio()) {
+      <div class="periodo" role="group" aria-label="Periodo de pago">
+        <button type="button" class="periodo__op" [attr.aria-pressed]="!anual()" (click)="elegirPeriodo('mensual')">
+          Mensual
+        </button>
+        <button type="button" class="periodo__op" [attr.aria-pressed]="anual()" (click)="elegirPeriodo('anual')">
+          Anual <span class="periodo__ahorro">-{{ descuento }} %</span>
+        </button>
+      </div>
+      @if (anual()) {
+        <p class="lado__nota">Equivale a {{ equivalente() }} al mes: ahorras {{ ahorro() }} frente a pagar mes a mes.</p>
+      }
+    }
+
+    <ul class="lado__lista">
+      @for (fila of filas(); track fila) {
+        <li>
+          <fs-icono nombre="check" [tam]="20" />
+          <span>{{ fila }}</span>
+        </li>
+      }
+    </ul>
+
+    <p class="lado__pie">
+      @if (alPagar()) {
+        Pagas con PayPal. Tu tienda se crea apenas el pago se confirma.
+      } @else {
+        Prueba gratis de {{ diasPrueba }} días. Hoy no pagas nada.
+      }
+    </p>
+  } @else {
+    <p class="lado__nombre lado__nombre--vacio">Elige un plan</p>
+    <p class="lado__nota">Aquí verás su precio y lo que incluye.</p>
+  }
+</aside>

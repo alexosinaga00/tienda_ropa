@@ -13,6 +13,7 @@ import { RouterLink } from '@angular/router';
 import { RUTA_LOGIN_PERSONAL } from '../../../core/auth.service';
 import { PlanPublico } from '../../../core/models/plan.models';
 import { acentoSobreOscuro, calcularPaletaAcento } from '../../../core/utils/color';
+import { DIAS_PRUEBA } from '../../../core/utils/precio-plan';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { MarcaComponent } from '../../../shared/marca/marca.component';
 import { MarcaDemo, PlanEscena, TiendaEscena } from '../escena-3d/contrato';
@@ -99,6 +100,8 @@ export class HistoriaTiendaComponent {
   readonly sinEscena = output<void>();
 
   protected readonly rutaAccesoPersonal = RUTA_LOGIN_PERSONAL;
+  protected readonly rutaContratar = '/contratar';
+  protected readonly diasPrueba = DIAS_PRUEBA;
   protected readonly puntos = PUNTOS_RECORRIDO;
   protected readonly colores = COLORES_DEMO;
   protected readonly maxCaracteres = MAX_CARACTERES_NOMBRE;

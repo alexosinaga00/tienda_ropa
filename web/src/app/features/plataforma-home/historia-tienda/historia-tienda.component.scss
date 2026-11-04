@@ -381,6 +381,23 @@ p {
   align-items: stretch;
   justify-content: space-between;
   padding-bottom: 28px;
+
+  // Los planes no llevan cajas: este velo oscurece los cubos 3D de detrás para que el texto se lea y se
+  // desvanece arriba y abajo para no cortar la escena. No recibe el mouse.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgba(18, 17, 16, 0) 0,
+      rgba(18, 17, 16, 0.97) 22%,
+      rgba(18, 17, 16, 0.97) 94%,
+      rgba(18, 17, 16, 0) 100%
+    );
+  }
 }
 
 .planes__cabecera {

@@ -14,6 +14,7 @@ const BASICO: PlanPublico = {
   max_sucursales: 2,
   max_copias_historial: 3,
   plazo_cambio_horas_defecto: 24,
+  precio_mensual_bs: '120.00',
   gestion_productos: true,
   gestion_ventas: true,
   reservas: true,

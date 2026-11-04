@@ -10,6 +10,7 @@ import { EmpresaPublica, ResumenTienda } from '../../core/models/empresa.models'
 import { PlanesPublicosService } from '../../core/planes-publicos.service';
 import { SeoService, esUrlHttp } from '../../core/seo.service';
 import { calcularPaletaAcento } from '../../core/utils/color';
+import { DIAS_PRUEBA } from '../../core/utils/precio-plan';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { NombreIcono } from '../../shared/icono/iconos';
 import { MarcaComponent } from '../../shared/marca/marca.component';
@@ -94,6 +95,8 @@ export class PlataformaHomeComponent implements OnInit {
   protected readonly planesPublicos = inject(PlanesPublicosService);
 
   protected readonly rutaAccesoPersonal = RUTA_ACCESO_PERSONAL;
+  protected readonly rutaContratar = '/contratar';
+  protected readonly diasPrueba = DIAS_PRUEBA;
   protected readonly esqueletos = [1, 2, 3, 4, 5, 6];
 
   protected readonly confianza: readonly ContenidoPlataforma[] = [

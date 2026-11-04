@@ -1,0 +1,276 @@
+// Página de contratación. El marco (barra, fondo oscuro) y el resumen del plan tienen sus propios estilos.
+:host {
+  display: block;
+}
+
+// Pasos: se proyectan en la barra del marco.
+.pasos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.pasos__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fs-claro-tenue);
+
+  &--activo {
+    color: var(--fs-claro);
+    font-weight: 600;
+  }
+}
+
+.pasos__numero {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+
+  .pasos__item--activo & {
+    background: var(--fs-acento-oscuro);
+    border-color: var(--fs-acento-oscuro);
+    color: var(--fs-sobre-acento-oscuro);
+  }
+}
+
+// Formulario a la izquierda y resumen fijo a la derecha.
+.contratar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 0 56px;
+  align-items: start;
+}
+
+.contratar__lado {
+  position: sticky;
+  top: 24px;
+}
+
+.titulo {
+  margin: 0;
+  font-family: var(--fs-fuente-display);
+  font-stretch: 125%;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.sub {
+  margin: 10px 0 24px;
+  color: var(--fs-claro-tenue);
+}
+
+// Elección de modo y de plan: botones tipo interruptor.
+.grupo {
+  margin-bottom: 20px;
+}
+
+.grupo__etiqueta {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.elige {
+  display: grid;
+  gap: 10px;
+
+  &--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  &--planes {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    min-height: var(--fs-toque-barra);
+    padding: 8px 16px;
+    font: 600 15px var(--fs-fuente-ui);
+    text-align: left;
+    color: var(--fs-claro);
+    background: transparent;
+    border: 1px solid var(--fs-carbon-campo);
+    border-radius: var(--fs-radio-md);
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--fs-claro-tenue);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--fs-acento-oscuro);
+      outline-offset: 2px;
+    }
+
+    &[aria-pressed='true'] {
+      background: color-mix(in srgb, var(--fs-acento-oscuro) 16%, transparent);
+      border-color: var(--fs-acento-oscuro);
+    }
+  }
+}
+
+.elige__nombre {
+  font-family: var(--fs-fuente-display);
+  font-stretch: 112%;
+  text-transform: uppercase;
+}
+
+.elige__precio {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fs-claro-tenue);
+  font-variant-numeric: tabular-nums;
+}
+
+.campo {
+  margin-bottom: 16px;
+}
+
+.campos2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.ayuda {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fs-claro-tenue);
+
+  &--aviso {
+    margin: 8px 0 0;
+    color: var(--fs-claro);
+  }
+}
+
+.estado {
+  margin: 0;
+  color: var(--fs-claro-tenue);
+}
+
+.aviso {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 16px;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-radius: var(--fs-radio-md);
+
+  &--error {
+    background: color-mix(in srgb, var(--fs-error) 14%, transparent);
+    color: var(--fs-error);
+  }
+
+  fs-icono {
+    flex: none;
+  }
+}
+
+.aviso__accion {
+  min-height: var(--fs-toque);
+  margin-left: auto;
+  padding: 0 14px;
+  font: 600 14px var(--fs-fuente-ui);
+  color: inherit;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: var(--fs-radio-md);
+  cursor: pointer;
+}
+
+.enviar {
+  margin-top: 8px;
+}
+
+.enlace {
+  display: block;
+  min-height: var(--fs-toque);
+  margin-top: 8px;
+  padding: 0 4px;
+  font: 600 14px var(--fs-fuente-ui);
+  color: var(--fs-claro-tenue);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover:not([disabled]) {
+    color: var(--fs-claro);
+  }
+
+  &[disabled] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+// Revisión antes de pagar.
+.resumen {
+  margin: 0 0 12px;
+
+  div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--fs-carbon-borde);
+  }
+
+  dt {
+    color: var(--fs-claro-tenue);
+  }
+
+  dd {
+    margin: 0;
+    font-weight: 600;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+
+.resumen__total {
+  font-size: 18px;
+
+  dd {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (max-width: 860px) {
+  .contratar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contratar__lado {
+    position: static;
+    order: -1;
+    margin-bottom: 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .campos2,
+  .elige--2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

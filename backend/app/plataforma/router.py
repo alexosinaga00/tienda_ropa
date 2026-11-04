@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.auditoria import ContextoAuditoria, contexto_anonimo, obtener_contexto_auditoria
@@ -35,6 +35,7 @@ from app.plataforma.casos_uso.cu03_gestionar_organizacion import (
 )
 from app.plataforma.casos_uso.cu04_gestionar_empresas_planes_suscripciones import (
     ConsultarMiEmpresa,
+    GestionarContratacion,
     GestionarCopiasSeguridad,
     GestionarEmpresas,
     GestionarPlanes,
@@ -72,11 +73,17 @@ from app.plataforma.schemas import (
     MiEmpresaRespuesta,
     MiSuscripcionRespuesta,
     NotificacionRespuesta,
+    PedidoCreadoRespuesta,
+    PedidoEstadoRespuesta,
+    PedidoPagadoRespuesta,
+    PedidoSolicitud,
     PermisoRespuesta,
     PlanActualizar,
     PlanCrear,
     PlanPublicoRespuesta,
     PlanRespuesta,
+    PruebaGratisRespuesta,
+    PruebaGratisSolicitud,
     RecuperarConfirmarRequest,
     RecuperarRequest,
     RecuperarRespuesta,
@@ -584,6 +591,7 @@ cu_gestionar_empresas = GestionarEmpresas()
 cu_gestionar_planes = GestionarPlanes()
 cu_gestionar_suscripciones = GestionarSuscripciones()
 cu_mi_empresa = ConsultarMiEmpresa()
+cu_contratacion = GestionarContratacion()
 
 # ---- /api/v1/plataforma (superadministrador) ----------------------------------------
 
@@ -919,6 +927,60 @@ def listar_tiendas(
 @limiter.limit("60/minute")
 def listar_planes_publicos(request: Request, db: Session = Depends(get_db)) -> list[PlanPublicoRespuesta]:
     return cu_gestionar_planes.listar_publicos(db)
+
+
+# Prueba gratuita pública: crea una EMPRESA (bcrypt, catálogos base), así que el límite por IP es estricto. Solo cuentan
+# las peticiones válidas (la validación del cuerpo ocurre antes del límite). La ruta NO lleva `{codigo}`: no es una tienda,
+# `contexto_empresa` no fija ninguna empresa y no exige suscripción (ver `RUTAS_SIN_SUSCRIPCION`).
+@publico_tiendas_router.post(
+    "/contratacion/prueba", response_model=PruebaGratisRespuesta, status_code=status.HTTP_201_CREATED
+)
+@limiter.limit("5/hour")
+def iniciar_prueba_gratis(
+    request: Request, datos: PruebaGratisSolicitud, db: Session = Depends(get_db)
+) -> PruebaGratisRespuesta:
+    return cu_contratacion.iniciar_prueba(db, datos, contexto_anonimo(request))
+
+
+# Compra de un plan con PayPal. Mismas reglas que la prueba: rutas anónimas bajo /contratacion/ (sin `{codigo}`, sin
+# empresa en la sesión y exentas de la suscripción). El único secreto del comprador es el `token` del pedido (opaco,
+# 43 caracteres): un token inexistente da siempre el mismo 404. Crear un pedido cuesta un bcrypt y una llamada a PayPal,
+# así que su límite por IP es estricto; consultar es barato (la web consulta con frecuencia al volver de PayPal).
+_TokenDePedido = Path(min_length=1, max_length=64)
+
+
+@publico_tiendas_router.post(
+    "/contratacion/pedidos", response_model=PedidoCreadoRespuesta, status_code=status.HTTP_201_CREATED
+)
+@limiter.limit("5/hour")
+def crear_pedido_de_contratacion(
+    request: Request, datos: PedidoSolicitud, db: Session = Depends(get_db)
+) -> PedidoCreadoRespuesta:
+    return cu_contratacion.crear_pedido(db, datos, contexto_anonimo(request))
+
+
+@publico_tiendas_router.get("/contratacion/pedidos/{token}", response_model=PedidoEstadoRespuesta)
+@limiter.limit("60/minute")
+def consultar_pedido_de_contratacion(
+    request: Request, token: str = _TokenDePedido, db: Session = Depends(get_db)
+) -> PedidoEstadoRespuesta:
+    return cu_contratacion.consultar_pedido(db, token)
+
+
+@publico_tiendas_router.post("/contratacion/pedidos/{token}/capturar", response_model=PedidoPagadoRespuesta)
+@limiter.limit("10/minute")
+def capturar_pedido_de_contratacion(
+    request: Request, token: str = _TokenDePedido, db: Session = Depends(get_db)
+) -> PedidoPagadoRespuesta:
+    return cu_contratacion.capturar_pedido(db, token, contexto_anonimo(request))
+
+
+@publico_tiendas_router.post("/contratacion/pedidos/{token}/cancelar", response_model=PedidoEstadoRespuesta)
+@limiter.limit("10/minute")
+def cancelar_pedido_de_contratacion(
+    request: Request, token: str = _TokenDePedido, db: Session = Depends(get_db)
+) -> PedidoEstadoRespuesta:
+    return cu_contratacion.cancelar_pedido(db, token, contexto_anonimo(request))
 
 
 # ---- /api/v1/tareas (token de servicio) ------------------------------------------------------

@@ -1,0 +1,84 @@
+:host {
+  display: block;
+}
+
+.listo {
+  max-width: 640px;
+}
+
+.listo__titulo {
+  margin: 0;
+  font-family: var(--fs-fuente-display);
+  font-stretch: 125%;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.listo__sub {
+  margin: 12px 0 0;
+  color: var(--fs-claro-tenue);
+}
+
+.listo__tienda {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 28px;
+  padding: 16px 20px;
+  background: var(--fs-carbon-panel);
+  border: 1px solid var(--fs-carbon-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.listo__datos {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.listo__nombre {
+  font-family: var(--fs-fuente-display);
+  font-stretch: 112%;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.listo__ruta {
+  font-size: 14px;
+  color: var(--fs-claro-tenue);
+  overflow-wrap: anywhere;
+}
+
+.listo__resumen {
+  margin: 20px 0 0;
+
+  div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--fs-carbon-borde);
+  }
+
+  dt {
+    color: var(--fs-claro-tenue);
+  }
+
+  dd {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+}
+
+.listo__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 28px;
+}

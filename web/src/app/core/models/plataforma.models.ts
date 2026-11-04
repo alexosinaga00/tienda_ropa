@@ -34,13 +34,18 @@ export interface PlanPlataforma extends Record<FuncionPlan, boolean> {
   max_sucursales: number;
   max_copias_historial: number;
   plazo_cambio_horas_defecto: number;
+  /** Bs por mes, como TEXTO decimal ("120.00"); null = sin precio publicado (no se puede contratar). */
+  precio_mensual_bs: string | null;
   activo: boolean;
 }
 
-/** `PUT /plataforma/planes/{id}` (PlanActualizar): todo opcional. El código no cambia. */
+/**
+ * `PUT /plataforma/planes/{id}` (PlanActualizar): todo opcional. El código no cambia. El precio va como número;
+ * `null` borra el precio del plan (queda "a consultar" y no se puede contratar).
+ */
 export type PlanPlataformaActualizar = Partial<
   Pick<PlanPlataforma, 'max_sucursales' | 'max_copias_historial' | 'plazo_cambio_horas_defecto'> &
-    Record<FuncionPlan, boolean>
+    Record<FuncionPlan, boolean> & { precio_mensual_bs: number | null }
 >;
 
 /** `GET /plataforma/empresas` (EmpresaRespuesta). */

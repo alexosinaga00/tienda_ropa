@@ -11,6 +11,8 @@ Uso:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,13 @@ PLANES: list[dict] = [
     },
 ]
 
+# Precio mensual en Bs de cada plan. Va aparte de PLANES a propósito: PLANES se compara con los literales de la
+# migración multitenant (anterior al precio); el precio lo pone la migración de la contratación (c5e1b7a38d92).
+PRECIOS_MENSUALES_BS: dict[str, Decimal] = {
+    "basico": Decimal("120.00"),
+    "profesional": Decimal("590.00"),
+}
+
 
 def sembrar_planes(db: Session) -> dict:
     """Inserta o actualiza los planes. Hace flush, no commit. Devuelve los
@@ -64,6 +73,7 @@ def sembrar_planes(db: Session) -> dict:
         else:
             for columna, valor in datos.items():
                 setattr(plan, columna, valor)
+        plan.precio_mensual_bs = PRECIOS_MENSUALES_BS[datos["codigo"]]
         resultado[datos["codigo"]] = plan
     db.flush()
     return resultado

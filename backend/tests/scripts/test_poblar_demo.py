@@ -288,6 +288,7 @@ def test_siembra_organizaciones_planes_ciudades_y_catalogo(db_session, carpeta, 
     estandar = db_session.scalar(select(Plan).where(Plan.codigo == "estandar"))
     assert (estandar.max_sucursales, estandar.reportes_ia, estandar.analitica_ml, estandar.copias_seguridad) == (5, True, False, True)
     assert (estandar.plazo_cambio_horas_defecto, estandar.max_copias_historial, estandar.operacion_offline) == (48, 6, True)
+    assert estandar.precio_mensual_bs == Decimal("290.00")
 
     for codigo, plan in (("fashionstore", "profesional"), ("chaski-sport", "profesional"), ("pampa-casual", "basico")):
         with en_empresa(db_session, _id(db_session, codigo)):

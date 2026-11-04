@@ -8,6 +8,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
 import { FUNCIONES_PLAN, FuncionPlan } from '../../../core/models/plan.models';
 import { PlanPlataforma, PlanPlataformaActualizar } from '../../../core/models/plataforma.models';
+import { DESCUENTO_ANUAL_PORCENTAJE, aNumeroBs, formatearBs } from '../../../core/utils/precio-plan';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { PlataformaService } from '../data/plataforma.service';
 
@@ -17,6 +18,9 @@ export const LIMITES_PLAN = {
   max_copias_historial: { min: 0, max: 1000 },
   plazo_cambio_horas_defecto: { min: 0, max: 8760 },
 } as const;
+
+/** Precio mensual en Bs: no negativo, hasta 10 dígitos con 2 decimales (`PrecioMensualBs` del backend). */
+export const LIMITE_PRECIO = { min: 0, max: 99_999_999.99 } as const;
 
 type CampoNumerico = keyof typeof LIMITES_PLAN;
 
@@ -59,6 +63,9 @@ export class PlanesComponent implements OnInit {
 
   protected readonly funciones = FUNCIONES_PLAN;
   protected readonly limites = LIMITES_PLAN;
+  protected readonly limitePrecio = LIMITE_PRECIO;
+  protected readonly descuentoAnual = DESCUENTO_ANUAL_PORCENTAJE;
+  protected readonly precioDe = (plan: PlanPlataforma): string => formatearBs(plan.precio_mensual_bs);
 
   protected readonly planes = signal<PlanPlataforma[]>([]);
   protected readonly cargando = signal(false);
@@ -70,6 +77,11 @@ export class PlanesComponent implements OnInit {
     max_sucursales: this.fb.control<number | null>(1, validadoresNumero('max_sucursales')),
     max_copias_historial: this.fb.control<number | null>(0, validadoresNumero('max_copias_historial')),
     plazo_cambio_horas_defecto: this.fb.control<number | null>(24, validadoresNumero('plazo_cambio_horas_defecto')),
+    // Vacío = sin precio publicado (el plan no se puede contratar desde la portada).
+    precio_mensual_bs: this.fb.control<number | null>(null, [
+      Validators.min(LIMITE_PRECIO.min),
+      Validators.max(LIMITE_PRECIO.max),
+    ]),
     gestion_productos: this.fb.nonNullable.control(false),
     gestion_ventas: this.fb.nonNullable.control(false),
     reservas: this.fb.nonNullable.control(false),
@@ -101,6 +113,7 @@ export class PlanesComponent implements OnInit {
       max_sucursales: plan.max_sucursales,
       max_copias_historial: plan.max_copias_historial,
       plazo_cambio_horas_defecto: plan.plazo_cambio_horas_defecto,
+      precio_mensual_bs: aNumeroBs(plan.precio_mensual_bs),
       gestion_productos: plan.gestion_productos,
       gestion_ventas: plan.gestion_ventas,
       reservas: plan.reservas,
@@ -113,7 +126,7 @@ export class PlanesComponent implements OnInit {
     this.dialogoVisible.set(true);
   }
 
-  protected hayError(campo: CampoNumerico): boolean {
+  protected hayError(campo: CampoNumerico | 'precio_mensual_bs'): boolean {
     const control = this.formulario.controls[campo];
     return control.invalid && (control.touched || control.dirty);
   }
@@ -128,6 +141,9 @@ export class PlanesComponent implements OnInit {
       const valor = valores[campo];
       if (valor !== null && valor !== plan[campo]) cambios[campo] = valor;
     }
+    // El precio sí puede quedar vacío (null = borrarlo); se compara por valor, no por el texto "120.00".
+    const precio = valores.precio_mensual_bs ?? null;
+    if (precio !== aNumeroBs(plan.precio_mensual_bs)) cambios.precio_mensual_bs = precio;
     for (const { id } of FUNCIONES_PLAN) {
       const valor: boolean = valores[id as FuncionPlan];
       if (valor !== plan[id]) cambios[id] = valor;

@@ -16,6 +16,7 @@ function plan(sobrescribir: Partial<PlanPlataforma> = {}): PlanPlataforma {
     max_sucursales: 2,
     max_copias_historial: 0,
     plazo_cambio_horas_defecto: 24,
+    precio_mensual_bs: '120.00',
     reportes_convencionales: true,
     reportes_ia: false,
     operacion_offline: false,
@@ -32,7 +33,7 @@ function plan(sobrescribir: Partial<PlanPlataforma> = {}): PlanPlataforma {
 interface Interno {
   formulario: {
     invalid: boolean;
-    controls: Record<string, { setValue(v: unknown): void; valid: boolean }>;
+    controls: Record<string, { setValue(v: unknown): void; valid: boolean; value: unknown }>;
   };
   abrirEditar(p: PlanPlataforma): void;
   guardar(): void;
@@ -133,6 +134,56 @@ describe('PlanesComponent', () => {
     comp.guardar();
     http.expectNone(`${URL_PLANES}/1`);
     expect(comp.dialogoVisible()).toBe(false);
+  });
+
+  it('la tabla muestra el precio por mes de cada plan, o "Sin precio"', () => {
+    const { fixture } = crear([
+      plan(),
+      plan({ id: 2, codigo: 'profesional', nombre: 'Profesional', precio_mensual_bs: null }),
+    ]);
+    const celdas = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((fila) =>
+      (fila.textContent ?? '').replace(/\s+/g, ' '),
+    );
+    expect(celdas[0]).toContain('Bs 120');
+    expect(celdas[1]).toContain('Sin precio');
+  });
+
+  it('el precio se carga en el formulario como número y sin cambios no se manda', () => {
+    const { comp } = crear();
+    comp.abrirEditar(plan({ precio_mensual_bs: '290.00' }));
+    expect(comp.formulario.controls['precio_mensual_bs'].value).toBe(290);
+    expect(comp.cambios()).toEqual({});
+  });
+
+  it('manda el precio nuevo como número, y null si se borra', () => {
+    const { comp } = crear();
+    comp.abrirEditar(plan());
+    comp.formulario.controls['precio_mensual_bs'].setValue(99.5);
+    expect(comp.cambios()).toEqual({ precio_mensual_bs: 99.5 });
+
+    comp.formulario.controls['precio_mensual_bs'].setValue(null);
+    expect(comp.cambios()).toEqual({ precio_mensual_bs: null });
+
+    // Un plan que no tenía precio y sigue sin él no cuenta como cambio.
+    comp.abrirEditar(plan({ precio_mensual_bs: null }));
+    expect(comp.cambios()).toEqual({});
+  });
+
+  it('acepta el precio de 0 en adelante y rechaza el negativo', () => {
+    const { comp } = crear();
+    comp.abrirEditar(plan());
+    const control = comp.formulario.controls['precio_mensual_bs'];
+    for (const [valor, valido] of [
+      [0, true],
+      [120, true],
+      [99_999_999.99, true],
+      [null, true],
+      [-1, false],
+      [100_000_000, false],
+    ] as [number | null, boolean][]) {
+      control.setValue(valor);
+      expect(control.valid, `precio=${valor}`).toBe(valido);
+    }
   });
 
   it('el aviso explica lo que realmente hace el backend al bajar un límite', () => {

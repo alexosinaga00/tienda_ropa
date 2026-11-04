@@ -356,6 +356,9 @@ class EmpleadoRespuesta(BaseModel):
 
 COLOR_ACENTO_PATRON = r"^#[0-9A-Fa-f]{6}$"
 
+# Precio mensual de un plan en bolivianos: no negativo, 2 decimales. El anual (20 % menos) se calcula, no se guarda.
+PrecioMensualBs = Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=2)]
+
 
 class PlanCrear(BaseModel):
     codigo: str = Field(pattern=r"^[a-z0-9_-]{2,30}$")
@@ -371,6 +374,7 @@ class PlanCrear(BaseModel):
     reservas: bool = True
     max_copias_historial: int = Field(default=0, ge=0, le=1000)
     plazo_cambio_horas_defecto: int = Field(default=24, ge=0, le=8760)
+    precio_mensual_bs: PrecioMensualBs | None = None
 
 
 class PlanActualizar(BaseModel):
@@ -388,6 +392,8 @@ class PlanActualizar(BaseModel):
     reservas: bool | None = None
     max_copias_historial: int | None = Field(default=None, ge=0, le=1000)
     plazo_cambio_horas_defecto: int | None = Field(default=None, ge=0, le=8760)
+    # `null` explícito borra el precio (el plan queda "a consultar").
+    precio_mensual_bs: PrecioMensualBs | None = None
     activo: bool | None = None
 
 
@@ -408,6 +414,7 @@ class PlanRespuesta(BaseModel):
     reservas: bool
     max_copias_historial: int
     plazo_cambio_horas_defecto: int
+    precio_mensual_bs: Decimal | None = None
     activo: bool
 
 
@@ -421,6 +428,7 @@ class PlanPublicoRespuesta(BaseModel):
     max_sucursales: int
     max_copias_historial: int
     plazo_cambio_horas_defecto: int
+    precio_mensual_bs: Decimal | None = None
     gestion_productos: bool
     gestion_ventas: bool
     reservas: bool
@@ -449,6 +457,90 @@ class EmpresaRegistrar(BaseModel):
     color_acento: str | None = Field(default=None, pattern=COLOR_ACENTO_PATRON)
     logo_url: str | None = None
     administrador: AdministradorRegistrar
+
+
+class AdministradorPrueba(AdministradorRegistrar):
+    """El administrador de una prueba gratuita pública: los mismos campos, pero un campo desconocido se rechaza."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PruebaGratisSolicitud(BaseModel):
+    """Prueba gratuita pública (sin sesión, sin pago): la empresa nace activa con el plan elegido. El visitante no
+    elige fechas, logo ni color: esos los fija el servidor o se editan después desde `PUT /mi-empresa`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(min_length=2, max_length=120)
+    plan_codigo: str = Field(min_length=1, max_length=30)
+    administrador: AdministradorPrueba
+
+
+class PruebaGratisRespuesta(BaseModel):
+    """Lo mínimo para que la pantalla lleve al visitante a su tienda: nunca trae hashes, tokens ni contraseña."""
+
+    empresa_codigo: str
+    empresa_nombre: str
+    plan_codigo: str
+    plan_nombre: str
+    es_prueba: bool
+    fecha_inicio: dt.date
+    fecha_vencimiento: dt.date
+
+
+PeriodoContratacion = Literal["mensual", "anual"]
+
+
+class PedidoSolicitud(PruebaGratisSolicitud):
+    """Compra de un plan con PayPal (sin sesión): la misma forma que la prueba gratuita más el `periodo`. El cliente
+    NUNCA manda montos, moneda ni fechas: el servidor recalcula todo desde el precio del plan."""
+
+    periodo: PeriodoContratacion
+
+
+class PedidoCreadoRespuesta(BaseModel):
+    """El pedido recién creado: a `url_aprobacion` (PayPal) hay que mandar al comprador. `token` identifica el pedido
+    en las demás rutas. Montos en texto decimal; `expira_en` en UTC. Nunca trae correo, hash ni contraseña."""
+
+    token: str
+    url_aprobacion: str
+    plan_codigo: str
+    plan_nombre: str
+    periodo: PeriodoContratacion
+    monto_bs: Decimal
+    monto_usd: Decimal
+    tipo_cambio: Decimal
+    expira_en: dt.datetime
+
+
+class PedidoEstadoRespuesta(BaseModel):
+    """Estado público de un pedido. Sin correo ni datos personales; `empresa_codigo` solo si ya está completado."""
+
+    estado: str
+    plan_codigo: str
+    plan_nombre: str
+    periodo: PeriodoContratacion
+    monto_bs: Decimal
+    monto_usd: Decimal
+    tipo_cambio: Decimal
+    expira_en: dt.datetime | None = None
+    empresa_codigo: str | None = None
+
+
+class PedidoPagadoRespuesta(BaseModel):
+    """El pago está cobrado y la empresa creada (también al repetir la captura de un pedido ya completado)."""
+
+    estado: str
+    empresa_codigo: str
+    empresa_nombre: str
+    plan_codigo: str
+    plan_nombre: str
+    periodo: PeriodoContratacion
+    es_prueba: bool
+    fecha_inicio: dt.date | None = None
+    fecha_vencimiento: dt.date | None = None
+    monto_bs: Decimal
+    monto_usd: Decimal
 
 
 class EmpresaActualizar(BaseModel):
@@ -508,6 +600,7 @@ class SuscripcionRespuesta(BaseModel):
     estado_efectivo: str
     fecha_inicio: dt.date
     fecha_vencimiento: dt.date
+    es_prueba: bool = False
     creado_en: dt.datetime | None = None
 
 
@@ -541,6 +634,7 @@ class MiSuscripcionRespuesta(BaseModel):
     estado: str
     fecha_inicio: dt.date | None = None
     fecha_vencimiento: dt.date | None = None
+    es_prueba: bool = False
     max_sucursales: int | None = None
     sucursales_activas: int
     funcionalidades: list[str] = []

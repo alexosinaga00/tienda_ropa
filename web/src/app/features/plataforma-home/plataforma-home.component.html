@@ -65,7 +65,9 @@
             Ver tiendas activas
             <fs-icono nombre="flecha-derecha" [tam]="24" />
           </a>
-          <a class="fs-btn fs-btn--contorno" href="#servicios">Conocer los servicios</a>
+          <a class="fs-btn fs-btn--contorno" [routerLink]="rutaContratar" [queryParams]="{ modo: 'prueba' }">
+            Probar {{ diasPrueba }} días gratis
+          </a>
         </div>
       </div>
 

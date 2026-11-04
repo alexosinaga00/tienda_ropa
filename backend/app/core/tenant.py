@@ -58,6 +58,9 @@ OPCION_SIN_FILTRO = "sin_filtro_empresa"
 # Prefijo de las rutas de la tienda pública por empresa (D02, D10): la única
 # fuente de empresa que no es el usuario autenticado.
 PREFIJO_PUBLICO = "/api/v1/public/"
+# Rutas públicas que NO son una tienda (no llevan `{codigo}`): la contratación de planes. El código `contratacion`
+# está reservado (plataforma.politicas) para que ninguna empresa pueda tomar este segmento.
+PREFIJO_CONTRATACION = "/api/v1/public/contratacion/"
 
 # Las únicas tablas de empresa que se pueden consultar SIN empresa en la
 # sesión (y solo con `sin_filtro`): el usuario al autenticarse (todavía no se
@@ -341,6 +344,10 @@ def contexto_empresa(request: Request, db: Session = Depends(get_db)) -> None:
     `/api/v1/public/{codigo}/...` fija la empresa desde el código de la tienda;
     en las demás la fija desde el token de la petición, si lo trae (las rutas
     que piden usuario la vuelven a comprobar con `get_current_user`)."""
+    if request.url.path.startswith(PREFIJO_CONTRATACION):
+        # Contratación pública (prueba gratuita y compra con PayPal): no es la tienda de ninguna empresa y crea una nueva. Se atiende
+        # SIEMPRE como anónima: un token viejo que mande el navegador no fija empresa ni exige su suscripción.
+        return
     codigo = request.path_params.get("codigo")
     if codigo is not None and request.url.path.startswith(PREFIJO_PUBLICO):
         empresa_publica(codigo, db)

@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { FUNCIONES_PLAN, FuncionPlan, PlanPublico } from '../../../core/models/plan.models';
+import { formatearBs, tienePrecio } from '../../../core/utils/precio-plan';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 
 /** Una fila de la tarjeta de un plan. */
@@ -13,6 +15,8 @@ interface TarjetaPlan {
   nombre: string;
   /** El plan con más sucursales (si es uno solo): se resalta como "plan completo". */
   completo: boolean;
+  /** "Bs 120" (por mes); cadena vacía si el plan no tiene precio publicado: entonces no se puede elegir. */
+  precio: string;
   filas: FilaPlan[];
 }
 
@@ -29,12 +33,14 @@ function textoSucursales(n: number): string {
 
 /**
  * Comparativo de planes de la portada. Sirve para cualquier cantidad de planes: lo que todos
- * incluyen va en una línea y cada tarjeta muestra solo lo que cambia. No maneja precios.
+ * incluyen va en una línea y cada tarjeta muestra solo lo que cambia, con su precio por mes y un
+ * "Elegir plan" que lleva a la página de contratación (`/contratar?plan=<código>`). Un plan sin precio
+ * publicado dice "Precio a consultar" y no se puede elegir. El anual se calcula en la página de compra.
  */
 @Component({
   selector: 'app-planes-comparativo',
   standalone: true,
-  imports: [IconoComponent],
+  imports: [IconoComponent, RouterLink],
   templateUrl: './planes-comparativo.component.html',
   styleUrl: './planes-comparativo.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +51,9 @@ export class PlanesComparativoComponent {
   readonly planes = input.required<readonly PlanPublico[]>();
   /** `oscuro`: tarjetas traslúcidas para ir sobre la escena 3D de la portada. Por omisión, el diseño claro. */
   readonly variante = input<'claro' | 'oscuro'>('claro');
+
+  /** Ruta de la página de contratación. */
+  protected readonly rutaContratar = '/contratar';
 
   /** Funcionalidades (sin copias) que TODOS los planes incluyen. */
   protected readonly comunes = computed<string[]>(() => {
@@ -86,6 +95,7 @@ export class PlanesComparativoComponent {
         codigo: plan.codigo,
         nombre: plan.nombre,
         completo: hayCompleto && plan.max_sucursales === maximo,
+        precio: tienePrecio(plan.precio_mensual_bs) ? formatearBs(plan.precio_mensual_bs) : '',
         filas,
       };
     });

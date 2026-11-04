@@ -19,6 +19,7 @@ from sqlalchemy import (
     Table,
     Time,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -229,6 +230,9 @@ class Plan(Base):
     límites y las funcionalidades viven acá y no en el código."""
 
     __tablename__ = "plan"
+    __table_args__ = (
+        CheckConstraint("precio_mensual_bs IS NULL OR precio_mensual_bs >= 0", name="ck_plan_precio_mensual"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     codigo: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
@@ -244,6 +248,8 @@ class Plan(Base):
     reservas: Mapped[bool] = mapped_column(Boolean, nullable=False)
     max_copias_historial: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     plazo_cambio_horas_defecto: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=24)
+    # Precio por mes en bolivianos (NULL = sin precio publicado). El anual (20 % menos) se calcula, no se guarda.
+    precio_mensual_bs: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -271,7 +277,69 @@ class Suscripcion(EmpresaMixin, Base):
     estado: Mapped[str] = mapped_column(String(15), nullable=False, default="activa")
     fecha_inicio: Mapped[dt.date] = mapped_column(Date, nullable=False)
     fecha_vencimiento: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    # Prueba gratuita (la crea la contratación sin pago); el estado y las fechas siguen las mismas reglas.
+    es_prueba: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+# ---- Contratación de planes ----
+
+ESTADOS_PEDIDO_CONTRATACION = (
+    "pendiente", "pagado", "pagado_sin_empresa", "completado", "cancelado", "vencido", "fallido",
+)  # fmt: skip
+# Estados en que un pedido de prueba YA NO ocupa el correo del solicitante.
+ESTADOS_PEDIDO_LIBERAN_CORREO = ("cancelado", "vencido", "fallido")
+
+
+class PedidoContratacion(Base):
+    """Compra o prueba gratuita de un plan hecha desde la portada pública, ANTES de que exista la empresa.
+
+    Es una tabla global: NO lleva `empresa_id` ni el mixin (quien compra aún no tiene empresa), así el filtro
+    automático por empresa no la afecta y no entra en las copias de seguridad. La empresa que se crea al
+    completarse se enlaza en `empresa_creada_id`. Guarda el hash bcrypt de la contraseña del administrador
+    (nunca la contraseña en claro) hasta crear su usuario. `token` identifica el pedido ante el cliente."""
+
+    __tablename__ = "pedido_contratacion"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('pago','prueba')", name="ck_pedido_contratacion_tipo"),
+        CheckConstraint("periodo IS NULL OR periodo IN ('mensual','anual')", name="ck_pedido_contratacion_periodo"),
+        CheckConstraint(
+            "estado IN ('pendiente','pagado','pagado_sin_empresa','completado','cancelado','vencido','fallido')",
+            name="ck_pedido_contratacion_estado",
+        ),
+        # Una sola prueba gratuita por correo: solo la liberan los pedidos que no prosperaron.
+        Index(
+            "ux_pedido_prueba_correo",
+            "admin_email",
+            unique=True,
+            postgresql_where=text("tipo = 'prueba' AND estado NOT IN ('cancelado','vencido','fallido')"),
+            sqlite_where=text("tipo = 'prueba' AND estado NOT IN ('cancelado','vencido','fallido')"),
+        ),
+        Index("ix_pedido_contratacion_estado_creado", "estado", "creado_en"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False)
+    periodo: Mapped[str | None] = mapped_column(String(10))
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plan.id"), nullable=False)
+    empresa_nombre: Mapped[str] = mapped_column(String(120), nullable=False)
+    empresa_codigo: Mapped[str] = mapped_column(String(60), nullable=False)
+    admin_nombre: Mapped[str] = mapped_column(String(60), nullable=False)
+    admin_apellido: Mapped[str] = mapped_column(String(60), nullable=False)
+    admin_email: Mapped[str] = mapped_column(String(120), nullable=False)
+    admin_telefono: Mapped[str | None] = mapped_column(String(20))
+    admin_password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, default="pendiente", server_default="pendiente")
+    monto_bs: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    monto_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    tipo_cambio: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    paypal_order_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    empresa_creada_id: Mapped[int | None] = mapped_column(ForeignKey("empresa.id"))
+    ip: Mapped[str | None] = mapped_column(String(45))
+    expira_en: Mapped[dt.datetime | None]
+    creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    actualizado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 # ---- Bitácora ----

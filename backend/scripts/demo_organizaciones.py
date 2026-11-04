@@ -38,6 +38,7 @@ PLAN_ESTANDAR: dict = {
     "reservas": True,
     "max_copias_historial": 6,
     "plazo_cambio_horas_defecto": 48,
+    "precio_mensual_bs": Decimal("290.00"),
 }
 
 # Lo que sube con el plan (decisión del usuario, 29/10/2026): copias que guarda 3 (Básico) < 6

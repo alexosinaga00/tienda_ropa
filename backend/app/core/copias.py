@@ -74,6 +74,7 @@ _REFERENCIAS_COMPLETAS = frozenset({"estado_pago", "estado_reserva", "estado_ven
 TABLAS_EXCLUIDAS: dict[str, str] = {
     "copia_seguridad": "es el historial de las propias copias",
     "modelo_ml": "modelos de Machine Learning serializados: se vuelven a entrenar",
+    "pedido_contratacion": "datos de compra previos a la empresa y hash de contraseña",
     "permiso": "catálogo del sistema que ningún dato de la empresa referencia",
     "probador_generacion": "caché regenerable del probador; guarda el hash de la foto del cliente",
     "rol_permiso": "catálogo del sistema que ningún dato de la empresa referencia",
