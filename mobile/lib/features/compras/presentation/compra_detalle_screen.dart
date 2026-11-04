@@ -53,10 +53,15 @@ class CompraDetalleScreen extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal',
-                        style: const TextStyle(color: AppColors.textoTenue, fontSize: 13),
-                      ),
+                      _TipoDeEntrega(venta: venta),
+                      // La devolución no cambia el estado de la compra ("Pagada"): se dice aparte.
+                      if (venta.etiquetaDevolucion != null) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Chip(
+                          label: Text(venta.etiquetaDevolucion!, style: const TextStyle(fontSize: 12)),
+                          backgroundColor: AppColors.fondoAlterno,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -71,7 +76,7 @@ class CompraDetalleScreen extends ConsumerWidget {
 
               // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo.
               if (venta.estado == 'pagada' || venta.estado == 'entregada') ...[
-                _PlazoDeCambio(ventaId: venta.id),
+                _PlazoDeCambio(ventaId: venta.id, sucursalId: venta.sucursalId),
               ],
 
               for (final linea in venta.detalle) _TarjetaLinea(linea: linea),
@@ -168,17 +173,36 @@ class _SeguimientoEnvio extends ConsumerWidget {
   }
 }
 
+/// "Retiro en sucursal · Centro" / "Envío a domicilio · despacha Centro". Si no se pudo saber la sucursal, queda
+/// el texto de siempre.
+class _TipoDeEntrega extends ConsumerWidget {
+  const _TipoDeEntrega({required this.venta});
+
+  final Venta venta;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final id = venta.sucursalId;
+    final sucursal = id == null ? null : ref.watch(nombreSucursalProvider(id)).valueOrNull;
+    final base = venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal';
+    final texto = sucursal == null ? base : '$base · ${venta.esEnvioADomicilio ? 'despacha ' : ''}$sucursal';
+    return Text(texto, style: const TextStyle(color: AppColors.textoTenue, fontSize: 13));
+  }
+}
+
 /// Hasta cuándo se puede cambiar la prenda (lo calcula el servidor). Si no se pudo saber, no se muestra nada.
 /// El cambio se hace en la tienda: el cliente lleva la prenda y el cajero cambia la talla o el color.
 class _PlazoDeCambio extends ConsumerWidget {
-  const _PlazoDeCambio({required this.ventaId});
+  const _PlazoDeCambio({required this.ventaId, this.sucursalId});
 
   final int ventaId;
+  final int? sucursalId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final plazo = ref.watch(plazoCambioProvider(ventaId)).valueOrNull;
     if (plazo == null) return const SizedBox.shrink();
+    final sucursal = sucursalId == null ? null : ref.watch(nombreSucursalProvider(sucursalId!)).valueOrNull;
 
     final vigente = plazo.vigente;
     final color = vigente ? AppColors.exito : AppColors.error;
@@ -206,10 +230,10 @@ class _PlazoDeCambio extends ConsumerWidget {
                     ),
                     if (vigente) ...[
                       const SizedBox(height: AppSpacing.xs),
-                      const Text(
-                        'Lleva la prenda a la tienda y cambia la talla o el color en caja. Te enviaremos el '
-                        'comprobante a tu correo.',
-                        style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                      Text(
+                        'Lleva la prenda a ${sucursal != null ? 'la sucursal $sucursal' : 'la tienda'} y cambia la '
+                        'talla o el color en caja. Te enviaremos el comprobante a tu correo.',
+                        style: const TextStyle(color: AppColors.textoTenue, fontSize: 13),
                       ),
                     ],
                   ],

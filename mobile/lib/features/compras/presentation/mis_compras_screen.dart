@@ -73,7 +73,8 @@ class _TarjetaVenta extends StatelessWidget {
         onTap: () => context.push('/compras/${venta.id}'),
         title: Text(venta.codigo),
         subtitle: Text(
-          '${venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal'} · Bs ${venta.total.toStringAsFixed(2)}',
+          '${venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal'} · Bs ${venta.total.toStringAsFixed(2)}'
+          '${venta.etiquetaDevolucion != null ? ' · ${venta.etiquetaDevolucion}' : ''}',
         ),
         trailing: Chip(
           label: Text(

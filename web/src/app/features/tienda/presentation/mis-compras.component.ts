@@ -1,7 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { EstadoVenta, Venta } from '../../../core/models/ventas.models';
+import { EstadoVenta, Venta, etiquetaDevolucion } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { PedidosService } from '../data/pedidos.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
@@ -55,6 +55,11 @@ export class MisComprasComponent implements OnInit {
         this.error.set(true);
       },
     });
+  }
+
+  /** "Con devolución (1 de 4)" / "Devuelta" junto al estado, o null si no se devolvió nada. */
+  marcaDevolucion(venta: Venta): string | null {
+    return etiquetaDevolucion(venta);
   }
 
   etiquetaEstado(estado: EstadoVenta): string {

@@ -260,3 +260,76 @@ describe('CompraDetalleComponent: una compra que quedó sin pagar', () => {
     expect(el(fixture as never).querySelector('[data-estado="compra-pendiente"]')).toBeNull();
   });
 });
+
+describe('CompraDetalleComponent: sucursal y devolución', () => {
+  let http: HttpTestingController;
+
+  function montar(extra: object = {}) {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => '42' } } } },
+      ],
+    });
+    TestBed.inject(TiendaActualService).fijar('acme', 'lista', {
+      codigo: 'acme',
+      nombre: 'Acme',
+      logo_url: null,
+      color_acento: null,
+    });
+    http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(CompraDetalleComponent);
+    fixture.detectChanges();
+    http.expectOne(`${API}/ventas/42/comprobante`).flush({ ...venta('pagada'), sucursal_id: 2, ...extra });
+    http.expectOne((r) => r.url === `${API}/catalogo/variantes/detalle`).flush(LOOKUP);
+    http.expectOne(`${API}/ventas/42/plazo-cambio`).flush({
+      venta_id: 42,
+      fecha_venta: '2026-11-04T10:00:00Z',
+      plazo_horas: 24,
+      vence_en: '2026-11-05T10:00:00Z',
+      vigente: true,
+      estado_venta: 'pagada',
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const texto = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const sucursales = () => http.expectOne((r) => r.url.endsWith('/sucursales'));
+
+  afterEach(() => http.match(() => true));
+
+  it('dice en qué sucursal es la compra y adónde llevar la prenda a cambiar', () => {
+    const fixture = montar();
+    sucursales().flush([
+      { id: 1, nombre: 'Equipetrol' },
+      { id: 2, nombre: 'Centro' },
+    ]);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(texto(el.querySelector('[data-estado="sucursal-compra"]'))).toBe('· Centro');
+    expect(texto(el.querySelector('[data-estado="plazo-cambio"]'))).toContain('Lleva la prenda a la sucursal Centro');
+  });
+
+  it('si no se puede leer la lista de sucursales, la pantalla queda como siempre', () => {
+    const fixture = montar();
+    sucursales().flush({ detail: 'x' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('[data-estado="sucursal-compra"]')).toBeNull();
+    expect(texto(el.querySelector('[data-estado="plazo-cambio"]'))).toContain('Lleva la prenda a la tienda');
+  });
+
+  it('una compra con devolución sigue pagada pero muestra la marca', () => {
+    const fixture = montar({ unidades_devueltas: 1 });
+    sucursales().flush([]);
+    fixture.detectChanges();
+
+    // El detalle de la venta de prueba tiene 1 unidad: devolver 1 es devolverla toda.
+    expect(texto((fixture.nativeElement as HTMLElement).querySelector('[data-estado="con-devolucion"]'))).toBe('Devuelta');
+  });
+});

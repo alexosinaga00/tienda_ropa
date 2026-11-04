@@ -443,7 +443,7 @@
         (click)="abrirHistorial()"
       >
         <fs-icono nombre="historial" [tam]="24" />
-        Historial de hoy
+        Ventas recientes
       </button>
     </aside>
   </div>
@@ -559,9 +559,9 @@
   </div>
 </p-dialog>
 
-<!-- ================= Historial de hoy ================= -->
+<!-- ================= Ventas recientes ================= -->
 <p-dialog
-  header="Ventas de hoy"
+  header="Ventas recientes (últimos 3 días)"
   [(visible)]="historialVisible"
   [modal]="true"
   [style]="{ width: '680px', maxWidth: '96vw' }"
@@ -578,9 +578,21 @@
       </button>
     </div>
   }
+  <label class="buscador-historial">
+    <fs-icono nombre="busqueda" [tam]="24" />
+    <input
+      type="search"
+      class="buscador-historial__campo"
+      placeholder="Buscar por código de venta (VTA-…)"
+      aria-label="Buscar por código de venta"
+      data-estado="buscar-venta"
+      [ngModel]="busquedaHistorial()"
+      (ngModelChange)="busquedaHistorial.set($event)"
+    />
+  </label>
   <div class="panel__scroll">
     <p-table
-      [value]="historialHoy()"
+      [value]="ventasFiltradas()"
       [loading]="cargandoHistorial()"
       styleClass="p-datatable-sm"
       [tableStyle]="{ 'min-width': '520px' }"
@@ -588,7 +600,7 @@
       <ng-template #header>
         <tr>
           <th>Código</th>
-          <th>Hora</th>
+          <th>Fecha</th>
           <th>Estado</th>
           <th class="num">Total</th>
           <th></th>
@@ -606,9 +618,12 @@
               </span>
             }
           </td>
-          <td class="fs-num">{{ venta.fecha | date: 'shortTime' }}</td>
+          <td class="fs-num">{{ venta.fecha | date: 'dd/MM HH:mm' }}</td>
           <td>
             <span [class]="'fs-chip ' + claseEstadoVenta(venta.estado)">{{ venta.estado }}</span>
+            @if (etiquetaDevolucion(venta); as devolucion) {
+              <span class="fs-chip fs-chip--advertencia chip-devolucion" data-estado="con-devolucion">{{ devolucion }}</span>
+            }
           </td>
           <td class="num">{{ venta.total | number: '1.2-2' }}</td>
           <td class="num">
@@ -631,7 +646,11 @@
       </ng-template>
       <ng-template #emptymessage>
         <tr>
-          <td colspan="5"><div class="vacio">Sin ventas hoy todavía.</div></td>
+          <td colspan="5">
+            <div class="vacio">
+              {{ busquedaHistorial().trim() ? 'Ninguna venta reciente coincide con ese código.' : 'Sin ventas recientes.' }}
+            </div>
+          </td>
         </tr>
       </ng-template>
     </p-table>

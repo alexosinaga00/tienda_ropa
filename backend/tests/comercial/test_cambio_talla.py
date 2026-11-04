@@ -355,3 +355,54 @@ def test_un_cambio_rechazado_no_manda_correo(client, ctx, venta_con_cliente, adm
 
     assert _devolver(client, ctx, venta_con_cliente, nueva=ctx["l"]).status_code == 409
     assert brevo.enviados == []
+
+
+# ---- la venta dice cuántas unidades se devolvieron (sin cambiar su estado) ----
+
+
+def _venta_en_listado(client, ctx, venta_id: int) -> dict:
+    listado = client.get(f"/api/v1/ventas/sucursal/{ctx['sucursal_id']}", headers=ctx["cajero_headers"])
+    assert listado.status_code == 200, listado.text
+    return next(v for v in listado.json() if v["id"] == venta_id)
+
+
+def test_una_venta_sin_devoluciones_trae_cero_unidades_devueltas(client, db_session, ctx):
+    venta = _vender(client, ctx)
+
+    assert venta["unidades_devueltas"] == 0
+    assert _venta_en_listado(client, ctx, venta["id"])["unidades_devueltas"] == 0
+
+
+def test_tras_una_devolucion_o_un_cambio_el_listado_cuenta_lo_devuelto_y_el_estado_no_cambia(client, db_session, ctx):
+    venta = _vender(client, ctx)
+    _fechar_hoy(db_session, venta["id"])
+
+    assert _devolver(client, ctx, venta, cantidad=1).status_code == 201  # devolución simple
+    assert _devolver(client, ctx, venta, cantidad=2, nueva=ctx["l"]).status_code == 201  # y un cambio
+
+    en_lista = _venta_en_listado(client, ctx, venta["id"])
+    assert en_lista["unidades_devueltas"] == 3
+    assert sum(linea["cantidad"] for linea in en_lista["detalle"]) == VENDIDAS
+    # La devolución no toca el estado (puede ser parcial y los reportes cuentan solo pagada y entregada).
+    assert en_lista["estado"] == "pagada"
+
+
+def test_el_comprobante_y_mis_compras_del_cliente_tambien_lo_traen(client, ctx, venta_con_cliente, cliente_headers):
+    assert _devolver(client, ctx, venta_con_cliente, cantidad=1).status_code == 201
+
+    comprobante = client.get(f"/api/v1/ventas/{venta_con_cliente['id']}/comprobante", headers=cliente_headers)
+    assert comprobante.status_code == 200
+    assert comprobante.json()["unidades_devueltas"] == 1
+
+    compras = client.get("/api/v1/ventas/mis-compras", headers=cliente_headers).json()
+    assert next(v for v in compras if v["id"] == venta_con_cliente["id"])["unidades_devueltas"] == 1
+
+
+def test_un_cambio_rechazado_no_suma_unidades_devueltas(client, db_session, ctx, admin_headers):
+    venta = _vender(client, ctx)
+    _fechar_hoy(db_session, venta["id"])
+    _agotar(client, ctx, admin_headers, ctx["l"])
+
+    assert _devolver(client, ctx, venta, nueva=ctx["l"]).status_code == 409
+
+    assert _venta_en_listado(client, ctx, venta["id"])["unidades_devueltas"] == 0

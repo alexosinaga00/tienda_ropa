@@ -103,6 +103,19 @@ final envioDeCompraProvider = FutureProvider.autoDispose.family<Envio?, int>(
   (ref, ventaId) => ref.watch(enviosRepositoryProvider).obtenerPorVenta(ventaId),
 );
 
+/// El nombre de la sucursal de una compra (null si no se pudo saber: la pantalla simplemente no lo dice).
+final nombreSucursalProvider = FutureProvider.autoDispose.family<String?, int>((ref, sucursalId) async {
+  try {
+    final sucursales = await ref.watch(sucursalesRefProvider.future);
+    for (final s in sucursales) {
+      if (s.id == sucursalId) return s.nombre;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+});
+
 /// Hasta cuándo se puede cambiar una compra (null si no se pudo saber: la pantalla simplemente no dice nada).
 final plazoCambioProvider = FutureProvider.autoDispose.family<PlazoCambio?, int>((ref, ventaId) async {
   try {

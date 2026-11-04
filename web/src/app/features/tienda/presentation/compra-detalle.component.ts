@@ -8,10 +8,11 @@ import { ProductoImagenLookupItem } from '../../../core/models/catalogo.models';
 import { Envio, EstadoEnvio } from '../../../core/models/entregas.models';
 import { SIN_TOAST_ERROR } from '../../../core/http-contexts';
 import { MetodoPagoPasarela } from '../../../core/models/pagos.models';
-import { PlazoCambio, Venta, VentaDetalle } from '../../../core/models/ventas.models';
+import { PlazoCambio, Venta, VentaDetalle, etiquetaDevolucion } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { CarritoService } from '../data/carrito.service';
 import { DireccionesService } from '../data/direcciones.service';
+import { DisponibilidadService } from '../data/disponibilidad.service';
 import { PagosService } from '../data/pagos.service';
 import { PedidosService } from '../data/pedidos.service';
 import { CheckoutService } from '../state/checkout.service';
@@ -51,6 +52,7 @@ export class CompraDetalleComponent implements OnInit {
   protected readonly tienda = inject(TiendaActualService);
   private readonly pedidosService = inject(PedidosService);
   private readonly direccionesService = inject(DireccionesService);
+  private readonly disponibilidadService = inject(DisponibilidadService);
   private readonly pagosService = inject(PagosService);
   private readonly checkoutService = inject(CheckoutService);
   private readonly carritoService = inject(CarritoService);
@@ -66,6 +68,13 @@ export class CompraDetalleComponent implements OnInit {
   protected readonly canceladaAhora = signal(false);
 
   protected readonly venta = signal<Venta | null>(null);
+  /** Nombre de la sucursal de la compra (dónde retirar o llevar la prenda a cambiar). Sin dato, no se muestra. */
+  protected readonly sucursalNombre = signal<string | null>(null);
+  /** "Con devolución (1 de 4)" / "Devuelta", o null si no se devolvió nada. */
+  protected readonly marcaDevolucion = computed(() => {
+    const venta = this.venta();
+    return venta ? etiquetaDevolucion(venta) : null;
+  });
   protected readonly esPendiente = computed(() => this.venta()?.estado === 'pendiente_pago');
   protected readonly envio = signal<Envio | null>(null);
   /** Hasta cuándo se puede cambiar la compra (lo dice el servidor). Sin dato, no se muestra nada. */
@@ -83,6 +92,7 @@ export class CompraDetalleComponent implements OnInit {
           this.venta.set(venta);
           this.cargarSeguimiento(venta);
           this.cargarPlazo(venta);
+          this.cargarSucursal(venta);
           const params = new HttpParams().set('variante_ids', venta.detalle.map((d) => d.variante_id).join(','));
           return this.http.get<ProductoImagenLookupItem[]>(`${environment.apiUrl}/catalogo/variantes/detalle`, {
             params,
@@ -190,6 +200,14 @@ export class CompraDetalleComponent implements OnInit {
   protected fechaLocal(iso: string): Date {
     const tieneZona = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
     return new Date(tieneZona ? iso : `${iso}Z`);
+  }
+
+  /** El nombre de la sucursal sale de la lista pública de la tienda. Si falla, la pantalla queda como siempre. */
+  private cargarSucursal(venta: Venta): void {
+    this.disponibilidadService.sucursales().subscribe({
+      next: (sucursales) => this.sucursalNombre.set(sucursales.find((s) => s.id === venta.sucursal_id)?.nombre ?? null),
+      error: () => this.sucursalNombre.set(null),
+    });
   }
 
   /**

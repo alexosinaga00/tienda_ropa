@@ -60,6 +60,21 @@ describe('MisComprasComponent: compras sin pagar', () => {
     expect(texto(aviso(el))).toContain('Tienes 2 compras sin pagar.');
   });
 
+  it('una compra con devolución sigue "Pagada" pero lo dice (parcial o total)', () => {
+    const linea = { id: 1, variante_id: 3, cantidad: 4, precio_unitario: 25, descuento_unitario: 0, costo_unitario: null, subtotal: 100 };
+    const el = montar([
+      { ...compra(1, 'pagada'), detalle: [linea], unidades_devueltas: 1 },
+      { ...compra(2, 'pagada'), detalle: [linea], unidades_devueltas: 4 },
+      { ...compra(3, 'pagada'), detalle: [linea] },
+    ]);
+
+    const marcas = Array.from(el.querySelectorAll('.fila')).map(
+      (fila) => fila.querySelector('[data-estado="con-devolucion"]')?.textContent?.trim() ?? null,
+    );
+    expect(marcas).toEqual(['Con devolución (1 de 4)', 'Devuelta', null]);
+    expect(texto(el.querySelector('.fila .fs-chip'))).toBe('Pagada');
+  });
+
   it('sin compras pendientes no muestra ningún aviso', () => {
     const el = montar([compra(1, 'pagada'), compra(2, 'anulada')]);
 

@@ -12,8 +12,16 @@
       <div>
         <span class="fs-eyebrow">
           {{ venta()!.costo_envio > 0 ? 'Envío a domicilio' : 'Retiro en sucursal' }}
+          @if (sucursalNombre(); as sucursal) {
+            <span data-estado="sucursal-compra">
+              · {{ venta()!.costo_envio > 0 ? 'despacha ' : '' }}{{ sucursal }}
+            </span>
+          }
         </span>
         <h1 class="fs-display fs-num">{{ venta()!.codigo }}</h1>
+        @if (marcaDevolucion(); as marca) {
+          <span class="fs-chip fs-chip--advertencia marca-devolucion" data-estado="con-devolucion">{{ marca }}</span>
+        }
       </div>
       <a class="enlace-volver" [routerLink]="tienda.ruta('mis-compras')">
         <fs-icono nombre="flecha-izquierda" [tam]="24" />
@@ -122,8 +130,8 @@
                   Puedes cambiar tu prenda hasta el {{ fechaLocal(plazo.vence_en) | date: 'dd/MM/yyyy HH:mm' }}
                 </div>
                 <div class="plazo-cambio__texto">
-                  Lleva la prenda a la tienda y cambia la talla o el color en caja. Te enviaremos el comprobante a tu
-                  correo.
+                  Lleva la prenda a {{ sucursalNombre() ? 'la sucursal ' + sucursalNombre() : 'la tienda' }} y cambia la
+                  talla o el color en caja. Te enviaremos el comprobante a tu correo.
                 </div>
               } @else {
                 <div class="plazo-cambio__titulo">

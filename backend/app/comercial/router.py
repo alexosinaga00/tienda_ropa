@@ -30,6 +30,7 @@ from app.comercial.politicas import (
     expirar_ventas_de_todas_las_empresas,
     mapa_codigos_estado_reserva,
     mapa_codigos_estado_venta,
+    unidades_devueltas_por_venta,
 )
 from app.comercial.schemas import (
     CarritoDetalleActualizar,
@@ -209,7 +210,15 @@ cu_plazo_cambio = ConsultarPlazoCambio()
 
 
 def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
-    return VentaRespuesta.from_modelo(venta, mapa_codigos_estado_venta(db))
+    devueltas = unidades_devueltas_por_venta(db, [venta])
+    return VentaRespuesta.from_modelo(venta, mapa_codigos_estado_venta(db), devueltas.get(venta.id, 0))
+
+
+def _ventas_respuesta(db: Session, ventas: list) -> list[VentaRespuesta]:
+    """Una lista de ventas con su estado y lo devuelto de cada una (una sola consulta para todas)."""
+    estados = mapa_codigos_estado_venta(db)
+    devueltas = unidades_devueltas_por_venta(db, ventas)
+    return [VentaRespuesta.from_modelo(v, estados, devueltas.get(v.id, 0)) for v in ventas]
 
 
 # ---- /api/v1/carrito ---------------------------------------------------------------
@@ -283,17 +292,14 @@ def registrar_venta_presencial(
 
 @ventas_router.get("/mis-compras", response_model=list[VentaRespuesta])
 def listar_mis_compras(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> list[VentaRespuesta]:
-    estados = mapa_codigos_estado_venta(db)
-    return [VentaRespuesta.from_modelo(v, estados) for v in cu_historial_compras.listar_mis_compras(db, usuario.id)]
+    return _ventas_respuesta(db, cu_historial_compras.listar_mis_compras(db, usuario.id))
 
 
 @ventas_router.get("/sucursal/{sucursal_id}", response_model=list[VentaRespuesta], dependencies=[staff_ventas_requerido])
 def listar_ventas_sucursal(
     sucursal_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[VentaRespuesta]:
-    estados = mapa_codigos_estado_venta(db)
-    ventas = cu_ventas_sucursal.ejecutar(db, sucursal_id, usuario.id)
-    return [VentaRespuesta.from_modelo(v, estados) for v in ventas]
+    return _ventas_respuesta(db, cu_ventas_sucursal.ejecutar(db, sucursal_id, usuario.id))
 
 
 @ventas_router.get("/{venta_id}/comprobante", response_model=VentaRespuesta)

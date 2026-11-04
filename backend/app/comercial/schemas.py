@@ -289,10 +289,14 @@ class VentaRespuesta(BaseModel):
     costo_envio: Decimal
     total: Decimal
     detalle: list[VentaDetalleRespuesta]
+    # Unidades devueltas de esta venta (0 = ninguna). La devolución no cambia el estado: las pantallas lo muestran
+    # junto al estado ("Con devolución (1 de 4)"). Las vendidas son la suma de `detalle[].cantidad`.
+    unidades_devueltas: int = 0
 
     @classmethod
-    def from_modelo(cls, venta, estados_por_id: dict[int, str]) -> "VentaRespuesta":
+    def from_modelo(cls, venta, estados_por_id: dict[int, str], unidades_devueltas: int = 0) -> "VentaRespuesta":
         return cls(
+            unidades_devueltas=unidades_devueltas,
             id=venta.id,
             codigo=venta.codigo,
             canal=venta.canal,

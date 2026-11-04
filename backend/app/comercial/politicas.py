@@ -858,6 +858,13 @@ def describir_plazo_cambio(db: Session, venta: Venta) -> dict:
 # ---- Cambio de talla o color y comprobante por correo (CU-17) ----
 
 
+def unidades_devueltas_por_venta(db: Session, ventas: Iterable[Venta]) -> dict[int, int]:
+    """Para las listas de ventas: cuántas unidades se devolvieron de cada una (`venta_id` -> unidades; sin
+    devoluciones no aparece). La devolución NO cambia el estado de la venta (puede ser parcial y los reportes cuentan
+    solo `pagada` y `entregada`): este dato se calcula aparte para que las pantallas lo muestren."""
+    return devolucion_repo.unidades_devueltas_por_venta(db, [v.id for v in ventas])
+
+
 def validar_cambio_de_variante(original, nueva) -> None:
     """Un cambio entrega OTRA variante del MISMO producto y del MISMO precio: así no hay diferencia de dinero que
     cobrar ni devolver (el reembolso todavía no existe). `original` y `nueva` son `ProductoVariante`."""

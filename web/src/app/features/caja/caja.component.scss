@@ -310,6 +310,33 @@
   border-radius: var(--fs-radio-md);
 }
 
+// Buscador de "Ventas recientes".
+.buscador-historial {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 0 var(--fs-espacio-3);
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-campo-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.buscador-historial__campo {
+  flex: 1;
+  min-height: var(--fs-toque);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--fs-texto);
+  outline: none;
+}
+
+.chip-devolucion {
+  margin-left: 6px;
+}
+
 .select-cambio {
   min-width: 150px;
   max-width: 100%;

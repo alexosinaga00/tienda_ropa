@@ -32,7 +32,14 @@ import { Empleado, Sucursal } from '../../core/models/organizacion.models';
 import { MetodoPagoCaja, Pago, PagoCajaRequest, PagoCajaRespuesta } from '../../core/models/pagos.models';
 import { FilaVentasPorSucursal, ReporteVentas } from '../../core/models/reportes.models';
 import { Reserva } from '../../core/models/reservas.models';
-import { Devolucion, DevolucionCrear, PlazoCambio, Venta, VentaPresencialCrear } from '../../core/models/ventas.models';
+import {
+  Devolucion,
+  DevolucionCrear,
+  PlazoCambio,
+  Venta,
+  VentaPresencialCrear,
+  etiquetaDevolucion,
+} from '../../core/models/ventas.models';
 import { CatalogoLocalService, VarianteBusquedaLocal } from '../../core/offline/catalogo-local.service';
 import { ColaSincronizacionService } from '../../core/offline/cola-sincronizacion.service';
 import { SesionOfflineService } from '../../core/offline/sesion-offline.service';
@@ -81,6 +88,8 @@ type FaseVenta = 'armando' | 'cobrando';
 const INTERVALO_PLAZO_MS = 60_000;
 /** Tope de ventas del historial cuyo plazo se consulta a la vez; las demás quedan sin indicador (el botón sigue como siempre). */
 const MAX_PLAZOS_PARALELOS = 30;
+/** Días hacia atrás que cubre "Ventas recientes": el plazo de cambio más largo de los planes es de 72 h. */
+const DIAS_VENTAS_RECIENTES = 3;
 
 /** localStorage: la última sucursal en la que cobró el administrador (alcance global), para no elegirla cada vez. */
 const CLAVE_SUCURSAL_ADMIN = 'fs_caja_sucursal_admin';
@@ -281,11 +290,21 @@ export class CajaComponent implements OnInit, OnDestroy {
   protected readonly pagoConfirmado = signal<Pago | null>(null);
   protected readonly cambioConfirmado = signal<number | null>(null);
 
-  // ---- Historial de hoy --------------------------------------------------------
+  // ---- Ventas recientes --------------------------------------------------------
+  // Un cambio o una devolución casi nunca es el mismo día de la compra: se listan los últimos 3 días (cubre el plazo
+  // más largo de los planes, 72 h) y se puede buscar por código. El servidor igual decide si el plazo sigue vigente.
 
   protected readonly historialVisible = signal(false);
-  protected readonly historialHoy = signal<Venta[]>([]);
+  protected readonly ventasRecientes = signal<Venta[]>([]);
   protected readonly cargandoHistorial = signal(false);
+  protected readonly busquedaHistorial = signal('');
+  /** Las ventas recientes, filtradas por el código que se escribió (sin distinguir mayúsculas). */
+  protected readonly ventasFiltradas = computed(() => {
+    const texto = this.busquedaHistorial().trim().toLowerCase();
+    const ventas = this.ventasRecientes();
+    return texto ? ventas.filter((v) => v.codigo.toLowerCase().includes(texto)) : ventas;
+  });
+  protected readonly etiquetaDevolucion = etiquetaDevolucion;
 
   // ---- Devoluciones --------------------------------------------------------------
 
@@ -463,7 +482,7 @@ export class CajaComponent implements OnInit, OnDestroy {
     // Lo que se veía era de la sucursal anterior.
     this.textoBusqueda.set('');
     this.resultados.set([]);
-    this.historialHoy.set([]);
+    this.ventasRecientes.set([]);
     if (id !== null) this.enfocarBusqueda();
   }
 
@@ -1005,16 +1024,16 @@ export class CajaComponent implements OnInit, OnDestroy {
     this.vencimientoConfirmado.clear();
     this.http.get<Venta[]>(`${environment.apiUrl}/ventas/sucursal/${sucursalId}`).subscribe({
       next: (ventas) => {
-        // `venta.fecha` viene del backend en hora LOCAL del servidor, sin
-        // offset (server_default now() de Postgres) -- comparar contra
-        // toISOString() (UTC) desalinea la fecha cerca de medianoche. Se
-        // arma "hoy" con el mismo calendario local, no UTC.
-        const hoy = fechaLocalIso(new Date());
-        const deHoy = ventas.filter((v) => v.fecha.slice(0, 10) === hoy).sort((a, b) => b.id - a.id);
-        this.historialHoy.set(deHoy);
+        // `venta.fecha` viene del backend sin offset: comparar contra toISOString() (UTC) desalinea la fecha cerca de
+        // medianoche. Se compara por DÍA calendario local, con un día de margen: el plazo exacto lo decide el servidor
+        // (el indicador de cada fila) y la fila vencida solo desactiva su botón.
+        const desde = fechaLocalIso(new Date(Date.now() - DIAS_VENTAS_RECIENTES * 24 * 3_600_000));
+        const recientes = ventas.filter((v) => v.fecha.slice(0, 10) >= desde).sort((a, b) => b.id - a.id);
+        this.ventasRecientes.set(recientes);
+        this.busquedaHistorial.set('');
         this.cargandoHistorial.set(false);
         // Solo las ventas que ofrecen devolución necesitan su plazo; las más recientes primero.
-        deHoy
+        recientes
           .filter((v) => this.permiteDevolucion(v))
           .slice(0, MAX_PLAZOS_PARALELOS)
           .forEach((v) => this.pedirPlazo(v.id));

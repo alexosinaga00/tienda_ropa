@@ -137,6 +137,27 @@ describe('DashboardComponent', () => {
     expect(chips[2].classList).toContain('fs-chip--exito');
   });
 
+  it('una venta con devolución sigue pagada (y cuenta como vendida) pero "Últimas ventas" dice que se devolvió', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
+    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
+    http.expectOne(`${API}/ventas/sucursal/1`).flush([
+      { ...ventaDeHoy(2, 'pagada', 100, '10:00'), unidades_devueltas: 1 }, // vendió 2, devolvió 1
+      { ...ventaDeHoy(1, 'pagada', 50, '09:00'), unidades_devueltas: 1 }, // vendió 1, devolvió 1
+    ]);
+    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+
+    const marcas = Array.from(el.querySelectorAll('.dash-tabla [data-estado="con-devolucion"]')).map((c) =>
+      c.textContent?.trim(),
+    );
+    expect(marcas).toEqual(['Con devolución (1 de 2)', 'Devuelta']);
+    // El estado sigue siendo "Pagada" y la venta sigue sumando (la devolución no resta ingresos).
+    expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Pagada');
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 150.00');
+  });
+
   it('una venta anulada no cuenta como vendida: ni total, ni tickets, ni gráfico, ni "Por cobrar"', () => {
     iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
     const { fixture, el } = crear();

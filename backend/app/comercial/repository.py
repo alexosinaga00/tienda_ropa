@@ -392,6 +392,19 @@ class DevolucionRepository:
         db.flush()
         return devolucion
 
+    def unidades_devueltas_por_venta(self, db: Session, venta_ids: list[int]) -> dict[int, int]:
+        """Unidades ya devueltas (devoluciones aprobadas) de cada venta, en UNA consulta: `venta_id` -> unidades.
+        Las ventas sin devoluciones no aparecen. Para mostrar "con devolución" en las listas sin tocar el estado."""
+        if not venta_ids:
+            return {}
+        filas = db.execute(
+            select(Devolucion.venta_id, func.coalesce(func.sum(DevolucionDetalle.cantidad), 0))
+            .join(DevolucionDetalle, DevolucionDetalle.devolucion_id == Devolucion.id)
+            .where(Devolucion.venta_id.in_(venta_ids), Devolucion.estado == "aprobada")
+            .group_by(Devolucion.venta_id)
+        ).all()
+        return {int(venta_id): int(total) for venta_id, total in filas}
+
     def cantidad_devuelta(self, db: Session, venta_detalle_id: int) -> int:
         """Suma de todo lo ya devuelto de esa línea, en TODAS las
         devoluciones anteriores (no solo la que se está creando ahora):

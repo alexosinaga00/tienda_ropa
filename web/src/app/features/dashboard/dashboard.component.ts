@@ -9,7 +9,7 @@ import { ProductoImagenLookupItem } from '../../core/models/catalogo.models';
 import { FilaConsolidado } from '../../core/models/inventario.models';
 import { Empleado, Sucursal } from '../../core/models/organizacion.models';
 import { EstadoReserva, Reserva } from '../../core/models/reservas.models';
-import { EstadoVenta, Venta } from '../../core/models/ventas.models';
+import { EstadoVenta, Venta, etiquetaDevolucion } from '../../core/models/ventas.models';
 import { IconoComponent } from '../../shared/icono/icono.component';
 
 interface ProductoVendidoHoy {
@@ -264,6 +264,9 @@ export class DashboardComponent implements OnInit {
         },
       });
   }
+
+  /** "Con devolución (1 de 4)" / "Devuelta": la venta sigue "pagada" (los reportes la cuentan), pero se ve que se devolvió. */
+  protected readonly etiquetaDevolucion = etiquetaDevolucion;
 
   protected estadoVenta(estado: EstadoVenta): { etiqueta: string; chip: string } {
     return ESTADO_VENTA[estado] ?? { etiqueta: estado, chip: '' };

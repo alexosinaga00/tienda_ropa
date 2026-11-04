@@ -148,6 +148,9 @@
                     <span class="fs-chip" [class]="estadoVenta(venta.estado).chip">
                       {{ estadoVenta(venta.estado).etiqueta }}
                     </span>
+                    @if (etiquetaDevolucion(venta); as devolucion) {
+                      <span class="fs-chip fs-chip--advertencia" data-estado="con-devolucion">{{ devolucion }}</span>
+                    }
                   </td>
                 </tr>
               }

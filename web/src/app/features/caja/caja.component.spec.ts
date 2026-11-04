@@ -1,4 +1,4 @@
-import 'fake-indexeddb/auto';
+﻿import 'fake-indexeddb/auto';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Provider, WritableSignal, signal } from '@angular/core';
@@ -76,8 +76,8 @@ function respuestaPlazo(ventaId: number, restanteMs: number, extra: Partial<Plaz
   };
 }
 
-function fechaDeHoy(): string {
-  const hoy = new Date();
+function fechaDeHoy(haceDias = 0): string {
+  const hoy = new Date(Date.now() - haceDias * 24 * 3_600_000);
   const mes = String(hoy.getMonth() + 1).padStart(2, '0');
   const dia = String(hoy.getDate()).padStart(2, '0');
   return `${hoy.getFullYear()}-${mes}-${dia}T09:30:00`;
@@ -431,7 +431,7 @@ describe('CajaComponent', () => {
     const { fixture, el } = abrir(1);
 
     Array.from(el.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Historial de hoy'))!
+      .find((b) => b.textContent?.includes('Ventas recientes'))!
       .click();
     http.expectOne(`${API}/ventas/sucursal/1`).flush([
       { ...VENTA, estado: 'pagada', fecha: fechaDeHoy() },
@@ -1410,7 +1410,7 @@ describe('CajaComponent', () => {
 
     function abrirElHistorial(pantalla: Pantalla, ventas: object[]): void {
       Array.from(pantalla.el.querySelectorAll('button'))
-        .find((b) => b.textContent?.includes('Historial de hoy'))!
+        .find((b) => b.textContent?.includes('Ventas recientes'))!
         .click();
       http.expectOne(`${API}/ventas/sucursal/1`).flush(ventas);
       pantalla.fixture.detectChanges();
@@ -1771,6 +1771,66 @@ describe('CajaComponent', () => {
         expect(limpio(errorDelDialogo()?.textContent)).toBe('La cantidad supera lo vendido.');
         expect(botonConfirmar().disabled).toBe(false);
         expect(botonDeFila(filas()[0]).disabled).toBe(false);
+      });
+    });
+
+    describe('ventas recientes: últimos 3 días, buscador y marca de devolución', () => {
+      const limpioTxt = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+      const venta = (id: number, haceDias: number, extra: object = {}) => ({
+        ...VENTA,
+        id,
+        codigo: `VTA-${String(id).padStart(4, '0')}`,
+        estado: 'pagada',
+        fecha: fechaDeHoy(haceDias),
+        ...extra,
+      });
+      const codigos = () => filas().map((f) => limpioTxt(f.querySelector('td.fuerte')).split(' ')[0]);
+
+      it('lista también las de ayer y anteayer, y deja fuera las más viejas', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirElHistorial(pantalla, [venta(5, 0), venta(4, 1), venta(3, 2), venta(2, 6)]);
+        http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.error(new ProgressEvent('error')));
+        pantalla.fixture.detectChanges();
+
+        expect(codigos()).toEqual(['VTA-0005', 'VTA-0004', 'VTA-0003']);
+        expect(limpioTxt(document.body.querySelector('.p-dialog-title'))).toContain('Ventas recientes');
+      });
+
+      it('el buscador filtra por código sin distinguir mayúsculas y avisa si no hay coincidencias', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirElHistorial(pantalla, [venta(5, 0), venta(4, 1)]);
+        http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.error(new ProgressEvent('error')));
+        const campo = () => document.body.querySelector('input[data-estado="buscar-venta"]') as HTMLInputElement;
+
+        campo().value = 'vta-0004';
+        campo().dispatchEvent(new Event('input'));
+        pantalla.fixture.detectChanges();
+        expect(codigos()).toEqual(['VTA-0004']);
+
+        campo().value = 'zzz';
+        campo().dispatchEvent(new Event('input'));
+        pantalla.fixture.detectChanges();
+        expect(filas().map((f) => limpioTxt(f))).toEqual(['Ninguna venta reciente coincide con ese código.']);
+      });
+
+      it('una venta con devolución sigue "pagada" pero lo dice, parcial o total', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirElHistorial(pantalla, [
+          venta(7, 0), // sin devolución
+          venta(6, 0, { unidades_devueltas: 1 }), // parcial: 1 de 2
+          venta(5, 0, { unidades_devueltas: 2 }), // total
+        ]);
+        http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.error(new ProgressEvent('error')));
+        pantalla.fixture.detectChanges();
+
+        const marca = (indice: number) => limpioTxt(filas()[indice].querySelector('[data-estado="con-devolucion"]'));
+        expect(filas()[0].querySelector('[data-estado="con-devolucion"]')).toBeNull(); // id 7
+        expect(marca(1)).toBe('Con devolución (1 de 2)'); // id 6
+        expect(marca(2)).toBe('Devuelta'); // id 5
+        expect(limpioTxt(filas()[1].querySelector('.fs-chip'))).toBe('pagada');
       });
     });
 

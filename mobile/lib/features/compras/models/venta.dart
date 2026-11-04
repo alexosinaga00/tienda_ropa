@@ -68,6 +68,8 @@ class Venta {
     required this.costoEnvio,
     required this.total,
     required this.detalle,
+    this.sucursalId,
+    this.unidadesDevueltas = 0,
   });
 
   factory Venta.fromJson(Map<String, dynamic> json) => Venta(
@@ -80,6 +82,8 @@ class Venta {
     costoEnvio: double.parse(json['costo_envio'].toString()),
     total: double.parse(json['total'].toString()),
     detalle: (json['detalle'] as List).map((d) => VentaLinea.fromJson(d as Map<String, dynamic>)).toList(),
+    sucursalId: json['sucursal_id'] as int?,
+    unidadesDevueltas: json['unidades_devueltas'] as int? ?? 0,
   );
 
   final int id;
@@ -92,7 +96,20 @@ class Venta {
   final double total;
   final List<VentaLinea> detalle;
 
+  /// La sucursal de la compra (dónde se retira o a dónde se lleva la prenda a cambiar).
+  final int? sucursalId;
+
+  /// Unidades devueltas de esta compra. La devolución no cambia el estado: se dice aparte.
+  final int unidadesDevueltas;
+
   bool get esEnvioADomicilio => costoEnvio > 0;
+
+  /// "Con devolución (1 de 4)" o "Devuelta"; null si no se devolvió nada.
+  String? get etiquetaDevolucion {
+    if (unidadesDevueltas <= 0) return null;
+    final vendidas = detalle.fold<int>(0, (suma, linea) => suma + linea.cantidad);
+    return unidadesDevueltas >= vendidas ? 'Devuelta' : 'Con devolución ($unidadesDevueltas de $vendidas)';
+  }
 
   Venta conDetalle(List<VentaLinea> nuevoDetalle) => Venta(
     id: id,
@@ -104,6 +121,8 @@ class Venta {
     costoEnvio: costoEnvio,
     total: total,
     detalle: nuevoDetalle,
+    sucursalId: sucursalId,
+    unidadesDevueltas: unidadesDevueltas,
   );
 }
 
