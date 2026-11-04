@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/venta.dart';
+import '../state/compras_providers.dart';
 import '../state/mis_compras_controller.dart';
 
 const _colorEstadoVenta = {
@@ -60,21 +61,39 @@ class MisComprasScreen extends ConsumerWidget {
   }
 }
 
-class _TarjetaVenta extends StatelessWidget {
+class _TarjetaVenta extends ConsumerWidget {
   const _TarjetaVenta({required this.venta});
 
   final Venta venta;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Un cambio de talla o color que el cliente pidió y la tienda todavía no atendió.
+    final conCambioPendiente = ref.watch(comprasConCambioPendienteProvider).valueOrNull?.contains(venta.id) ?? false;
     return Card(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: ListTile(
         onTap: () => context.push('/compras/${venta.id}'),
         title: Text(venta.codigo),
-        subtitle: Text(
-          '${venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal'} · Bs ${venta.total.toStringAsFixed(2)}'
-          '${venta.etiquetaDevolucion != null ? ' · ${venta.etiquetaDevolucion}' : ''}',
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${venta.esEnvioADomicilio ? 'Envío a domicilio' : 'Retiro en sucursal'} · '
+              'Bs ${venta.total.toStringAsFixed(2)}'
+              '${venta.etiquetaDevolucion != null ? ' · ${venta.etiquetaDevolucion}' : ''}',
+            ),
+            if (conCambioPendiente)
+              const Padding(
+                padding: EdgeInsets.only(top: AppSpacing.xs),
+                child: Chip(
+                  key: Key('chip-cambio-pendiente'),
+                  label: Text('Cambio pendiente', style: TextStyle(fontSize: 12)),
+                  backgroundColor: AppColors.fondoAlterno,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+          ],
         ),
         trailing: Chip(
           label: Text(

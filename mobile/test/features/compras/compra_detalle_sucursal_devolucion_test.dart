@@ -6,6 +6,8 @@ import 'package:mobile/features/compras/models/venta.dart';
 import 'package:mobile/features/compras/presentation/compra_detalle_screen.dart';
 import 'package:mobile/features/compras/state/compras_providers.dart';
 
+import '../../helpers/solicitudes_cambio_falsas.dart';
+
 Venta _venta({
   int? sucursalId = 2,
   int devueltas = 0,
@@ -45,6 +47,7 @@ Widget _pantalla(Venta venta, {Future<String?> Function()? sucursal}) =>
           }),
         ),
         envioDeCompraProvider(7).overrideWith((ref) async => null),
+        ...solicitudesCambioFalsas(7),
         if (venta.sucursalId != null)
           nombreSucursalProvider(
             venta.sucursalId!,

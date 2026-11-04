@@ -11,6 +11,7 @@ import '../models/envio.dart';
 import '../models/venta.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
+import 'solicitar_cambio_seccion.dart';
 
 class CompraDetalleScreen extends ConsumerWidget {
   const CompraDetalleScreen({required this.ventaId, super.key});
@@ -32,6 +33,8 @@ class CompraDetalleScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(envioDeCompraProvider(ventaId));
             ref.invalidate(plazoCambioProvider(ventaId));
+            ref.invalidate(misSolicitudesCambioProvider(ventaId));
+            ref.invalidate(opcionesCambioProvider(ventaId));
             ref.invalidate(compraDetalleProvider(ventaId));
             await ref.read(compraDetalleProvider(ventaId).future);
           },
@@ -77,6 +80,8 @@ class CompraDetalleScreen extends ConsumerWidget {
               // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo.
               if (venta.estado == 'pagada' || venta.estado == 'entregada') ...[
                 _PlazoDeCambio(ventaId: venta.id, sucursalId: venta.sucursalId),
+                // Pedir el cambio de talla o color desde la app y ver cómo van las solicitudes.
+                SolicitarCambioSeccion(venta: venta),
               ],
 
               for (final linea in venta.detalle) _TarjetaLinea(linea: linea),

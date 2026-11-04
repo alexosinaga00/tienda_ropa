@@ -6,6 +6,8 @@ import 'package:mobile/features/compras/models/venta.dart';
 import 'package:mobile/features/compras/presentation/compra_detalle_screen.dart';
 import 'package:mobile/features/compras/state/compras_providers.dart';
 
+import '../../helpers/solicitudes_cambio_falsas.dart';
+
 Venta _venta(String estado) => Venta.fromJson({
   'id': 7,
   'codigo': 'V-0007',
@@ -25,6 +27,7 @@ Widget _pantalla(String estado, Future<PlazoCambio?> Function() plazo) => Provid
     compraDetalleProvider(7).overrideWith((ref) async => _venta(estado)),
     plazoCambioProvider(7).overrideWith((ref) => plazo()),
     envioDeCompraProvider(7).overrideWith((ref) async => null),
+    ...solicitudesCambioFalsas(7),
   ],
   child: const MaterialApp(home: CompraDetalleScreen(ventaId: 7)),
 );

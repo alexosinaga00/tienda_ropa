@@ -33,6 +33,16 @@ class CatalogoRepository {
     return _api.getObjeto<CatalogoDetalle>('/catalogo/$productoId', desde: CatalogoDetalle.fromJson, publica: true);
   }
 
+  /// El detalle de un producto con el stock de cada variante EN esa sucursal (`cantidad_disponible`).
+  Future<CatalogoDetalle> detalleEnSucursal(int productoId, int sucursalId) {
+    return _api.getObjeto<CatalogoDetalle>(
+      '/catalogo/$productoId',
+      query: {'sucursal_id': sucursalId},
+      desde: CatalogoDetalle.fromJson,
+      publica: true,
+    );
+  }
+
   /// Resuelve nombre/foto/talla/color en lote para un conjunto de
   /// variantes -- lo usa el carrito de compra (features/compras), que del
   /// backend solo recibe variante_id/cantidad/precio. Exige sesión.
