@@ -1,0 +1,35 @@
+<section class="listo" aria-labelledby="listo-titulo">
+  <h1 id="listo-titulo" class="listo__titulo">Tu tienda está lista</h1>
+  <p class="listo__sub">{{ subtitulo() }}</p>
+
+  <div class="listo__tienda">
+    <span class="listo__logo" aria-hidden="true">
+      <fs-marca [nombre]="empresaNombre()" [soloMonograma]="true" variante="oscuro" />
+    </span>
+    <span class="listo__datos">
+      <span class="listo__nombre">{{ empresaNombre() }}</span>
+      <span class="listo__ruta">/t/{{ empresaCodigo() }}</span>
+    </span>
+  </div>
+
+  <dl class="listo__resumen">
+    <div>
+      <dt>Empresa para entrar</dt>
+      <dd>{{ empresaNombre() }}</dd>
+    </div>
+    @if (correo()) {
+      <div>
+        <dt>Entras con</dt>
+        <dd>{{ correo() }}</dd>
+      </div>
+    }
+  </dl>
+
+  <div class="listo__acciones">
+    <a class="fs-btn fs-btn--acento" [routerLink]="rutaAcceso">
+      Entrar al panel
+      <fs-icono nombre="flecha-derecha" [tam]="24" />
+    </a>
+    <a class="fs-btn fs-btn--contorno" [routerLink]="['/t', empresaCodigo()]">Ver mi tienda</a>
+  </div>
+</section>

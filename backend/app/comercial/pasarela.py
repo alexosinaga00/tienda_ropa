@@ -7,7 +7,8 @@ tocar el flujo de pago/webhook/confirmación de la venta.
 LibelulaGateway sigue siendo un SIMULADOR de sandbox (no hay credenciales
 de Libélula configuradas). PayPalGateway ya tiene credenciales reales de
 sandbox (PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET) y llama de verdad a la
-API de PayPal (OAuth2 + Orders v2) para iniciar_pago()/consultar_estado().
+API de PayPal (OAuth2 + Orders v2) para iniciar_pago()/consultar_estado(), a
+través de `app/core/paypal.py` (el mismo cliente que usa la compra de un plan).
 El webhook (verificar_firma/interpretar_webhook) sigue siendo el HMAC de
 sandbox para las dos: verificarlo de verdad con la API de PayPal
 (verify-webhook-signature) necesita un PAYPAL_WEBHOOK_ID configurado en
@@ -21,7 +22,6 @@ este mismo backend, en vez del link externo muerto de Libélula.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import secrets
@@ -29,8 +29,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 
-import httpx
-
+from app.core import paypal
 from app.core.config import get_settings
 
 
@@ -121,98 +120,48 @@ class PayPalGateway(PasarelaBase):
     nombre = "paypal"
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._client_id = settings.paypal_client_id
-        self._client_secret = settings.paypal_client_secret
-        self._webhook_secret = settings.paypal_webhook_secret
-        self._base_url = (
-            "https://api-m.paypal.com" if settings.paypal_mode == "live" else "https://api-m.sandbox.paypal.com"
-        )
-
-    def _token(self) -> str:
-        if not self._client_id or not self._client_secret:
-            raise RuntimeError("PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET no están configurados")
-        credenciales = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode("utf-8")).decode("ascii")
-        respuesta = httpx.post(
-            f"{self._base_url}/v1/oauth2/token",
-            headers={"Authorization": f"Basic {credenciales}", "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "client_credentials"},
-            timeout=15,
-        )
-        respuesta.raise_for_status()
-        return respuesta.json()["access_token"]
+        self._webhook_secret = get_settings().paypal_webhook_secret
 
     def iniciar_pago(self, *, monto: Decimal, referencia: str) -> ResultadoIniciar:
+        # DEFECTO PREVIO CONOCIDO (no se corrige aquí): `monto` es el total de la venta en bolivianos y se manda a
+        # PayPal como USD sin convertir. La compra de un plan (plataforma, CU-04) sí convierte con el tipo de cambio.
         try:
-            token = self._token()
-            cuerpo = {
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {"reference_id": referencia, "amount": {"currency_code": "USD", "value": str(monto)}}
-                ],
-                "payment_source": {
-                    "paypal": {
-                        "experience_context": {
-                            # Sandbox sin frontend real todavía: son URLs de
-                            # vuelta de ejemplo, no rutas que existan hoy.
-                            "return_url": "https://fashionstore.example.com/pago/retorno",
-                            "cancel_url": "https://fashionstore.example.com/pago/cancelado",
-                            # Sin esto, PayPal manda primero a la pantalla de
-                            # login (pensada para quien ya tiene cuenta).
-                            # GUEST_CHECKOUT lleva directo al formulario de
-                            # tarjeta, sin necesidad de iniciar sesión.
-                            "landing_page": "GUEST_CHECKOUT",
-                            "user_action": "PAY_NOW",
-                        }
-                    }
-                },
-            }
-            respuesta = httpx.post(
-                f"{self._base_url}/v2/checkout/orders",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json=cuerpo,
-                timeout=15,
+            orden = paypal.crear_orden(
+                monto=monto,
+                moneda="USD",
+                referencia=referencia,
+                descripcion=None,
+                # Sandbox sin frontend real todavía: son URLs de vuelta de ejemplo, no rutas que existan hoy.
+                return_url="https://fashionstore.example.com/pago/retorno",
+                cancel_url="https://fashionstore.example.com/pago/cancelado",
             )
-            respuesta.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"No se pudo iniciar el pago con PayPal: {exc}") from exc
-
-        datos = respuesta.json()
-        # El link para redirigir al comprador se llama "payer-action" en
-        # la API actual de Orders v2 ("approve" es el nombre viejo, de
-        # antes de que payment_source.paypal reemplazara application_context).
-        url = next((link["href"] for link in datos["links"] if link["rel"] in ("payer-action", "approve")), "")
-        return ResultadoIniciar(id_transaccion=datos["id"], url_redireccion=url)
+        except paypal.PayPalError as exc:
+            if exc.causa is None:  # sin credenciales: el mensaje de configuración, como siempre
+                raise
+            raise RuntimeError(f"No se pudo iniciar el pago con PayPal: {exc.causa}") from exc
+        return ResultadoIniciar(id_transaccion=orden.id, url_redireccion=orden.url_aprobacion)
 
     def consultar_estado(self, id_transaccion: str) -> str:
         try:
-            token = self._token()
-            respuesta = httpx.get(
-                f"{self._base_url}/v2/checkout/orders/{id_transaccion}",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            respuesta.raise_for_status()
-            estado_paypal = respuesta.json()["status"]
-
-            if estado_paypal == "COMPLETED":
+            orden = paypal.obtener_orden(id_transaccion)
+            if orden.estado == paypal.ESTADO_COMPLETADA:
                 return "aprobado"
-            if estado_paypal == "APPROVED":
-                # El comprador ya aprobó del lado de PayPal; hay que
-                # capturar para que el dinero se mueva de verdad.
-                captura = httpx.post(
-                    f"{self._base_url}/v2/checkout/orders/{id_transaccion}/capture",
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                    timeout=15,
-                )
-                if captura.status_code == 201 and captura.json().get("status") == "COMPLETED":
-                    return "aprobado"
-                return "iniciado"
-            if estado_paypal in ("VOIDED",):
+            if orden.estado == paypal.ESTADO_APROBADA:
+                # El comprador ya aprobó del lado de PayPal; hay que capturar para que el dinero se mueva de verdad.
+                try:
+                    captura = paypal.capturar_orden(id_transaccion, tratar_ya_capturada=False)
+                except paypal.PayPalError as exc:
+                    if exc.status_code is not None:  # PayPal contestó con un error: sigue sin cobrarse
+                        return "iniciado"
+                    raise
+                return "aprobado" if captura.estado == paypal.ESTADO_COMPLETADA else "iniciado"
+            if orden.estado == paypal.ESTADO_ANULADA:
                 return "rechazado"
             return "iniciado"
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"No se pudo consultar el estado en PayPal: {exc}") from exc
+        except paypal.PayPalError as exc:
+            if exc.causa is None:
+                raise
+            raise RuntimeError(f"No se pudo consultar el estado en PayPal: {exc.causa}") from exc
 
     def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
         return _firma_valida(self._webhook_secret, payload_crudo, firma)

@@ -1,0 +1,131 @@
+:host {
+  display: block;
+}
+
+.lado {
+  padding: 24px;
+  background: var(--fs-carbon-panel);
+  border: 1px solid var(--fs-carbon-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.lado__etiqueta {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fs-acento-oscuro);
+}
+
+.lado__nombre {
+  margin: 0;
+  font-family: var(--fs-fuente-display);
+  font-stretch: 125%;
+  font-size: 26px;
+  font-weight: 800;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+
+  &--vacio {
+    color: var(--fs-claro-tenue);
+  }
+}
+
+.lado__precio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 4px 0 16px;
+
+  small {
+    font-size: 13px;
+    color: var(--fs-claro-tenue);
+  }
+}
+
+.lado__monto {
+  font-family: var(--fs-fuente-display);
+  font-stretch: 125%;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+
+  &--consultar {
+    font-size: 22px;
+    color: var(--fs-claro-tenue);
+  }
+}
+
+.periodo {
+  display: flex;
+  border: 1px solid var(--fs-carbon-campo);
+  border-radius: var(--fs-radio-md);
+  overflow: hidden;
+}
+
+.periodo__op {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--fs-toque);
+  padding: 0 12px;
+  font: 600 14px var(--fs-fuente-ui);
+  color: var(--fs-claro-tenue);
+  background: none;
+  border: 0;
+  cursor: pointer;
+
+  &[aria-pressed='true'] {
+    background: var(--fs-acento-oscuro);
+    color: var(--fs-sobre-acento-oscuro);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--fs-claro);
+    outline-offset: -4px;
+  }
+}
+
+.periodo__ahorro {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lado__nota {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--fs-claro-tenue);
+}
+
+.lado__lista {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  fs-icono {
+    flex: none;
+    margin-top: 1px;
+    color: var(--fs-acento-oscuro);
+  }
+}
+
+.lado__pie {
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--fs-carbon-borde);
+  font-size: 14px;
+}

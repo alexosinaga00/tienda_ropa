@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { PlanPublico } from '../../../core/models/plan.models';
 import { PlanesComparativoComponent } from './planes-comparativo.component';
 
@@ -9,6 +10,7 @@ const BASICO: PlanPublico = {
   max_sucursales: 2,
   max_copias_historial: 3,
   plazo_cambio_horas_defecto: 24,
+  precio_mensual_bs: '120.00',
   gestion_productos: true,
   gestion_ventas: true,
   reservas: true,
@@ -25,6 +27,7 @@ const ESTANDAR: PlanPublico = {
   max_sucursales: 5,
   max_copias_historial: 6,
   plazo_cambio_horas_defecto: 48,
+  precio_mensual_bs: '290.00',
   reportes_ia: true,
 };
 const PROFESIONAL: PlanPublico = {
@@ -34,11 +37,16 @@ const PROFESIONAL: PlanPublico = {
   max_sucursales: 10,
   max_copias_historial: 10,
   plazo_cambio_horas_defecto: 72,
+  precio_mensual_bs: '590.00',
   analitica_ml: true,
 };
 
 describe('PlanesComparativoComponent', () => {
   let fixture: ComponentFixture<PlanesComparativoComponent>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+  });
 
   function mostrar(planes: PlanPublico[]): void {
     fixture = TestBed.createComponent(PlanesComparativoComponent);
@@ -187,11 +195,66 @@ describe('PlanesComparativoComponent', () => {
     expect(html().querySelector('.planes-comunes')).toBeNull();
   });
 
-  it('no muestra precios ni cifras de relleno', () => {
+  it('cada plan muestra su precio por mes en bolivianos, sin dólares ni cifras de relleno', () => {
     mostrar([BASICO, ESTANDAR, PROFESIONAL]);
 
-    const texto = html().textContent ?? '';
-    expect(texto).not.toMatch(/Bs|\$|USD|precio|\[N\]/i);
+    const precios = Array.from(html().querySelectorAll('.plan__precio')).map((p) =>
+      (p.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+    expect(precios).toEqual(['Bs 120 al mes', 'Bs 290 al mes', 'Bs 590 al mes']);
+    expect(html().textContent ?? '').not.toMatch(/\$|USD|\[N\]|\[precio\]/i);
+  });
+
+  it('"Elegir plan" lleva a /contratar con el código del plan, y es el único botón por tarjeta', () => {
+    mostrar([BASICO, ESTANDAR, PROFESIONAL]);
+
+    const botones = Array.from(html().querySelectorAll<HTMLAnchorElement>('.plan__elegir'));
+    expect(botones.map((b) => b.getAttribute('href'))).toEqual([
+      '/contratar?plan=basico',
+      '/contratar?plan=estandar',
+      '/contratar?plan=profesional',
+    ]);
+    expect(botones.every((b) => b.textContent?.trim() === 'Elegir plan')).toBe(true);
+    expect(botones[1].getAttribute('aria-label')).toBe('Elegir plan Estándar, Bs 290 al mes');
+    // La prueba gratis va una sola vez, en el inicio de la portada: aquí no se repite.
+    expect(html().textContent ?? '').not.toMatch(/gratis|prueba/i);
+    for (const tarjeta of Array.from(html().querySelectorAll('.plan'))) {
+      expect(tarjeta.querySelectorAll('a, button').length).toBe(1);
+    }
+  });
+
+  it('el plan completo lleva el botón de acento; los demás, contorno (oscuro) o secundario (claro)', () => {
+    mostrar([BASICO, PROFESIONAL]);
+    expect(tarjeta('Profesional').querySelector('.plan__elegir')?.classList).toContain('fs-btn--acento');
+    expect(tarjeta('Básico').querySelector('.plan__elegir')?.classList).toContain('fs-btn--secundario');
+
+    fixture.componentRef.setInput('variante', 'oscuro');
+    fixture.detectChanges();
+    expect(tarjeta('Profesional').querySelector('.plan__elegir')?.classList).toContain('fs-btn--acento');
+    expect(tarjeta('Básico').querySelector('.plan__elegir')?.classList).toContain('fs-btn--contorno');
+  });
+
+  it('un plan sin precio o con precio 0 dice "Precio a consultar" y no se puede elegir', () => {
+    mostrar([
+      { ...BASICO, precio_mensual_bs: null },
+      { ...ESTANDAR, precio_mensual_bs: '0.00' },
+      PROFESIONAL,
+    ]);
+
+    expect(tarjeta('Básico').textContent).toContain('Precio a consultar');
+    expect(tarjeta('Básico').querySelector('.plan__elegir')).toBeNull();
+    expect(tarjeta('Estándar').textContent).toContain('Precio a consultar');
+    expect(tarjeta('Estándar').querySelector('.plan__elegir')).toBeNull();
+    expect(tarjeta('Profesional').querySelector('.plan__elegir')).not.toBeNull();
+  });
+
+  it('los precios con decimales o miles se muestran con formato de Bolivia', () => {
+    mostrar([
+      { ...BASICO, precio_mensual_bs: '99.50' },
+      { ...PROFESIONAL, precio_mensual_bs: '1250.00' },
+    ]);
+    expect(tarjeta('Básico').querySelector('.plan__monto')?.textContent?.trim()).toBe('Bs 99,50');
+    expect(tarjeta('Profesional').querySelector('.plan__monto')?.textContent?.trim()).toBe('Bs 1.250');
   });
 
   it('la variante es clara por omisión y "oscuro" agrega la clase para ir sobre la escena 3D', () => {

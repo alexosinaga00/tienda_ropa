@@ -19,6 +19,7 @@ function plan(codigo: string, nombre: string, max: number, activo = true): PlanP
     max_sucursales: max,
     max_copias_historial: 0,
     plazo_cambio_horas_defecto: 24,
+    precio_mensual_bs: null,
     reportes_convencionales: true,
     reportes_ia: false,
     operacion_offline: false,

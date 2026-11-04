@@ -30,6 +30,7 @@ const BASICO: PlanPublico = {
   max_sucursales: 2,
   max_copias_historial: 3,
   plazo_cambio_horas_defecto: 24,
+  precio_mensual_bs: '120.00',
   gestion_productos: true,
   gestion_ventas: true,
   reservas: true,
@@ -46,6 +47,7 @@ const PROFESIONAL: PlanPublico = {
   max_sucursales: 10,
   max_copias_historial: 10,
   plazo_cambio_horas_defecto: 72,
+  precio_mensual_bs: '590.00',
   reportes_ia: true,
   analitica_ml: true,
 };
@@ -128,6 +130,30 @@ describe('HistoriaTiendaComponent', () => {
     expect(acceso?.textContent).toContain('Acceso del personal');
     expect(acceso?.getAttribute('href')).toBe('/admin/login');
     expect(html().querySelector('.barra fs-marca')).not.toBeNull();
+  });
+
+  it('"Probar 14 días gratis" va una sola vez, en el inicio, hacia /contratar?modo=prueba', () => {
+    crear();
+    const enlaces = Array.from(html().querySelectorAll<HTMLAnchorElement>('a')).filter((a) =>
+      /gratis/i.test(a.textContent ?? ''),
+    );
+    expect(enlaces.length).toBe(1);
+    expect(enlaces[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Probar 14 días gratis');
+    expect(enlaces[0].getAttribute('href')).toBe('/contratar?modo=prueba');
+    expect(enlaces[0].closest('#inicio')).not.toBeNull();
+    expect(html().querySelector('#planes')?.textContent).not.toMatch(/gratis/i);
+  });
+
+  it('la parada de planes muestra el precio de cada plan y un "Elegir plan" hacia /contratar', () => {
+    crear();
+    const seccion = html().querySelector('#planes')!;
+    expect(Array.from(seccion.querySelectorAll('.plan__monto')).map((m) => m.textContent?.trim())).toEqual([
+      'Bs 120',
+      'Bs 590',
+    ]);
+    expect(
+      Array.from(seccion.querySelectorAll<HTMLAnchorElement>('.plan__elegir')).map((a) => a.getAttribute('href')),
+    ).toEqual(['/contratar?plan=basico', '/contratar?plan=profesional']);
   });
 
   it('la demo arranca con "Mi Boutique" y 6 colores, y no promete nada guardado', () => {

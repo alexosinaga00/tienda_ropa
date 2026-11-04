@@ -144,6 +144,19 @@ describe('ngsw-config.json: seguridad de la caché', () => {
     expect(conLaRuta).toEqual([]);
   });
 
+  it('la contratación pública (pedidos, token, PayPal) queda fuera de la caché: cada patrón público tiene su exclusión', () => {
+    const urls = urlsDeDatos();
+    const publicas = urls.filter((url) => !url.startsWith('!') && url.endsWith('/api/v1/public/**'));
+    expect(publicas.length).toBeGreaterThan(0);
+    for (const patron of publicas) {
+      const exclusion = `!${patron.replace(/public\/\*\*$/, 'public/contratacion/**')}`;
+      expect(urls, `falta ${exclusion}`).toContain(exclusion);
+    }
+    // Nada que se cachee puede nombrar la contratación: solo aparece en las exclusiones.
+    const cacheables = urls.filter((url) => !url.startsWith('!'));
+    expect(cacheables.filter((url) => url.includes('contratacion'))).toEqual([]);
+  });
+
   it('ninguna dataGroup guarda respuestas más de 7 días y todas declaran maxAge', () => {
     for (const grupo of dataGroups()) {
       const maxAge = grupo.cacheConfig?.maxAge;

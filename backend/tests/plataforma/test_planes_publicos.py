@@ -16,6 +16,7 @@ CAMPOS = {
     "max_sucursales",
     "max_copias_historial",
     "plazo_cambio_horas_defecto",
+    "precio_mensual_bs",
     "gestion_productos",
     "gestion_ventas",
     "reservas",

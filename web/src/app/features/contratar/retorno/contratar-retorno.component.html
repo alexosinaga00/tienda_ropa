@@ -1,0 +1,83 @@
+<app-contratar-marco>
+  @switch (estado()) {
+    @case ('listo') {
+      @if (pagado(); as p) {
+        <app-contratacion-listo
+          [empresaCodigo]="p.empresa_codigo"
+          [empresaNombre]="p.empresa_nombre"
+          [planNombre]="p.plan_nombre"
+          [esPrueba]="p.es_prueba"
+          [fechaVencimiento]="p.fecha_vencimiento"
+        />
+      }
+    }
+    @case ('cancelado') {
+      <section class="retorno" aria-labelledby="ret-titulo">
+        <h1 id="ret-titulo" class="retorno__titulo">Cancelaste el pago</h1>
+        <p class="retorno__texto" role="status">
+          No se cobró nada y tu tienda todavía no se creó. Cuando quieras, puedes volver a intentarlo.
+        </p>
+        <div class="retorno__acciones">
+          <a class="fs-btn fs-btn--acento" routerLink="/contratar" [queryParams]="nuevoIntento()">
+            Volver a intentarlo
+            <fs-icono nombre="flecha-derecha" [tam]="24" />
+          </a>
+          <a class="fs-btn fs-btn--contorno" routerLink="/">Ir a la portada</a>
+        </div>
+      </section>
+    }
+    @case ('soporte') {
+      <section class="retorno" aria-labelledby="ret-titulo">
+        <h1 id="ret-titulo" class="retorno__titulo">Recibimos tu pago</h1>
+        <p class="aviso" role="alert">
+          <fs-icono nombre="alerta" [tam]="24" />
+          <span>{{ error()?.mensaje }}</span>
+        </p>
+        <p class="retorno__texto">No vuelvas a pagar. Guarda esta pantalla y avisa a soporte con el correo que usaste.</p>
+        <div class="retorno__acciones">
+          <a class="fs-btn fs-btn--contorno" routerLink="/">Ir a la portada</a>
+        </div>
+      </section>
+    }
+    @case ('error') {
+      <section class="retorno" aria-labelledby="ret-titulo">
+        <h1 id="ret-titulo" class="retorno__titulo">No pudimos confirmar tu pago</h1>
+        <p class="aviso" role="alert">
+          <fs-icono nombre="alerta" [tam]="24" />
+          <span>{{ error()?.mensaje }}</span>
+        </p>
+        <div class="retorno__acciones">
+          @if (puedeReintentar()) {
+            <button type="button" class="fs-btn fs-btn--acento" [disabled]="cargando()" (click)="reintentar()">
+              {{ error()?.codigo === 'pago_no_aprobado' ? 'Comprobar de nuevo' : 'Reintentar' }}
+            </button>
+          }
+          <a class="fs-btn fs-btn--contorno" routerLink="/contratar" [queryParams]="nuevoIntento()">Empezar de nuevo</a>
+        </div>
+      </section>
+    }
+    @case ('sin_pedido') {
+      <section class="retorno" aria-labelledby="ret-titulo">
+        <h1 id="ret-titulo" class="retorno__titulo">No encontramos tu pedido</h1>
+        <p class="retorno__texto">
+          Esta dirección no trae un pedido, o ya lo cerraste. Si pagaste y no ves tu tienda, escribe a soporte.
+        </p>
+        <div class="retorno__acciones">
+          <a class="fs-btn fs-btn--acento" routerLink="/contratar" [queryParams]="nuevoIntento()">
+            Contratar un plan
+            <fs-icono nombre="flecha-derecha" [tam]="24" />
+          </a>
+          <a class="fs-btn fs-btn--contorno" routerLink="/">Ir a la portada</a>
+        </div>
+      </section>
+    }
+    @default {
+      <section class="retorno" aria-labelledby="ret-titulo" aria-busy="true">
+        <h1 id="ret-titulo" class="retorno__titulo">{{ cancelando() ? 'Cancelando tu pedido' : 'Confirmando tu pago' }}</h1>
+        <p class="retorno__texto" role="status">
+          {{ cancelando() ? 'Un momento…' : 'Estamos confirmando el pago con PayPal y creando tu tienda. No cierres esta página.' }}
+        </p>
+      </section>
+    }
+  }
+</app-contratar-marco>

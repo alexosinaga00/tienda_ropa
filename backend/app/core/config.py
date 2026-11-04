@@ -45,6 +45,9 @@ class Settings(BaseSettings):
 
     # Vigencia de una suscripcion nueva cuando no se indica fecha de vencimiento.
     suscripcion_dias_por_defecto: int = 30
+    # Dias completos de la prueba gratuita publica. El vencimiento es INCLUSIVO (una suscripcion
+    # vence al dia siguiente de su fecha), asi que el vencimiento es hoy + (prueba_dias - 1).
+    prueba_dias: int = 14
 
     # Sincronizacion offline (CU-25): una operacion con fecha mas alla de ahora + estos
     # minutos se rechaza como "fecha_futura" (reloj del dispositivo adelantado).
@@ -143,6 +146,17 @@ class Settings(BaseSettings):
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
     paypal_mode: str = "sandbox"
+
+    # Compra de un plan con PayPal (CU-04, `GestionarContratacion`). Los planes se cobran en bolivianos pero PayPal
+    # solo cobra en dólares: se convierte con este tipo de cambio de REFERENCIA (no se consulta a ninguna casa de
+    # cambio) y se guarda en el pedido junto a los dos montos. El anual descuenta este porcentaje sobre 12 meses.
+    tipo_cambio_bs_por_usd: Decimal = Decimal("6.96")
+    descuento_anual_porcentaje: Decimal = Decimal("20")
+    # URL base de la web (Angular): PayPal devuelve al comprador a `{frontend_public_url}/contratar/retorno?...`.
+    # En producción se sobreescribe con el dominio de Vercel; en local coincide con `cors_origins`.
+    frontend_public_url: str = "http://localhost:4200"
+    # Minutos que un pedido sin pagar sigue abierto; pasado el plazo y sin aprobación en PayPal pasa a `vencido`.
+    pedido_expira_minutos: int = 60
 
     # Búsqueda por voz (paquete `inteligencia`, P6.1): Groq expone una API
     # HTTP compatible con OpenAI, sin SDK propio en requirements.txt (se

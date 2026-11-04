@@ -16,6 +16,7 @@
       <th class="numero">Sucursales</th>
       <th class="numero">Copias en historial</th>
       <th class="numero">Plazo de cambio (h)</th>
+      <th class="numero">Precio por mes</th>
       <th>Funcionalidades</th>
       <th>Activo</th>
       <th class="columna-acciones">Acciones</th>
@@ -30,6 +31,13 @@
       <td class="numero">{{ plan.max_sucursales }}</td>
       <td class="numero">{{ plan.max_copias_historial }}</td>
       <td class="numero">{{ plan.plazo_cambio_horas_defecto }}</td>
+      <td class="numero">
+        @if (precioDe(plan); as precio) {
+          {{ precio }}
+        } @else {
+          <span class="fs-caption">Sin precio</span>
+        }
+      </td>
       <td>
         <div class="funciones">
           @for (funcion of funciones; track funcion.id) {
@@ -50,7 +58,7 @@
   </ng-template>
   <ng-template #emptymessage>
     <tr>
-      <td colspan="7" class="fs-estado-vacio">Sin planes.</td>
+      <td colspan="8" class="fs-estado-vacio">Sin planes.</td>
     </tr>
   </ng-template>
 </p-table>
@@ -107,6 +115,27 @@
     />
     @if (hayError('plazo_cambio_horas_defecto')) {
       <small class="fs-error-texto">Ingresa un número entero entre 0 y 8760.</small>
+    }
+
+    <label for="precio_mensual_bs">Precio por mes (Bs)</label>
+    <p-inputnumber
+      inputId="precio_mensual_bs"
+      formControlName="precio_mensual_bs"
+      mode="decimal"
+      [min]="limitePrecio.min"
+      [max]="limitePrecio.max"
+      [minFractionDigits]="0"
+      [maxFractionDigits]="2"
+      [useGrouping]="false"
+      placeholder="Sin precio"
+    />
+    @if (hayError('precio_mensual_bs')) {
+      <small class="fs-error-texto">Ingresa un monto de 0 en adelante, con hasta 2 decimales.</small>
+    } @else {
+      <small class="fs-caption">
+        El pago anual se calcula solo ({{ descuentoAnual }} % menos que 12 meses). Déjalo vacío si el plan no se vende desde
+        la portada.
+      </small>
     }
 
     <h3 class="plan-seccion">Funcionalidades incluidas</h3>

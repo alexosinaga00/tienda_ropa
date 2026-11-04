@@ -8,11 +8,18 @@ Postcondición: empresa registrada con su suscripción, administrador y catálog
 base; plan y estado de suscripción actualizados y reflejados en el backend
 (límites de sucursales, funcionalidades y bloqueo por suscripción).
 
-Caso de uso COMPUESTO: cinco clases de control en este archivo.
+Caso de uso COMPUESTO: seis clases de control en este archivo.
 
 - GestionarEmpresas: registrar (una sola transacción), actualizar, desactivar,
   resumen, alta de administrador y de sucursal sobre una empresa ajena y la
   lista pública de tiendas.
+- GestionarContratacion (actor: visitante sin sesión): la prueba gratuita pública
+  y la COMPRA de un plan con PayPal. La prueba crea la empresa, su suscripción de
+  prueba, su administrador y el pedido de contratación en UNA transacción, con el
+  mismo núcleo que `registrar` (una prueba por correo; sin verificación de correo
+  y sin pago). La compra crea un pedido `pendiente` y su orden de PayPal
+  (`crear_pedido`) y, cuando el comprador vuelve, consulta DIRECTAMENTE a PayPal,
+  captura el dinero y crea la empresa UNA sola vez (`capturar_pedido`).
 - GestionarPlanes: planes con límites y funcionalidades configurables.
 - GestionarSuscripciones: asignar o cambiar de plan, renovar, suspender,
   reactivar, cancelar y vencer.
@@ -33,32 +40,41 @@ en plataforma/politicas.py."""
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
+import secrets
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 
 from pydantic import BaseModel
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core import copias
+from app.core import copias, paypal
 from app.core.auditoria import (
     ACCION_ACTUALIZAR,
     ACCION_ASIGNAR_PLAN,
     ACCION_CAMBIAR_ESTADO,
     ACCION_CAMBIAR_PLAN,
     ACCION_CAMBIAR_PLAZO_CAMBIO,
+    ACCION_CANCELAR,
+    ACCION_CAPTURAR,
     ACCION_CREAR,
     ACCION_DESACTIVAR,
     ACCION_DESCARGAR,
     ACCION_ELIMINAR,
     ACCION_FALLAR,
+    ACCION_PAGADO_SIN_EMPRESA,
+    ACCION_PAGO_NO_COINCIDE,
     ACCION_RENOVAR,
+    ACCION_VENCER,
     ENTIDAD_COPIA_SEGURIDAD,
     ENTIDAD_EMPRESA,
+    ENTIDAD_PEDIDO_CONTRATACION,
     ENTIDAD_PLAN,
     ENTIDAD_SUCURSAL,
     ENTIDAD_SUSCRIPCION,
@@ -71,13 +87,15 @@ from app.core.deps import ParametrosPaginacion
 from app.core.exceptions import ConflictoError, DomainError, ErrorFuncional, NoEncontradoError
 from app.core.permisos import ROL_ADMINISTRADOR
 from app.core.planes import FUNC_COPIAS_SEGURIDAD, verificar_funcionalidad, verificar_suscripcion_activa
+from app.core.security import hash_password
 from app.core.tenant import en_empresa, exigir_empresa, inicializar_empresa
-from app.core.tiempo import ahora_bolivia, hoy_utc
+from app.core.tiempo import ahora_bolivia, ahora_utc_naive, hoy_utc
 from app.plataforma import politicas
 from app.plataforma.models import CopiaSeguridad, Empresa, Plan, Suscripcion, Usuario
 from app.plataforma.repository import (
     CopiaSeguridadRepository,
     EmpresaRepository,
+    PedidoContratacionRepository,
     PlanRepository,
     SucursalRepository,
     SuscripcionRepository,
@@ -95,8 +113,14 @@ from app.plataforma.schemas import (
     MiEmpresaActualizar,
     MiEmpresaRespuesta,
     MiSuscripcionRespuesta,
+    PedidoCreadoRespuesta,
+    PedidoEstadoRespuesta,
+    PedidoPagadoRespuesta,
+    PedidoSolicitud,
     PlanActualizar,
     PlanCrear,
+    PruebaGratisRespuesta,
+    PruebaGratisSolicitud,
     SucursalCrear,
     SucursalRespuesta,
     SuscripcionAsignar,
@@ -171,6 +195,7 @@ def _respuesta_suscripcion(suscripcion: Suscripcion, plan: Plan) -> SuscripcionR
         estado_efectivo=politicas.estado_efectivo(suscripcion),
         fecha_inicio=suscripcion.fecha_inicio,
         fecha_vencimiento=suscripcion.fecha_vencimiento,
+        es_prueba=suscripcion.es_prueba,
         creado_en=suscripcion.creado_en,
     )
 
@@ -193,6 +218,68 @@ def _respuesta_empresa(
         fecha_inicio=suscripcion.fecha_inicio if suscripcion is not None else None,
         fecha_vencimiento=suscripcion.fecha_vencimiento if suscripcion is not None else None,
         administrador_email=administrador_email,
+    )
+
+
+@dataclass(frozen=True)
+class _EmpresaCreada:
+    """Lo que el alta devuelve ya con valores simples (la sesión suelta los objetos al cambiar de empresa)."""
+
+    empresa_id: int
+    codigo: str
+    nombre: str
+    plan_codigo: str
+    plan_nombre: str
+    fecha_inicio: dt.date
+    fecha_vencimiento: dt.date
+    administrador_email: str
+
+
+def _crear_empresa_completa(
+    db: Session,
+    *,
+    nombre: str,
+    codigo: str,
+    plan: Plan,
+    fecha_inicio: dt.date,
+    fecha_vencimiento: dt.date,
+    administrador: BaseModel,
+    password_hash: str,
+    logo_url: str | None = None,
+    color_acento: str | None = None,
+    es_prueba: bool = False,
+    contexto: ContextoAuditoria | None = None,
+) -> _EmpresaCreada:
+    """Núcleo ÚNICO del alta de una empresa, SIN confirmar (la transacción es de quien lo llama): la empresa, su
+    suscripción activa (`es_prueba` si es gratuita), su administrador (con un hash bcrypt ya calculado; `administrador`
+    aporta nombre, apellido, email y teléfono), los catálogos base y la fila de bitácora. Lo usan el alta del
+    superadministrador (`GestionarEmpresas.registrar`) y la prueba gratuita pública (`GestionarContratacion`).
+    Funciona con la sesión del superadministrador y con una anónima: la empresa nueva va explícita."""
+    plan_id, plan_codigo, plan_nombre = plan.id, plan.codigo, plan.nombre
+    empresa = EmpresaRepository().insertar(db, nombre, codigo, logo_url, color_acento)
+    empresa_id = empresa.id
+    # La sesión no tiene empresa: la suscripción lleva la suya explícita.
+    SuscripcionRepository().insertar(db, empresa_id, plan_id, fecha_inicio, fecha_vencimiento, es_prueba=es_prueba)
+    usuarios = UsuarioRepository()
+    with en_empresa(db, empresa_id):
+        usuario = usuarios.crear_con_hash(db, administrador, password_hash, commit=False)
+        usuario = usuarios.asignar_roles(db, usuario, [ROL_ADMINISTRADOR], commit=False)
+        correo = usuario.email
+    inicializar_empresa(db, empresa_id)
+    # Sin el correo ni el nombre del administrador. Actor: el superadministrador, o nadie (alta pública).
+    detalle: dict = {"codigo": codigo, "plan": plan_codigo}
+    if es_prueba:
+        detalle["es_prueba"] = True
+    politicas.registrar_bitacora_de(db, contexto, ENTIDAD_EMPRESA, empresa_id, ACCION_CREAR, detalle, empresa_id=empresa_id)
+    return _EmpresaCreada(
+        empresa_id=empresa_id,
+        codigo=codigo,
+        nombre=nombre,
+        plan_codigo=plan_codigo,
+        plan_nombre=plan_nombre,
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=fecha_vencimiento,
+        administrador_email=correo,
     )
 
 
@@ -263,6 +350,7 @@ class GestionarEmpresas:
         codigo = politicas.normalizar_nombre_empresa(datos.nombre)
         if not codigo:
             raise DomainError("El nombre de la empresa no es válido")
+        politicas.validar_codigo_empresa_disponible(codigo)
         if self._repo.obtener_por_codigo(db, codigo) is not None:
             raise ConflictoError("Ya existe una empresa con ese nombre")
 
@@ -270,37 +358,35 @@ class GestionarEmpresas:
         vencimiento = datos.fecha_vencimiento or hoy + dt.timedelta(days=get_settings().suscripcion_dias_por_defecto)
         _fecha_vencimiento_valida(hoy, vencimiento, hoy)
         plan = _plan_asignable(self._planes, db, datos.plan_codigo or PLAN_POR_DEFECTO)
-        plan_id, plan_codigo = plan.id, plan.codigo
+        password_hash = hash_password(datos.administrador.password)
 
         with _transaccion(db, "Ya existe una empresa con ese nombre"):
-            empresa = self._repo.insertar(db, datos.nombre.strip(), codigo, datos.logo_url, datos.color_acento)
-            empresa_id = empresa.id
-            # La sesión del superadministrador no tiene empresa: va explícita.
-            self._suscripciones.insertar(db, empresa_id, plan_id, hoy, vencimiento)
-            with en_empresa(db, empresa_id):
-                administrador = self._crear_administrador(db, datos.administrador)
-                correo = administrador.email
-            inicializar_empresa(db, empresa_id)
-            # Actor: el superadministrador (sin empresa en la sesión), así que la
-            # empresa afectada va explícita. Sin el correo del administrador.
-            politicas.registrar_bitacora_de(
-                db, contexto, ENTIDAD_EMPRESA, empresa_id, ACCION_CREAR,
-                {"codigo": codigo, "plan": plan_codigo}, empresa_id=empresa_id,
-            )  # fmt: skip
-            respuesta = EmpresaRespuesta(
-                id=empresa_id,
-                codigo=codigo,
+            creada = _crear_empresa_completa(
+                db,
                 nombre=datos.nombre.strip(),
-                logo_url=datos.logo_url,
-                color_acento=datos.color_acento,
-                activo=True,
-                plan_codigo=plan_codigo,
-                suscripcion_estado="activa",
+                codigo=codigo,
+                plan=plan,
                 fecha_inicio=hoy,
                 fecha_vencimiento=vencimiento,
-                administrador_email=correo,
+                administrador=datos.administrador,
+                password_hash=password_hash,
+                logo_url=datos.logo_url,
+                color_acento=datos.color_acento,
+                contexto=contexto,
             )
-        return respuesta
+        return EmpresaRespuesta(
+            id=creada.empresa_id,
+            codigo=creada.codigo,
+            nombre=creada.nombre,
+            logo_url=datos.logo_url,
+            color_acento=datos.color_acento,
+            activo=True,
+            plan_codigo=creada.plan_codigo,
+            suscripcion_estado="activa",
+            fecha_inicio=creada.fecha_inicio,
+            fecha_vencimiento=creada.fecha_vencimiento,
+            administrador_email=creada.administrador_email,
+        )
 
     def _crear_administrador(self, db: Session, datos: AdministradorRegistrar) -> Usuario:
         """Dentro de `en_empresa`: el usuario (correo único en la empresa, clave
@@ -390,6 +476,525 @@ class GestionarEmpresas:
         return tienda
 
 
+# ---- Contratación pública ------------------------------------------------------------------
+
+registro_contratacion = logging.getLogger("app.contratacion")
+
+# Estados de un pedido que ya recibieron el dinero (o lo tienen cobrado y falta la empresa).
+ESTADOS_COBRADOS = ("pagado", "pagado_sin_empresa", "completado")
+MENSAJE_PAGADO_SIN_EMPRESA = (
+    "Recibimos tu pago, pero no pudimos crear la empresa (por ejemplo, otra empresa tomó ese nombre mientras pagabas). "
+    "Tu pago quedó registrado: comunícate con soporte para resolverlo o pedir el reembolso."
+)
+
+
+class _AdministradorGuardado(BaseModel):
+    """Los datos del administrador tal como quedaron en el pedido (sin contraseña: solo se guarda su hash)."""
+
+    nombre: str
+    apellido: str
+    email: str
+    telefono: str | None = None
+
+
+@dataclass(frozen=True)
+class _DatosPedido:
+    """Copia con valores simples de un pedido: crear la empresa cambia de empresa la sesión y suelta los objetos
+    cargados antes, así que nada usa el modelo después de ese punto. Contiene el hash de la contraseña y el correo:
+    nunca se registra ni se devuelve."""
+
+    id: int
+    estado: str
+    plan_id: int
+    periodo: str
+    empresa_nombre: str
+    empresa_codigo: str
+    admin_nombre: str
+    admin_apellido: str
+    admin_email: str
+    admin_telefono: str | None
+    admin_password_hash: str
+    monto_bs: Decimal
+    monto_usd: Decimal
+    tipo_cambio: Decimal
+    paypal_order_id: str | None
+    empresa_creada_id: int | None
+    expira_en: dt.datetime | None
+
+    @classmethod
+    def de(cls, pedido) -> "_DatosPedido":
+        return cls(
+            id=pedido.id,
+            estado=pedido.estado,
+            plan_id=pedido.plan_id,
+            periodo=pedido.periodo,
+            empresa_nombre=pedido.empresa_nombre,
+            empresa_codigo=pedido.empresa_codigo,
+            admin_nombre=pedido.admin_nombre,
+            admin_apellido=pedido.admin_apellido,
+            admin_email=pedido.admin_email,
+            admin_telefono=pedido.admin_telefono,
+            admin_password_hash=pedido.admin_password_hash,
+            monto_bs=pedido.monto_bs,
+            monto_usd=pedido.monto_usd,
+            tipo_cambio=pedido.tipo_cambio,
+            paypal_order_id=pedido.paypal_order_id,
+            empresa_creada_id=pedido.empresa_creada_id,
+            expira_en=pedido.expira_en,
+        )
+
+
+def _en_utc(fecha: dt.datetime | None) -> dt.datetime | None:
+    """Las fechas de la base son UTC sin zona; hacia el cliente salen con zona para que no las lea como locales."""
+    return fecha.replace(tzinfo=dt.timezone.utc) if fecha is not None and fecha.tzinfo is None else fecha
+
+
+class GestionarContratacion:
+    """Contratación desde la portada pública, sin sesión (CU-04; no es un caso de uso nuevo): la PRUEBA GRATUITA y la
+    COMPRA de un plan con PayPal.
+
+    PRUEBA. El visitante elige CUALQUIER plan activo y recibe una empresa ya activa durante `prueba_dias` días completos,
+    con su administrador y los datos base. Una prueba por correo del administrador (índice único parcial
+    `ux_pedido_prueba_correo`); no hay verificación de correo ni pago. Al vencer, la suscripción queda vencida (la tienda
+    pasa a "no disponible") y no se borra nada. Comparte con el alta del superadministrador el núcleo
+    `_crear_empresa_completa`; la empresa sale del servidor, nunca del cliente.
+
+    COMPRA (`crear_pedido`, `consultar_pedido`, `cancelar_pedido`, `capturar_pedido`). La empresa NO existe hasta que el
+    pago se confirma. El servidor recalcula el monto (Bs, USD y tipo de cambio) y lo guarda en el pedido; el navegador
+    solo conserva el `token`. `capturar_pedido` es idempotente y no confía en el navegador: pregunta a PayPal. Si
+    PayPal cobró y la empresa ya no se puede crear, el pedido queda `pagado_sin_empresa` (reembolso manual)."""
+
+    def __init__(self) -> None:
+        self._empresas = EmpresaRepository()
+        self._planes = PlanRepository()
+        self._pedidos = PedidoContratacionRepository()
+        self._suscripciones = SuscripcionRepository()
+
+    @staticmethod
+    def _prueba_ya_usada() -> ErrorFuncional:
+        return ErrorFuncional("prueba_ya_usada", "Este correo ya usó su prueba gratuita", 409)
+
+    def iniciar_prueba(
+        self, db: Session, datos: PruebaGratisSolicitud, contexto: ContextoAuditoria | None = None
+    ) -> PruebaGratisRespuesta:
+        """Crea la empresa de prueba y su pedido (tipo `prueba`, estado final `completado`) en UNA transacción: si algo
+        falla, incluida la carrera por el mismo correo, no queda nada a medias. 404/409 plan inexistente/inactivo, 422
+        `nombre_empresa_reservado`, 409 nombre duplicado y 409 `prueba_ya_usada`. La IP viene del `contexto`."""
+        administrador = datos.administrador
+        correo = administrador.email  # ya en minúsculas (CorreoNormalizado)
+        nombre = datos.nombre.strip()
+        plan = _plan_asignable(self._planes, db, datos.plan_codigo)
+        plan_id = plan.id
+        codigo = politicas.normalizar_nombre_empresa(nombre)
+        if not codigo:
+            raise DomainError("El nombre de la empresa no es válido")
+        politicas.validar_codigo_empresa_disponible(codigo)
+        if self._empresas.obtener_por_codigo(db, codigo) is not None:
+            raise ConflictoError("Ya existe una empresa con ese nombre")
+        if self._pedidos.prueba_que_ocupa_el_correo(db, correo) is not None:
+            raise self._prueba_ya_usada()
+
+        hoy = hoy_utc()
+        # El vencimiento es inclusivo: hoy + (N - 1) deja N días completos de uso.
+        vencimiento = hoy + dt.timedelta(days=max(get_settings().prueba_dias, 1) - 1)
+        password_hash = hash_password(administrador.password)
+        ip = contexto.ip[:45] if contexto is not None and contexto.ip else None
+
+        try:
+            with _transaccion(db, "Ya existe una empresa con ese nombre"):
+                # El pedido va PRIMERO: si otra petición simultánea ocupa el mismo correo, el índice único salta
+                # antes de crear nada pesado y el rollback lo deshace todo.
+                pedido = self._pedidos.insertar(
+                    db,
+                    token=secrets.token_urlsafe(32),
+                    tipo="prueba",
+                    plan_id=plan_id,
+                    empresa_nombre=nombre,
+                    empresa_codigo=codigo,
+                    admin_nombre=administrador.nombre,
+                    admin_apellido=administrador.apellido,
+                    admin_email=correo,
+                    admin_telefono=administrador.telefono,
+                    admin_password_hash=password_hash,
+                    estado="completado",
+                    ip=ip,
+                )
+                pedido_id = pedido.id
+                creada = _crear_empresa_completa(
+                    db,
+                    nombre=nombre,
+                    codigo=codigo,
+                    plan=plan,
+                    fecha_inicio=hoy,
+                    fecha_vencimiento=vencimiento,
+                    administrador=administrador,
+                    password_hash=password_hash,
+                    es_prueba=True,
+                    contexto=contexto,
+                )
+                self._pedidos.enlazar_empresa(db, pedido_id, creada.empresa_id)
+        except ConflictoError as exc:
+            # Una carrera por el correo se ve como violación de unicidad; el pedido ganador ya está confirmado.
+            if isinstance(exc.__cause__, IntegrityError) and self._pedidos.prueba_que_ocupa_el_correo(db, correo):
+                raise self._prueba_ya_usada() from exc
+            raise
+        return PruebaGratisRespuesta(
+            empresa_codigo=creada.codigo,
+            empresa_nombre=creada.nombre,
+            plan_codigo=creada.plan_codigo,
+            plan_nombre=creada.plan_nombre,
+            es_prueba=True,
+            fecha_inicio=creada.fecha_inicio,
+            fecha_vencimiento=creada.fecha_vencimiento,
+        )
+
+    # -- Compra con PayPal -------------------------------------------------------------------
+
+    @staticmethod
+    def _paypal_no_disponible() -> ErrorFuncional:
+        return ErrorFuncional(
+            "paypal_no_disponible", "No pudimos comunicarnos con PayPal. Inténtalo de nuevo en unos minutos", 503
+        )
+
+    @staticmethod
+    def _pago_no_aprobado(mensaje: str = "Todavía no aprobaste el pago en PayPal") -> ErrorFuncional:
+        return ErrorFuncional("pago_no_aprobado", mensaje, 409)
+
+    @staticmethod
+    def _error_de_estado(estado: str) -> ErrorFuncional:
+        """El 409 de un pedido que ya no admite la operación pedida, con el `codigo` de su estado."""
+        if estado == "cancelado":
+            return ErrorFuncional("pedido_cancelado", "Este pedido fue cancelado. Crea uno nuevo", 409)
+        if estado == "vencido":
+            return ErrorFuncional("pedido_vencido", "Este pedido venció sin pagarse. Crea uno nuevo", 409)
+        if estado == "fallido":
+            return ErrorFuncional(
+                "pedido_fallido", "El pago de este pedido no coincidió con lo esperado y no se cobró. Crea uno nuevo", 409
+            )
+        return ErrorFuncional("pedido_ya_pagado", "Este pedido ya fue pagado", 409)
+
+    @staticmethod
+    def _request_id_de(token: str) -> str:
+        """Clave de idempotencia de la captura (`PayPal-Request-Id`): siempre la misma para el mismo pedido, y sin
+        revelar el token a PayPal."""
+        return hashlib.sha256(f"fashionstore-captura:{token}".encode("utf-8")).hexdigest()
+
+    def _estado_publico(self, db: Session, d: _DatosPedido) -> PedidoEstadoRespuesta:
+        plan = self._pedidos.obtener_plan(db, d.plan_id)
+        empresa_codigo = None
+        if d.estado == "completado" and d.empresa_creada_id is not None:
+            empresa = self._pedidos.obtener_empresa(db, d.empresa_creada_id)
+            empresa_codigo = empresa.codigo if empresa is not None else None
+        return PedidoEstadoRespuesta(
+            estado=d.estado,
+            plan_codigo=plan.codigo,
+            plan_nombre=plan.nombre,
+            periodo=d.periodo,
+            monto_bs=d.monto_bs,
+            monto_usd=d.monto_usd,
+            tipo_cambio=d.tipo_cambio,
+            expira_en=_en_utc(d.expira_en),
+            empresa_codigo=empresa_codigo,
+        )
+
+    def crear_pedido(
+        self, db: Session, datos: PedidoSolicitud, contexto: ContextoAuditoria | None = None
+    ) -> PedidoCreadoRespuesta:
+        """Crea el pedido `pendiente` y su orden de PayPal; devuelve el token y la URL a la que mandar al comprador.
+
+        TODO O NADA: el pedido y la orden se crean en la misma unidad de trabajo; si PayPal falla, 503
+        `paypal_no_disponible` y no queda ningún pedido. Valida lo mismo que la prueba (plan activo, nombre válido,
+        no reservado y libre) más `plan_sin_precio` (409). El correo NO se restringe: la misma persona puede comprar
+        varias veces. El servidor recalcula montos y tipo de cambio; la contraseña se guarda solo como hash bcrypt."""
+        administrador = datos.administrador
+        nombre = datos.nombre.strip()
+        plan = _plan_asignable(self._planes, db, datos.plan_codigo)
+        plan_id, plan_codigo, plan_nombre = plan.id, plan.codigo, plan.nombre
+        precio = politicas.calcular_precio_contratacion(plan, datos.periodo)
+        codigo = politicas.normalizar_nombre_empresa(nombre)
+        if not codigo:
+            raise DomainError("El nombre de la empresa no es válido")
+        politicas.validar_codigo_empresa_disponible(codigo)
+        if self._empresas.obtener_por_codigo(db, codigo) is not None:
+            raise ConflictoError("Ya existe una empresa con ese nombre")
+
+        ajustes = get_settings()
+        token = secrets.token_urlsafe(32)
+        expira_en = ahora_utc_naive() + dt.timedelta(minutes=max(ajustes.pedido_expira_minutos, 1))
+        password_hash = hash_password(administrador.password)
+        ip = contexto.ip[:45] if contexto is not None and contexto.ip else None
+        retorno = f"{ajustes.frontend_public_url.rstrip('/')}/contratar/retorno?pedido={token}"
+
+        with _transaccion(db):
+            pedido = self._pedidos.insertar(
+                db,
+                token=token,
+                tipo="pago",
+                periodo=datos.periodo,
+                plan_id=plan_id,
+                empresa_nombre=nombre,
+                empresa_codigo=codigo,
+                admin_nombre=administrador.nombre,
+                admin_apellido=administrador.apellido,
+                admin_email=administrador.email,
+                admin_telefono=administrador.telefono,
+                admin_password_hash=password_hash,
+                estado="pendiente",
+                monto_bs=precio.monto_bs,
+                monto_usd=precio.monto_usd,
+                tipo_cambio=precio.tipo_cambio,
+                expira_en=expira_en,
+                ip=ip,
+            )
+            pedido_id = pedido.id
+            try:
+                orden = paypal.crear_orden(
+                    monto=precio.monto_usd,
+                    moneda="USD",
+                    referencia=f"PED-{pedido_id}",
+                    descripcion=f"FashionStore - plan {plan_nombre} ({datos.periodo})",
+                    return_url=retorno,
+                    cancel_url=f"{retorno}&cancelado=1",
+                    request_id=self._request_id_de(f"crear:{token}"),
+                )
+                if not orden.url_aprobacion:
+                    raise paypal.PayPalError("PayPal no devolvió la URL de aprobación")
+            except paypal.PayPalError as exc:
+                # Sin datos del pedido ni del comprador en el registro; el rollback de `_transaccion` borra el pedido.
+                registro_contratacion.warning("pedido_paypal_no_crea_orden motivo=%s", type(exc.causa or exc).__name__)
+                raise self._paypal_no_disponible() from exc
+            self._pedidos.actualizar(db, pedido_id, paypal_order_id=orden.id)
+            politicas.registrar_bitacora_de(
+                db, contexto, ENTIDAD_PEDIDO_CONTRATACION, pedido_id, ACCION_CREAR,
+                {"plan": plan_codigo, "periodo": datos.periodo, "monto_bs": str(precio.monto_bs), "monto_usd": str(precio.monto_usd)},
+            )  # fmt: skip
+        return PedidoCreadoRespuesta(
+            token=token,
+            url_aprobacion=orden.url_aprobacion,
+            plan_codigo=plan_codigo,
+            plan_nombre=plan_nombre,
+            periodo=datos.periodo,
+            monto_bs=precio.monto_bs,
+            monto_usd=precio.monto_usd,
+            tipo_cambio=precio.tipo_cambio,
+            expira_en=_en_utc(expira_en),
+        )
+
+    def consultar_pedido(self, db: Session, token: str) -> PedidoEstadoRespuesta:
+        """El estado público del pedido. Sin correo ni datos personales. 404 igual para un token inexistente (o de una
+        prueba gratuita)."""
+        pedido = self._pedidos.obtener_de_pago(db, token)
+        if pedido is None:
+            raise NoEncontradoError("Pedido no encontrado")
+        return self._estado_publico(db, _DatosPedido.de(pedido))
+
+    def cancelar_pedido(
+        self, db: Session, token: str, contexto: ContextoAuditoria | None = None
+    ) -> PedidoEstadoRespuesta:
+        """`pendiente` -> `cancelado` (el comprador cerró PayPal sin pagar). Idempotente si ya está cancelado; 409 si
+        ya se pagó (o venció o falló). No hay nada que anular en PayPal: una orden sin aprobar nunca cobra."""
+        with _transaccion(db):
+            pedido = self._pedidos.obtener_de_pago(db, token, bloquear=True)
+            if pedido is None:
+                raise NoEncontradoError("Pedido no encontrado")
+            d = _DatosPedido.de(pedido)
+            if d.estado == "cancelado":
+                return self._estado_publico(db, d)
+            if d.estado != "pendiente":
+                raise self._error_de_estado(d.estado)
+            self._pedidos.actualizar(db, d.id, estado="cancelado")
+            politicas.registrar_bitacora_de(db, contexto, ENTIDAD_PEDIDO_CONTRATACION, d.id, ACCION_CANCELAR, {})
+            return self._estado_publico(db, replace(d, estado="cancelado"))
+
+    def capturar_pedido(
+        self, db: Session, token: str, contexto: ContextoAuditoria | None = None
+    ) -> PedidoPagadoRespuesta:
+        """Cobra el pedido (si PayPal confirma la aprobación) y crea la empresa. IDEMPOTENTE y SEGURO.
+
+        La fila del pedido se bloquea (FOR UPDATE en PostgreSQL) durante todo el proceso: dos capturas simultáneas se
+        serializan y la segunda ve el pedido ya `completado` y devuelve la misma empresa sin cobrar ni crear nada.
+        - `completado`: devuelve la empresa creada. `cancelado`/`vencido`/`fallido`: 409 con su `codigo`.
+        - `pendiente`: consulta la orden DIRECTAMENTE a PayPal (no confía en el navegador). Sin aprobar: 409
+          `pago_no_aprobado` (o `pedido_vencido` si ya expiró). Moneda o monto distintos de los guardados: NO captura,
+          `fallido`, 409 `pago_no_coincide`. Aprobada: captura con una clave de idempotencia derivada del token.
+        - Cobrado: en la MISMA transacción se crea la empresa (plan del pedido, `es_prueba=False`, vencimiento hoy + 30
+          o + 365 días) y el pedido pasa a `completado`. Si la empresa no se puede crear, el pedido queda
+          `pagado_sin_empresa` (confirmado aparte, dentro de un SAVEPOINT que descarta lo a medias) y responde 409
+          `pagado_sin_empresa`; un nuevo intento NO vuelve a cobrar: solo reintenta crear la empresa.
+        - PayPal caído: 503 `paypal_no_disponible`, el pedido sigue `pendiente` y se puede reintentar. Si el proceso
+          muriera DESPUÉS de capturar y ANTES de confirmar, el reintento ve la orden ya `COMPLETED` en PayPal y solo crea
+          la empresa: el dinero no se cobra dos veces ni se pierde."""
+        try:
+            pedido = self._pedidos.obtener_de_pago(db, token, bloquear=True)
+            if pedido is None:
+                raise NoEncontradoError("Pedido no encontrado")
+            d = _DatosPedido.de(pedido)
+            if d.estado == "completado":
+                respuesta = self._respuesta_pagada(db, d)
+                db.rollback()  # solo lectura: suelta el bloqueo de la fila
+                return respuesta
+            if d.estado in ("cancelado", "vencido", "fallido"):
+                raise self._error_de_estado(d.estado)
+            if d.estado == "pendiente":
+                self._cobrar(db, d, token, contexto)
+        except Exception:
+            db.rollback()  # libera el bloqueo; lo ya confirmado (fallido, vencido) no se pierde
+            raise
+
+        # Desde aquí el dinero está cobrado (o ya lo estaba): lo único que falta es crear la empresa.
+        plan = self._pedidos.obtener_plan(db, d.plan_id)
+        hoy = hoy_utc()
+        vencimiento = hoy + dt.timedelta(days=politicas.DIAS_POR_PERIODO[d.periodo])
+        try:
+            with db.begin_nested():
+                creada = _crear_empresa_completa(
+                    db,
+                    nombre=d.empresa_nombre,
+                    codigo=d.empresa_codigo,
+                    plan=plan,
+                    fecha_inicio=hoy,
+                    fecha_vencimiento=vencimiento,
+                    administrador=_AdministradorGuardado(
+                        nombre=d.admin_nombre, apellido=d.admin_apellido, email=d.admin_email, telefono=d.admin_telefono
+                    ),
+                    password_hash=d.admin_password_hash,
+                    es_prueba=False,
+                    contexto=contexto,
+                )
+                self._pedidos.enlazar_empresa(db, d.id, creada.empresa_id)
+                self._pedidos.actualizar(db, d.id, estado="completado")
+                politicas.registrar_bitacora_de(
+                    db, contexto, ENTIDAD_PEDIDO_CONTRATACION, d.id, ACCION_CAPTURAR,
+                    {"plan": creada.plan_codigo, "periodo": d.periodo, "reintento": d.estado != "pendiente"},
+                    empresa_id=creada.empresa_id,
+                )  # fmt: skip
+        except Exception as exc:
+            self._dejar_pagado_sin_empresa(db, d, contexto, exc)  # confirma y lanza 409
+            raise  # (inalcanzable: lo anterior siempre lanza)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            registro_contratacion.error(
+                "pedido_pagado_sin_confirmar pedido=%s: el cobro existe en PayPal; reintentar la captura lo completa", d.id
+            )
+            raise
+        return PedidoPagadoRespuesta(
+            estado="completado",
+            empresa_codigo=creada.codigo,
+            empresa_nombre=creada.nombre,
+            plan_codigo=creada.plan_codigo,
+            plan_nombre=creada.plan_nombre,
+            periodo=d.periodo,
+            es_prueba=False,
+            fecha_inicio=creada.fecha_inicio,
+            fecha_vencimiento=creada.fecha_vencimiento,
+            monto_bs=d.monto_bs,
+            monto_usd=d.monto_usd,
+        )
+
+    def _cobrar(self, db: Session, d: _DatosPedido, token: str, contexto: ContextoAuditoria | None) -> None:
+        """Pedido `pendiente`: pregunta a PayPal, verifica moneda y monto y captura. Vuelve sin error solo cuando el
+        dinero está cobrado. No cambia el estado del pedido salvo para `vencido` y `fallido` (que confirma)."""
+        if not d.paypal_order_id:
+            raise self._pago_no_aprobado()
+        try:
+            orden = paypal.obtener_orden(d.paypal_order_id)
+        except paypal.PayPalError as exc:
+            registro_contratacion.warning("pedido_paypal_no_consulta pedido=%s motivo=%s", d.id, type(exc.causa or exc).__name__)
+            raise self._paypal_no_disponible() from exc
+
+        if orden.estado not in (paypal.ESTADO_APROBADA, paypal.ESTADO_COMPLETADA):
+            if d.expira_en is not None and d.expira_en < ahora_utc_naive():
+                self._pedidos.actualizar(db, d.id, estado="vencido")
+                politicas.registrar_bitacora_de(db, contexto, ENTIDAD_PEDIDO_CONTRATACION, d.id, ACCION_VENCER, {})
+                db.commit()
+                raise self._error_de_estado("vencido")
+            raise self._pago_no_aprobado()
+
+        if orden.estado == paypal.ESTADO_APROBADA:
+            if not self._coincide(orden, d):
+                self._rechazar_por_monto(db, d, orden, contexto, cobrado=False)
+            try:
+                orden = paypal.capturar_orden(d.paypal_order_id, request_id=self._request_id_de(token))
+            except paypal.PayPalError as exc:
+                registro_contratacion.warning("pedido_paypal_no_captura pedido=%s motivo=%s", d.id, type(exc.causa or exc).__name__)
+                raise self._paypal_no_disponible() from exc
+
+        # Orden ya completada (la captura de recién, o un cobro anterior cuya confirmación no se guardó).
+        if orden.estado != paypal.ESTADO_COMPLETADA or orden.estado_captura != paypal.ESTADO_COMPLETADA:
+            raise self._pago_no_aprobado("PayPal todavía no confirmó el cobro. Inténtalo de nuevo en unos minutos")
+        if not self._coincide(orden, d):
+            self._rechazar_por_monto(db, d, orden, contexto, cobrado=True)
+
+    @staticmethod
+    def _coincide(orden: paypal.EstadoOrden, d: _DatosPedido) -> bool:
+        return orden.moneda == "USD" and orden.monto is not None and orden.monto == d.monto_usd
+
+    def _rechazar_por_monto(
+        self, db: Session, d: _DatosPedido, orden: paypal.EstadoOrden, contexto: ContextoAuditoria | None, *, cobrado: bool
+    ) -> None:
+        """La moneda o el monto de PayPal no son los del pedido: `fallido` (confirmado) y 409 `pago_no_coincide`."""
+        self._pedidos.actualizar(db, d.id, estado="fallido")
+        politicas.registrar_bitacora_de(
+            db, contexto, ENTIDAD_PEDIDO_CONTRATACION, d.id, ACCION_PAGO_NO_COINCIDE,
+            {"moneda": orden.moneda, "monto": str(orden.monto), "esperado": str(d.monto_usd), "cobrado": cobrado},
+        )  # fmt: skip
+        db.commit()
+        if cobrado:  # no debería ocurrir (la orden se creó con el monto exacto): exige revisión manual
+            registro_contratacion.error("pedido_pago_no_coincide_cobrado pedido=%s: revisar el cobro en PayPal", d.id)
+        raise ErrorFuncional(
+            "pago_no_coincide", "El pago no coincide con lo esperado para este pedido. No se creó la empresa", 409
+        )
+
+    def _dejar_pagado_sin_empresa(
+        self, db: Session, d: _DatosPedido, contexto: ContextoAuditoria | None, error: Exception
+    ) -> None:
+        """El dinero está cobrado pero la empresa no se pudo crear (el SAVEPOINT ya descartó lo a medias): el pedido
+        queda `pagado_sin_empresa` y SE CONFIRMA, con lo que el cobro no se pierde. Siempre lanza 409. El motivo es un
+        código estable: ni el texto de la excepción ni datos del comprador van al registro."""
+        if isinstance(error, ErrorFuncional):
+            motivo = error.codigo
+        elif isinstance(error, (ConflictoError, IntegrityError)):
+            motivo = "nombre_en_uso"
+        else:
+            motivo = "error_interno"
+        if d.estado != "pagado_sin_empresa":
+            self._pedidos.actualizar(db, d.id, estado="pagado_sin_empresa")
+            politicas.registrar_bitacora_de(
+                db, contexto, ENTIDAD_PEDIDO_CONTRATACION, d.id, ACCION_PAGADO_SIN_EMPRESA,
+                {"motivo": motivo, "monto_usd": str(d.monto_usd), "paypal_order_id": d.paypal_order_id},
+            )  # fmt: skip
+        db.commit()
+        registro_contratacion.error(
+            "pedido_pagado_sin_empresa pedido=%s motivo=%s tipo_error=%s: reembolso manual en PayPal",
+            d.id, motivo, type(error).__name__,
+        )  # fmt: skip
+        raise ErrorFuncional("pagado_sin_empresa", MENSAJE_PAGADO_SIN_EMPRESA, 409, estado="pagado_sin_empresa")
+
+    def _respuesta_pagada(self, db: Session, d: _DatosPedido) -> PedidoPagadoRespuesta:
+        """La empresa que creó un pedido ya `completado` (para repetir la captura sin hacer nada más)."""
+        empresa = self._pedidos.obtener_empresa(db, d.empresa_creada_id) if d.empresa_creada_id else None
+        if empresa is None:
+            raise NoEncontradoError("Pedido no encontrado")
+        plan = self._pedidos.obtener_plan(db, d.plan_id)
+        ficha = self._suscripciones.vigentes_de(db, [empresa.id]).get(empresa.id)
+        suscripcion = ficha[0] if ficha is not None else None
+        return PedidoPagadoRespuesta(
+            estado="completado",
+            empresa_codigo=empresa.codigo,
+            empresa_nombre=empresa.nombre,
+            plan_codigo=plan.codigo,
+            plan_nombre=plan.nombre,
+            periodo=d.periodo,
+            es_prueba=False,
+            fecha_inicio=suscripcion.fecha_inicio if suscripcion is not None else None,
+            fecha_vencimiento=suscripcion.fecha_vencimiento if suscripcion is not None else None,
+            monto_bs=d.monto_bs,
+            monto_usd=d.monto_usd,
+        )
+
+
 # ---- Planes -------------------------------------------------------------------------------
 
 
@@ -436,10 +1041,10 @@ class GestionarPlanes:
         una empresa NO desactiva nada: solo impide crear o reactivar sucursales
         hasta quedar dentro del límite."""
         actual = self.obtener(db, plan_id)
-        cambios = _sin_nulos(datos)
+        cambios = _sin_nulos(datos, anulables=("precio_mensual_bs",))
         if cambios.activo is False:
             self._exigir_sin_uso(db, plan_id)
-        campos = diff_campos(actual, cambios.model_dump(exclude_unset=True), ("activo",))
+        campos = diff_campos(actual, cambios.model_dump(exclude_unset=True), ("activo", "precio_mensual_bs"))
         plan = self._repo.actualizar(db, plan_id, cambios, commit=False)
         politicas.registrar_bitacora_de(
             db, contexto, ENTIDAD_PLAN, plan.id, ACCION_ACTUALIZAR,
@@ -501,7 +1106,9 @@ class GestionarSuscripciones:
     ) -> SuscripcionRespuesta:
         """Asigna un plan a una empresa sin suscripción o LO CAMBIA: la vigente
         pasa a `cancelada` (con su vencimiento recortado a hoy) y se crea otra
-        activa. Mismo plan: 409. Un plan cuyo límite de sucursales es menor que el
+        activa (nunca de prueba). Mismo plan: 409, SALVO que la vigente sea una
+        prueba gratuita: ahí "cambiar" al mismo plan es pasar de prueba a pago.
+        Un plan cuyo límite de sucursales es menor que el
         uso actual se rechaza (409 `limite_plan_excedido`); subir de plan siempre
         se puede."""
         if self._empresas.buscar(db, datos.empresa_id) is None:
@@ -515,7 +1122,8 @@ class GestionarSuscripciones:
         with _transaccion(db, "La empresa ya tiene una suscripción vigente: reintente"):
             with en_empresa(db, datos.empresa_id):
                 vigente = politicas.obtener_suscripcion_vigente(db, bloquear=True)
-                if vigente is not None and vigente.plan_id == plan.id:
+                era_prueba = vigente is not None and vigente.es_prueba
+                if vigente is not None and vigente.plan_id == plan.id and not era_prueba:
                     raise ConflictoError("La empresa ya tiene ese plan: para extender la vigencia use renovar")
                 actual = politicas.contar_sucursales_activas(db)
                 if actual > plan.max_sucursales:
@@ -537,9 +1145,11 @@ class GestionarSuscripciones:
                         empresa_id=datos.empresa_id,
                     )  # fmt: skip
                 else:
+                    detalle = {"plan_antes": plan_antes, "plan_despues": plan.codigo, "suscripcion_nueva_id": nueva.id}
+                    if era_prueba:
+                        detalle["era_prueba"] = True
                     politicas.registrar_bitacora_de(
-                        db, contexto, ENTIDAD_SUSCRIPCION, nueva.id, ACCION_CAMBIAR_PLAN,
-                        {"plan_antes": plan_antes, "plan_despues": plan.codigo, "suscripcion_nueva_id": nueva.id},
+                        db, contexto, ENTIDAD_SUSCRIPCION, nueva.id, ACCION_CAMBIAR_PLAN, detalle,
                         empresa_id=datos.empresa_id,
                     )  # fmt: skip
         return respuesta
@@ -551,7 +1161,8 @@ class GestionarSuscripciones:
     ) -> SuscripcionRespuesta:
         """Fija un nuevo vencimiento (futuro). Si la suscripción estaba vencida
         vuelve a `activa`; si estaba suspendida solo cambia la fecha; una
-        cancelada no se renueva."""
+        cancelada no se renueva. Renovar una PRUEBA gratuita la convierte en una
+        suscripción normal (`es_prueba` pasa a falso)."""
         hoy = hoy_utc()
         if datos.fecha_vencimiento <= hoy:
             raise DomainError("La nueva fecha de vencimiento debe ser posterior a hoy", 422)
@@ -568,11 +1179,14 @@ class GestionarSuscripciones:
                     suscripcion.estado = "activa"
                 vencimiento_antes = suscripcion.fecha_vencimiento
                 suscripcion.fecha_vencimiento = datos.fecha_vencimiento
+                detalle = {"vencimiento_antes": vencimiento_antes, "vencimiento_despues": datos.fecha_vencimiento}
+                if suscripcion.es_prueba:
+                    suscripcion.es_prueba = False
+                    detalle["era_prueba"] = True
                 db.flush()
                 respuesta = _respuesta_suscripcion(suscripcion, self._planes.buscar(db, suscripcion.plan_id))
                 politicas.registrar_bitacora_de(
-                    db, contexto, ENTIDAD_SUSCRIPCION, suscripcion_id, ACCION_RENOVAR,
-                    {"vencimiento_antes": vencimiento_antes, "vencimiento_despues": datos.fecha_vencimiento},
+                    db, contexto, ENTIDAD_SUSCRIPCION, suscripcion_id, ACCION_RENOVAR, detalle,
                     empresa_id=empresa_id,
                 )  # fmt: skip
         return respuesta
@@ -690,6 +1304,7 @@ class ConsultarMiEmpresa:
             estado=situacion.estado,
             fecha_inicio=suscripcion.fecha_inicio if suscripcion is not None else None,
             fecha_vencimiento=suscripcion.fecha_vencimiento if suscripcion is not None else None,
+            es_prueba=suscripcion.es_prueba if suscripcion is not None else False,
             max_sucursales=plan.max_sucursales if plan is not None else None,
             sucursales_activas=politicas.contar_sucursales_activas(db),
             funcionalidades=politicas.funcionalidades_habilitadas(db),

@@ -17,8 +17,10 @@ from app.plataforma.models import (
     Empleado,
     Empresa,
     HorarioSucursal,
+    ESTADOS_PEDIDO_LIBERAN_CORREO,
     Notificacion,
     Permiso,
+    PedidoContratacion,
     Plan,
     Rol,
     Sucursal,
@@ -126,6 +128,12 @@ class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
         return list(db.scalars(select(Usuario).where(Usuario.id.in_(ids))))
 
     def crear(self, db: Session, datos: UsuarioCrear, commit: bool = True) -> Usuario:
+        return self.crear_con_hash(db, datos, hash_password(datos.password), commit)
+
+    def crear_con_hash(self, db: Session, datos, password_hash: str, commit: bool = True) -> Usuario:
+        """Como `crear`, pero con un hash bcrypt YA calculado (la contratación pública guarda solo el hash
+        del pedido, nunca la contraseña). `datos` aporta nombre, apellido, email y teléfono; su
+        `password`, si la tiene, se ignora."""
         existente = self.obtener_por_email(db, datos.email)
         if existente is not None:
             if existente.activo:
@@ -133,7 +141,7 @@ class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
             existente.nombre = datos.nombre
             existente.apellido = datos.apellido
             existente.telefono = datos.telefono
-            existente.password_hash = hash_password(datos.password)
+            existente.password_hash = password_hash
             existente.activo = True
             confirmar(db, commit)
             db.refresh(existente)
@@ -143,7 +151,7 @@ class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
             apellido=datos.apellido,
             email=datos.email,
             telefono=datos.telefono,
-            password_hash=hash_password(datos.password),
+            password_hash=password_hash,
         )
         db.add(usuario)
         confirmar(db, commit)
@@ -651,6 +659,7 @@ class SuscripcionRepository(CRUDBaseSinActivo[Suscripcion, SuscripcionAsignar, S
         fecha_inicio,
         fecha_vencimiento,
         estado: str = "activa",
+        es_prueba: bool = False,
     ) -> Suscripcion:
         """Inserta una suscripción sin confirmar. El `empresa_id` va explícito:
         la sesión del superadministrador no tiene empresa (o ya está en la
@@ -662,6 +671,7 @@ class SuscripcionRepository(CRUDBaseSinActivo[Suscripcion, SuscripcionAsignar, S
             estado=estado,
             fecha_inicio=fecha_inicio,
             fecha_vencimiento=fecha_vencimiento,
+            es_prueba=es_prueba,
         )
         db.add(suscripcion)
         db.flush()
@@ -673,6 +683,79 @@ class SuscripcionRepository(CRUDBaseSinActivo[Suscripcion, SuscripcionAsignar, S
         if empresa_id is None:
             raise NoEncontradoError("Suscripción no encontrada")
         return empresa_id
+
+
+class PedidoContratacionRepository:
+    """Pedidos de contratación (compra o prueba gratuita de la portada pública). `pedido_contratacion` es una
+    tabla GLOBAL (sin `empresa_id`): sus consultas valen en cualquier sesión, incluida la anónima."""
+
+    def prueba_que_ocupa_el_correo(self, db: Session, correo: str) -> PedidoContratacion | None:
+        """El pedido de prueba que hoy ocupa ese correo (los cancelados, vencidos y fallidos lo liberan), igual que
+        el índice único parcial `ux_pedido_prueba_correo`."""
+        return db.scalar(
+            select(PedidoContratacion).where(
+                PedidoContratacion.tipo == "prueba",
+                func.lower(PedidoContratacion.admin_email) == correo.lower(),
+                PedidoContratacion.estado.not_in(ESTADOS_PEDIDO_LIBERAN_CORREO),
+            )
+        )
+
+    def insertar(self, db: Session, **campos) -> PedidoContratacion:
+        """Inserta el pedido y vuelca (`flush`) sin confirmar: la transacción es de quien lo crea. Si otro pedido de
+        prueba ocupa el correo, el índice único lanza `IntegrityError` aquí mismo."""
+        pedido = PedidoContratacion(**campos)
+        db.add(pedido)
+        db.flush()
+        return pedido
+
+    def enlazar_empresa(self, db: Session, pedido_id: int, empresa_id: int) -> None:
+        """Anota la empresa creada. UPDATE directo: la sesión pudo soltar el objeto al cambiar de empresa."""
+        db.execute(
+            update(PedidoContratacion)
+            .where(PedidoContratacion.id == pedido_id)
+            .values(empresa_creada_id=empresa_id)
+            .execution_options(synchronize_session=False)
+        )
+
+    def obtener_de_pago(self, db: Session, token: str, bloquear: bool = False) -> PedidoContratacion | None:
+        """El pedido de COMPRA con ese token (uno de prueba gratuita o un token inexistente es `None`: mismo 404).
+        `bloquear=True` toma la fila con SELECT ... FOR UPDATE (solo PostgreSQL; SQLite lo omite): serializa dos
+        capturas o una captura y una cancelación del mismo pedido, y relee la fila ya confirmada por quien esperaba."""
+        consulta = select(PedidoContratacion).where(PedidoContratacion.token == token, PedidoContratacion.tipo == "pago")
+        if bloquear:
+            consulta = consulta.with_for_update().execution_options(populate_existing=True)
+        return db.scalar(consulta)
+
+    def actualizar(self, db: Session, pedido_id: int, **valores) -> None:
+        """UPDATE directo, sin confirmar (la sesión pudo soltar el objeto al cambiar de empresa)."""
+        db.execute(
+            update(PedidoContratacion)
+            .where(PedidoContratacion.id == pedido_id)
+            .values(**valores)
+            .execution_options(synchronize_session=False)
+        )
+
+    def vencer_vencidos(self, db: Session, ahora: dt.datetime) -> int:
+        """`pendiente` -> `vencido` para los pedidos cuyo plazo (`expira_en`) ya pasó. Sin confirmar."""
+        resultado = db.execute(
+            update(PedidoContratacion)
+            .where(
+                PedidoContratacion.estado == "pendiente",
+                PedidoContratacion.expira_en.is_not(None),
+                PedidoContratacion.expira_en < ahora,
+            )
+            .values(estado="vencido")
+            .execution_options(synchronize_session=False)
+        )
+        return resultado.rowcount
+
+    def obtener_plan(self, db: Session, plan_id: int) -> Plan | None:
+        """El plan del pedido (tabla global, activo o no: el pedido ya lo eligió)."""
+        return db.get(Plan, plan_id)
+
+    def obtener_empresa(self, db: Session, empresa_id: int) -> Empresa | None:
+        """La empresa creada por el pedido (`empresa` es la raíz: no lleva filtro de empresa)."""
+        return db.get(Empresa, empresa_id)
 
 
 # ---- Bitácora ----

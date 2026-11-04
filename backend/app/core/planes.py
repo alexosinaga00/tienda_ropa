@@ -60,6 +60,9 @@ RUTAS_SIN_SUSCRIPCION = (
     "/api/v1/plataforma/",
     "/api/v1/public/tiendas",
     "/api/v1/public/planes",
+    # Contratación pública (prueba gratuita y compra con PayPal, incluidas las rutas con `{token}` del pedido). Con
+    # barra final: "contratacion" es un código reservado, así que ninguna tienda cuelga de este prefijo.
+    "/api/v1/public/contratacion/",
     "/api/v1/pagos/webhook/",
     "/api/v1/pagos/qr/",
     "/api/v1/tareas/",

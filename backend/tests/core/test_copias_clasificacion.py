@@ -10,7 +10,8 @@ from app.core import copias
 from app.core.database import Base
 
 ESPERADAS_EXCLUIDAS = {
-    "copia_seguridad", "modelo_ml", "permiso", "probador_generacion", "rol_permiso", "transaccion_pasarela",
+    "copia_seguridad", "modelo_ml", "pedido_contratacion", "permiso", "probador_generacion", "rol_permiso",
+    "transaccion_pasarela",
 }  # fmt: skip
 
 
@@ -28,7 +29,7 @@ def test_g1_los_conteos_y_las_listas_no_tienen_repetidos():
     assert len(set(copias.TABLAS_INCLUIDAS)) == len(copias.TABLAS_INCLUIDAS) == 53
     assert len(set(copias.TABLAS_REFERENCIA)) == len(copias.TABLAS_REFERENCIA) == 7
     assert set(copias.TABLAS_EXCLUIDAS) == ESPERADAS_EXCLUIDAS
-    assert 53 + 7 + 6 == len(Base.metadata.tables) == 66
+    assert 53 + 7 + 7 == len(Base.metadata.tables) == 67
 
 
 def test_g1_el_detector_ve_una_tabla_sin_clasificar(monkeypatch):
@@ -115,6 +116,6 @@ def test_g3_el_patron_reconoce_los_nombres_de_secretos():
 
 
 def test_g3_las_tablas_de_secretos_estan_excluidas():
-    for nombre in ("transaccion_pasarela", "probador_generacion", "modelo_ml", "copia_seguridad"):
+    for nombre in ("transaccion_pasarela", "probador_generacion", "modelo_ml", "copia_seguridad", "pedido_contratacion"):
         assert nombre in copias.TABLAS_EXCLUIDAS
         assert nombre not in copias.TABLAS_INCLUIDAS

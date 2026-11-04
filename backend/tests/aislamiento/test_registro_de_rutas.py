@@ -9,7 +9,9 @@ from .introspeccion import funcionalidades_de, metodo_y_ruta, permisos_de, rutas
 from .rutas_esperadas import EXENTA, RUTAS
 
 CLASES_DE_NEGOCIO = {"POR_ID", "LISTADO", "CREA_O_ACCION", "PROPIA"}
-MAXIMO_DE_EXENTAS = 12
+# 12 + las 4 rutas de la compra de un plan (`/public/contratacion/pedidos...`): anónimas, sin {codigo} y con servicio
+# externo (PayPal) o creación de empresa; la matriz pública por tienda no puede ejecutarlas. Ver sus notas.
+MAXIMO_DE_EXENTAS = 16
 LARGO_MINIMO_DE_NOTA = 20
 RUTAS_NO_API = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
 

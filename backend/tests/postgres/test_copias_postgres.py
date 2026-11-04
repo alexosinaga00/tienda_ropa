@@ -64,7 +64,8 @@ from .paralelo import ejecutar_en_paralelo
 API = "/api/v1/copias-seguridad"
 MB = 1024 * 1024
 RESTAURABLES = [t for t in copias.TABLAS_INCLUIDAS if t not in TABLAS_NO_RESTAURADAS]
-REVISION_ANTERIOR = "f6c2a8d93b41"  # la migración a9d3f5c27e84 (copia_seguridad) cuelga de esta
+REVISION_ANTERIOR = "f6c2a8d93b41"  # la migración a9d3f5c27e84 (copia_seguridad) cuelga de esta; bajar hasta aquí
+# también deshace las posteriores (hoy c5e1b7a38d92, contratación de planes) y `upgrade head` las vuelve a aplicar.
 
 
 # =================================================================================================

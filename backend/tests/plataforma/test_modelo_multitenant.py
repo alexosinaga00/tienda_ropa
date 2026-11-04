@@ -43,6 +43,10 @@ MODELO_ML = "modelo_ml"
 # E22: `copia_seguridad` (historial de las copias de seguridad de una empresa) es de empresa (EmpresaMixin,
 # NOT NULL) y se cuenta aparte.
 COPIA_SEGURIDAD = "copia_seguridad"
+# Contratación de planes: `pedido_contratacion` es global y SIN `empresa_id` (quien compra aún no tiene empresa; la
+# empresa que se crea se enlaza en `empresa_creada_id`). Se trata como `plan`: sin pertenencia a una empresa.
+PEDIDO_CONTRATACION = "pedido_contratacion"
+SIN_EMPRESA = {PEDIDO_CONTRATACION}
 
 # Las 50 tablas EMPRESA de la sección 4.1 (49 con empresa_id NOT NULL más
 # `usuario`, que lo admite NULL: NULL = superadministrador).
@@ -77,12 +81,13 @@ def test_clasificacion_completa():
             tabla.name in GLOBALES,
             tabla.name in RAIZ,
             tabla.name in HEREDA,
+            tabla.name in SIN_EMPRESA,
             "empresa_id" in tabla.c,
         ]
         if sum(pertenencias) != 1:
             sin_clasificar.append((tabla.name, pertenencias))
     assert not sin_clasificar, (
-        "Cada tabla debe estar en exactamente uno de GLOBALES, RAIZ, HEREDA o llevar "
+        "Cada tabla debe estar en exactamente uno de GLOBALES, RAIZ, HEREDA, SIN_EMPRESA o llevar "
         f"empresa_id (hereda EmpresaMixin). Sin clasificar o ambiguas: {sin_clasificar}"
     )
 
@@ -95,11 +100,11 @@ def test_los_conjuntos_coinciden_con_la_seccion_4_1():
 
     nombres = {t.name for t in Base.metadata.sorted_tables}
     # 59 tablas del primer parcial + empresa, plan, suscripcion + bitacora (E06) + operacion_sync (E07)
-    # + modelo_ml (E11) + copia_seguridad (E22).
-    assert nombres == EMPRESA_4_1 | GLOBALES_4_1 | HEREDA | {
+    # + modelo_ml (E11) + copia_seguridad (E22) + pedido_contratacion (contratación de planes, sin empresa_id).
+    assert nombres == EMPRESA_4_1 | GLOBALES_4_1 | HEREDA | SIN_EMPRESA | {
         "empresa", "plan", "suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD,
     }  # fmt: skip
-    assert len(nombres) == 66
+    assert len(nombres) == 67
     # Las que llevan empresa_id: las 50 EMPRESA más suscripcion, bitacora, operacion_sync, modelo_ml y copia_seguridad.
     assert _con_empresa_id() == EMPRESA_4_1 | {"suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD}
     assert len(_con_empresa_id()) == 55

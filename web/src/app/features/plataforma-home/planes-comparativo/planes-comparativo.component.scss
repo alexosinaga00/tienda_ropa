@@ -70,13 +70,41 @@
   color: var(--fs-acento-oscuro);
 }
 
+.plan__precio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.plan__monto {
+  font-family: var(--fs-fuente-display);
+  font-stretch: 125%;
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan__sufijo,
+.plan__consultar {
+  font-size: 13px;
+  color: var(--plan-tenue);
+}
+
 .plan__filas {
+  flex: 1;
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.plan__elegir {
+  width: 100%;
 }
 
 .plan__fila {
@@ -116,7 +144,9 @@
   }
 }
 
-// Sobre la escena 3D: tarjetas oscuras y traslúcidas; el texto y el acento siguen a los tokens oscuros.
+// Sobre la escena 3D: SIN cajas. Cada plan es una columna separada de la siguiente por una línea fina,
+// directamente sobre el fondo oscuro (la portada pone el degradado que lo oscurece). Solo el plan completo
+// se distingue por su sello. El texto y el acento siguen a los tokens oscuros.
 :host(.planes--oscuro) {
   .planes-comunes {
     color: var(--fs-claro-tenue);
@@ -126,35 +156,107 @@
     }
   }
 
-  .plan {
-    background: rgba(18, 17, 16, 0.78);
+  .planes-grilla {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: none;
+    gap: 0;
+  }
+
+  .plan,
+  .plan--completo {
+    gap: 14px;
+    padding: 8px 32px 12px;
+    background: none;
     color: var(--fs-claro);
-    border-color: var(--fs-carbon-borde);
-    backdrop-filter: blur(10px);
+    border: 0;
+    border-radius: 0;
     --plan-check: var(--fs-acento-oscuro);
     --plan-tenue: var(--fs-claro-tenue);
   }
 
-  .plan--completo {
-    border-color: var(--fs-acento-oscuro);
+  .plan:first-child {
+    padding-left: 0;
   }
 
+  .plan:last-child {
+    padding-right: 0;
+  }
+
+  .plan + .plan {
+    border-left: 1px solid rgba(242, 242, 240, 0.1);
+  }
+
+  .plan__sello {
+    padding: 3px var(--fs-espacio-2);
+    border: 0;
+    background: color-mix(in srgb, var(--fs-acento-oscuro) 16%, transparent);
+  }
+
+  // Pantallas angostas: una fila por plan (nombre, precio y una línea de sucursales a la izquierda, el botón
+  // a la derecha), para que toda la sección siga cabiendo en una pantalla.
   @media (max-width: 860px) {
-    .plan {
-      padding: 14px 18px;
-      gap: 10px;
+    .planes-grilla {
+      grid-auto-flow: row;
+      grid-auto-columns: auto;
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .plan,
+    .plan--completo {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 2px 12px;
+      padding: 10px 0;
+    }
+
+    .plan:first-child,
+    .plan:last-child {
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    .plan + .plan {
+      border-left: 0;
+      border-top: 1px solid rgba(242, 242, 240, 0.1);
+    }
+
+    .plan__cabecera {
+      grid-column: 1;
     }
 
     .plan__nombre {
       font-size: 18px;
     }
 
+    .plan__precio {
+      grid-column: 1;
+    }
+
+    .plan__monto {
+      font-size: 24px;
+    }
+
+    // Solo la primera fila (sucursales); el detalle completo está en la página de contratación.
     .plan__filas {
-      gap: 4px;
+      grid-column: 1;
+      gap: 0;
+    }
+
+    .plan__fila:not(:first-child) {
+      display: none;
     }
 
     .plan__fila {
       font-size: 13px;
+    }
+
+    .plan__elegir {
+      grid-column: 2;
+      grid-row: 1 / span 3;
+      width: auto;
+      padding: 0 18px;
     }
   }
 }

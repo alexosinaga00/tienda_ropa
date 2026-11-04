@@ -45,7 +45,9 @@
       "name": "catalogo-publico",
       "urls": [
         "https://*.up.railway.app/api/v1/public/**",
-        "http://localhost:8000/api/v1/public/**"
+        "http://localhost:8000/api/v1/public/**",
+        "!https://*.up.railway.app/api/v1/public/contratacion/**",
+        "!http://localhost:8000/api/v1/public/contratacion/**"
       ],
       "cacheConfig": {
         "strategy": "freshness",

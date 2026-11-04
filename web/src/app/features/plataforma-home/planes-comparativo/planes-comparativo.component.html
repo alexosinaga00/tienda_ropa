@@ -14,6 +14,13 @@
           <span class="plan__sello">Plan completo</span>
         }
       </header>
+      <p class="plan__precio">
+        @if (tarjeta.precio) {
+          <span class="plan__monto">{{ tarjeta.precio }}</span>&ngsp;<span class="plan__sufijo">al mes</span>
+        } @else {
+          <span class="plan__consultar">Precio a consultar</span>
+        }
+      </p>
       <ul class="plan__filas">
         @for (fila of tarjeta.filas; track fila.texto) {
           <li class="plan__fila" [class.plan__fila--no]="!fila.incluida">
@@ -27,6 +34,19 @@
           </li>
         }
       </ul>
+      @if (tarjeta.precio) {
+        <a
+          class="fs-btn plan__elegir"
+          [class.fs-btn--acento]="tarjeta.completo"
+          [class.fs-btn--contorno]="!tarjeta.completo && variante() === 'oscuro'"
+          [class.fs-btn--secundario]="!tarjeta.completo && variante() !== 'oscuro'"
+          [routerLink]="rutaContratar"
+          [queryParams]="{ plan: tarjeta.codigo }"
+          [attr.aria-label]="'Elegir plan ' + tarjeta.nombre + ', ' + tarjeta.precio + ' al mes'"
+        >
+          Elegir plan
+        </a>
+      }
     </article>
   }
 </div>

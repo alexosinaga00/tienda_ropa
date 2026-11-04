@@ -28,6 +28,20 @@ export const routes: Routes = [
       import('./features/plataforma-home/plataforma-home.component').then((m) => m.PlataformaHomeComponent),
   },
   {
+    // Contratación de un plan (prueba gratis de 14 días o compra con PayPal). Pública y sin guardas: quien llega aún
+    // no tiene empresa ni sesión. Query: ?plan=<codigo>&modo=prueba|pago&periodo=mensual|anual.
+    path: 'contratar',
+    pathMatch: 'full',
+    loadComponent: () => import('./features/contratar/contratar.component').then((m) => m.ContratarComponent),
+  },
+  {
+    // Adonde PayPal devuelve al comprador: ?pedido=<token> (y &cancelado=1 si canceló). Cierra el pedido una vez.
+    path: 'contratar/retorno',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./features/contratar/retorno/contratar-retorno.component').then((m) => m.ContratarRetornoComponent),
+  },
+  {
     // Login del personal: empresa + correo + clave (o administrador de la plataforma).
     path: 'admin/login',
     data: { modo: 'personal' },

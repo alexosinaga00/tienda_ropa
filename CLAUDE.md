@@ -104,8 +104,9 @@ El catálogo del segundo parcial es de 25 casos de uso (el primer parcial tenía
 43; la equivalencia está en `C:\Desarrollo\examen\documento\2doParcial\`):
 - plataforma: CU-01 Autenticar y registrar usuarios · CU-02 Gestionar
   usuarios, roles y permisos · CU-03 Gestionar organización · CU-04 Gestionar
-  empresas, planes y suscripciones (`cu04_...`, 5 clases de control; la quinta,
-  `GestionarCopiasSeguridad`, es de la E22).
+  empresas, planes y suscripciones (`cu04_...`, 6 clases de control; la quinta,
+  `GestionarCopiasSeguridad`, es de la E22, y la sexta, `GestionarContratacion`, es la
+  prueba gratis y la compra con PayPal de la contratación de planes).
 - catalogo: CU-05 Gestionar catálogo · CU-06 Consultar y buscar catálogo ·
   CU-07 Gestionar favoritos · CU-08 Gestionar abastecimiento · CU-09 Gestionar
   inventario · CU-10 Gestionar assets del probador · CU-11 Probar prenda con IA.
@@ -206,10 +207,10 @@ También pueden hacer falta, dentro del diseño: diagrama de navegación
 
 ## Esquema de base de datos
 El esquema completo y definitivo está en `docs/fashionstore_esquema.sql`
-(60 tablas en el SQL, que es el del primer parcial). La base real tiene 66:
+(60 tablas en el SQL, que es el del primer parcial). La base real tiene 67:
 las 59 de antes (`sesion_probador` se eliminó con el modo espejo) más
-`empresa`, `plan`, `suscripcion`, `operacion_sync` (E07), `modelo_ml` (E11) y
-`copia_seguridad` (E22) del segundo parcial, que no están en el SQL, y `bitacora`
+`empresa`, `plan`, `suscripcion`, `operacion_sync` (E07), `modelo_ml` (E11),
+`copia_seguridad` (E22) y `pedido_contratacion` (contratación de planes) del segundo parcial, que no están en el SQL, y `bitacora`
 (E06; el SQL ya trae su bloque actualizado). No inventar tablas ni columnas nuevas sin pedirlo
 explícitamente.
 Ese archivo es documentación de referencia: NO se ejecuta contra la base.
@@ -225,14 +226,16 @@ sincronización (E07) y su descarga de datos, conflictos y plazo de cambio (E08)
 hechos. El backend NO
 se despliega solo: tras la E03 el login de la web y del móvil actuales no
 funciona hasta que se adapten (E15, E16, E18).
-- Clasificación de las 66 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
+- Clasificación de las 67 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
   salvo `usuario`, donde NULL = superadministrador de la plataforma), 8
   globales del sistema (`permiso`, `rol`, `rol_permiso`, `tipo_movimiento`,
   `estado_reserva`, `estado_venta`, `metodo_pago`, `estado_pago`), `plan`
   (global), `empresa` (la raíz), `usuario_rol` (hereda del usuario),
   `suscripcion` (de la empresa, con historial), `operacion_sync` (de la
   empresa, `EmpresaMixin`; E07), `modelo_ml` (de la empresa, `EmpresaMixin`; E11),
-  `copia_seguridad` (de la empresa, `EmpresaMixin`; E22) y
+  `copia_seguridad` (de la empresa, `EmpresaMixin`; E22),
+  `pedido_contratacion` (global: SIN `empresa_id` ni mixin, porque quien compra
+  aún no tiene empresa; ver "Planes y suscripciones") y
   `bitacora` (`empresa_id` NULL permitido y SIN el mixin: ver "Bitácora de
   auditoría").
 - Toda tabla nueva de negocio hereda `EmpresaMixin` (`core/tenant.py`) y se
@@ -328,7 +331,7 @@ funciona hasta que se adapten (E15, E16, E18).
 - `core/planes.py`: `verificar_suscripcion_activa` (403 `suscripcion_no_activa`)
   la ejecutan `get_current_user` y la tienda pública salvo en
   `RUTAS_SIN_SUSCRIPCION` (`/health`, `/auth/*`, `/mi-empresa*`, `/plataforma/*`,
-  `/public/tiendas`, `/public/{codigo}/tienda`, webhook y QR de pagos,
+  `/public/tiendas`, `/public/contratacion/`, `/public/{codigo}/tienda`, webhook y QR de pagos,
   `/tareas/*`); `exigir_funcionalidad(nombre)` (403 `plan_no_incluye_funcionalidad`)
   es una dependencia que va ANTES de `require_permission` (orden de errores: 401,
   suscripción, plan, permiso, reglas de negocio). `ErrorFuncional` responde
@@ -336,16 +339,98 @@ funciona hasta que se adapten (E15, E16, E18).
 - Límite de sucursales activas (el depósito cuenta): 409 `limite_plan_excedido`
   al crear o reactivar, con la fila de la suscripción bloqueada (FOR UPDATE en
   PostgreSQL) para que dos altas simultáneas no lo superen.
-- Una empresa nueva (`POST /plataforma/empresas`) nace en una sola transacción
-  con su suscripción, su administrador y sus datos base (tallas, materiales y las
-  9 capitales de Bolivia) mediante `core.tenant.registrar_inicializador`; el
-  superadministrador trabaja sobre una empresa ajena solo con `en_empresa`.
+- Una empresa nueva (`POST /plataforma/empresas`, o el alta pública de prueba gratis `POST /public/contratacion/prueba`)
+  nace en una sola transacción con su suscripción, su administrador y sus datos base (tallas, materiales y las
+  9 capitales de Bolivia) mediante `core.tenant.registrar_inicializador`; ambas pasan por el mismo núcleo
+  (`_crear_empresa_completa`, sin commit, que recibe un hash bcrypt ya calculado); el superadministrador trabaja
+  sobre una empresa ajena solo con `en_empresa`.
 - Siempre queda al menos un administrador activo por empresa.
 - `GET /api/v1/public/planes` (sin sesión ni parámetros, 60/min; para la portada pública): los planes
   activos, por `max_sucursales` y luego `id`, con solo `codigo`, `nombre`, `max_sucursales`,
-  `max_copias_historial`, `plazo_cambio_horas_defecto` y las 8 banderas de funcionalidad (sin `id` ni
-  `activo`). Exenta de la suscripción activa (`RUTAS_SIN_SUSCRIPCION`). Es parte de CU-04
+  `max_copias_historial`, `plazo_cambio_horas_defecto`, `precio_mensual_bs` y las 8 banderas de funcionalidad
+  (sin `id` ni `activo`). Exenta de la suscripción activa (`RUTAS_SIN_SUSCRIPCION`). Es parte de CU-04
   (`GestionarPlanes.listar_publicos`): leer la tabla `plan` hace que editar un plan cambie la portada.
+- **Precio y contratación (fase 1, migración `c5e1b7a38d92`).** `plan.precio_mensual_bs` (Numeric(10,2), NULL =
+  sin precio publicado, CHECK >= 0; Básico 120, Estándar 290, Profesional 590 Bs/mes) lo edita el
+  superadministrador con `POST/PUT /plataforma/planes` (un `null` explícito lo borra) y sale como TEXTO JSON
+  ("120.00"), como los demás montos. El precio anual (20 % menos) se calcula, no tiene columna.
+  `suscripcion.es_prueba` (bool, falso por defecto) marca la prueba gratuita; el estado y las fechas siguen las
+  mismas reglas, y se informa en `SuscripcionRespuesta` y en `GET /mi-empresa/suscripcion`.
+- `pedido_contratacion` (`PedidoContratacion`, `plataforma/models.py`): compra o prueba gratuita desde la portada,
+  ANTES de que exista la empresa. Tabla GLOBAL: sin `empresa_id` ni `EmpresaMixin` (la empresa creada se enlaza en
+  `empresa_creada_id`), y EXCLUIDA de las copias de seguridad (guarda el hash bcrypt de la contraseña del
+  administrador, nunca la contraseña). `token` y `paypal_order_id` únicos; estados `pendiente`, `pagado`,
+  `pagado_sin_empresa`, `completado`, `cancelado`, `vencido`, `fallido`; un índice único parcial deja UNA sola
+  prueba gratuita viva por correo (la liberan `cancelado`, `vencido` y `fallido`).
+- **Prueba gratis pública (fase 2, `GestionarContratacion.iniciar_prueba`).** `POST /api/v1/public/contratacion/prueba`
+  (201, sin sesión, 5/hora por IP; solo cuentan las peticiones válidas). Cuerpo estricto (`extra=forbid`):
+  `{nombre, plan_codigo, administrador: {nombre, apellido, email, telefono?, password 8-72}}`; sin fechas, logo ni
+  color. CUALQUIER plan activo sirve. Crea en UNA transacción la empresa activa, su suscripción `es_prueba` y su
+  administrador, y un pedido `prueba` ya `completado` (con el hash, nunca la contraseña; el pedido se inserta
+  PRIMERO para que una carrera por el mismo correo falle antes de crear nada). Dura `prueba_dias` (14) días
+  completos: como el vencimiento es inclusivo, es hoy + (`prueba_dias` - 1). Sin verificación de correo ni pago.
+  Respuesta mínima: `empresa_codigo`, `empresa_nombre`, `plan_codigo`, `plan_nombre`, `es_prueba`, `fecha_inicio`,
+  `fecha_vencimiento`. Errores: 404 plan inexistente, 409 plan inactivo, 409 nombre repetido, 422
+  `nombre_empresa_reservado`, 409 `prueba_ya_usada` (una prueba por correo, sin distinguir mayúsculas). Al vencer, la
+  suscripción queda vencida (la tienda pasa a "no disponible") y no se borra nada. Bitácora `empresa/crear` anónima
+  con `{codigo, plan, es_prueba}`, sin correo ni nombre. La ruta se atiende SIEMPRE como anónima
+  (`core.tenant.contexto_empresa` ignora el token en `/public/contratacion/`) y su prefijo está en
+  `RUTAS_SIN_SUSCRIPCION`. Códigos de empresa reservados (`plataforma.politicas.CODIGOS_EMPRESA_RESERVADOS`, más
+  cualquiera que empiece por `planes` o `tiendas`, prefijos sin barra de `RUTAS_SIN_SUSCRIPCION`): se exigen en TODA
+  alta de empresa. Pasar de prueba a pago: `POST /plataforma/suscripciones` con el MISMO plan ya no es 409 si la
+  vigente es de prueba (la cierra y crea otra con `es_prueba=False`), y renovar una prueba la vuelve normal.
+- **Compra con PayPal (fase 3, `GestionarContratacion.crear_pedido/consultar_pedido/cancelar_pedido/capturar_pedido`).**
+  La empresa NO existe hasta que el pago se confirma. Cuatro rutas anónimas bajo `/api/v1/public/contratacion/pedidos`
+  (cubiertas por el prefijo de `RUTAS_SIN_SUSCRIPCION` y por `PREFIJO_CONTRATACION`; `pedidos` es código reservado). El
+  único secreto del comprador es el `token` del pedido (`secrets.token_urlsafe(32)`); un token inexistente o de una
+  prueba gratuita da siempre el mismo 404. Errores funcionales con `{detail, codigo, mensaje}`.
+  - `POST /pedidos` (201, 5/hora por IP): cuerpo de la prueba más `periodo` (`mensual|anual`), `extra=forbid`: el cliente
+    NUNCA manda montos. Valida lo mismo que la prueba (404 plan inexistente, 409 inactivo, 422 `nombre_empresa_reservado`,
+    409 nombre repetido) más 409 `plan_sin_precio`; el correo NO se restringe. Respuesta: `token`, `url_aprobacion`
+    (PayPal), `plan_codigo`, `plan_nombre`, `periodo`, `monto_bs`, `monto_usd`, `tipo_cambio` (montos en texto) y
+    `expira_en` (UTC con zona). Todo o nada: pedido y orden de PayPal en la misma unidad de trabajo; si PayPal falla,
+    503 `paypal_no_disponible` y no queda pedido. PayPal devuelve al comprador a
+    `{frontend_public_url}/contratar/retorno?pedido=<token>` (`&cancelado=1` si cancela).
+  - `GET /pedidos/{token}` (60/min): `estado`, plan, `periodo`, montos, `expira_en` y `empresa_codigo` (solo si está
+    `completado`); sin correo ni datos personales.
+  - `POST /pedidos/{token}/cancelar` (10/min): `pendiente` -> `cancelado`, idempotente; 409 `pedido_ya_pagado`,
+    `pedido_vencido` o `pedido_fallido`.
+  - `POST /pedidos/{token}/capturar` (10/min), IDEMPOTENTE: bloquea la fila (FOR UPDATE en PostgreSQL); `completado`
+    devuelve la misma empresa sin tocar PayPal; `cancelado`/`vencido`/`fallido` dan 409 `pedido_cancelado|vencido|fallido`.
+    En `pendiente` consulta la orden DIRECTAMENTE a PayPal (no confía en el navegador): sin aprobar, 409
+    `pago_no_aprobado` (o `pedido_vencido` si ya expiró); moneda distinta de USD o monto distinto del guardado -> NO
+    captura, pedido `fallido`, 409 `pago_no_coincide`; aprobada -> captura con `PayPal-Request-Id` derivado del token y
+    crea la empresa en la MISMA transacción (plan del pedido, `es_prueba=False`, vencimiento hoy + 30 o + 365 días,
+    contraseña ya hasheada) y pasa a `completado`. Respuesta: `estado`, `empresa_codigo`, `empresa_nombre`, plan,
+    `periodo`, `es_prueba`, fechas y montos. PayPal caído: 503 `paypal_no_disponible` y el pedido sigue `pendiente`.
+    Una orden aprobada a tiempo se cobra aunque el plazo corra mientras el comprador vuelve; lo que vence es lo no aprobado.
+  - **`pagado_sin_empresa`.** Si PayPal ya cobró y la empresa no se puede crear (otro tomó el nombre, o cualquier error),
+    la creación corre en un SAVEPOINT que descarta lo a medias, el pedido queda `pagado_sin_empresa` (se confirma, no se
+    pierde), se anota en bitácora (`motivo` estable, sin datos personales) y responde 409 `pagado_sin_empresa` con un
+    mensaje de que el pago se recibió y debe contactarse a soporte. Reintentar la captura NO consulta ni cobra a PayPal:
+    solo reintenta crear la empresa (si el nombre se liberó, termina en `completado`). El reembolso es MANUAL. Si el
+    proceso muriera después de capturar y antes de confirmar, el reintento ve la orden ya `COMPLETED` en PayPal y solo
+    crea la empresa (no se cobra dos veces).
+  - **Precios.** `plataforma/politicas.py`: `monto_bs_del_plan` (mensual = `precio_mensual_bs`; anual = mensual x 12 x
+    (1 - `descuento_anual_porcentaje`/100)), `convertir_bs_a_usd` y `calcular_precio_contratacion`, todo con `Decimal`
+    y mitad hacia arriba a 2 decimales; el servidor SIEMPRE recalcula. Settings: `tipo_cambio_bs_por_usd` (6,96; de
+    REFERENCIA, se guarda en el pedido a 4 decimales), `descuento_anual_porcentaje` (20), `frontend_public_url`
+    (`http://localhost:4200`) y `pedido_expira_minutos` (60). Un plan con precio nulo o 0 es `plan_sin_precio`.
+  - **Estados del pedido:** `pendiente` -> `completado` | `cancelado` | `vencido` | `fallido` | `pagado_sin_empresa`
+    (`pagado` queda reservado: la captura y la empresa van en una sola transacción). `vencer_pedidos_contratacion` pasa a
+    `vencido` los `pendiente` con `expira_en` cumplido y corre dentro de `vencer_suscripciones` (la tarea periódica y
+    `POST /tareas/vencer-suscripciones`, cuya respuesta `{"vencidas": n}` no cambia).
+  - **Núcleo `core/paypal.py`** (infraestructura, sin imports de negocio): token OAuth, URL base según `paypal_mode`,
+    `crear_orden`, `obtener_orden` y `capturar_orden` (con `PayPal-Request-Id`; `ORDER_ALREADY_CAPTURED` se trata como
+    orden ya capturada y se consulta). Todo fallo es `PayPalError(RuntimeError)`. Lo usan también
+    `comercial.pasarela.PayPalGateway` (mismo comportamiento de siempre) y esta compra. Las pruebas simulan el cliente
+    HTTP con `tests/paypal_simulado.py`; ninguna llama a PayPal real.
+  - **Límites conocidos:** sin webhook real de PayPal (la confirmación es la consulta directa al volver el comprador:
+    si no vuelve, no se cobra); sin reembolso automático; sin verificación de correo; la renovación manual y pasar de
+    prueba a pago en una empresa existente no están en esta fase; dos pedidos pendientes pueden pedir el mismo nombre
+    (el segundo en pagar queda `pagado_sin_empresa`); el tipo de cambio es fijo, no se consulta a ninguna fuente.
+  - **Defecto previo (no corregido):** `PayPalGateway.iniciar_pago` manda el total de una VENTA de tienda, en
+    bolivianos, a PayPal como USD sin convertir (`cu18` pasa `venta.total`). Solo la compra de un plan convierte.
 - Semilla de demostración: `python -m scripts.seed_empresas_prueba` (dry-run por
   defecto): FashionStore (Profesional) y Boutique Andina (Básico).
 - Población de demostración (8 organizaciones): `python -m scripts.poblar_demo --origen <carpeta
@@ -353,7 +438,7 @@ funciona hasta que se adapten (E15, E16, E18).
   `--sin-fotos`). Los datos están en `scripts/demo_organizaciones.py` (3 Profesional, 3 Estándar
   y 2 Básico, 22 sucursales en 7 ciudades, 104 productos con las 24 fotos del dataset, precio por
   factor de organización y stock distinto por sucursal y variante). El plan Estándar (5 sucursales,
-  IA y copias sí (guarda 6), ML no, cambio en 48 h) se crea como DATO con el CU-04, no por migración ni en
+  IA y copias sí (guarda 6), ML no, cambio en 48 h, 290 Bs/mes) se crea como DATO con el CU-04, no por migración ni en
   `seed_planes.py`. Copias y plazo de cambio crecen con el plan (copias 3, 6, 10; plazo 24, 48, 72 h) y
   el Básico pasa a INCLUIR copias (cambia D07 solo en estos datos): lo aplica `poblar_demo
   --ajustar-planes` (la migración y `seed_planes.py` dejan Básico sin copias y Profesional con 5 y 24 h).
@@ -369,8 +454,10 @@ clasificarla. Un recurso de otra empresa se ve IGUAL que uno inexistente (404, m
 - `rutas_esperadas.py` (`RUTAS`): una entrada por cada (método, ruta) de la app, con
   `Ruta(clase, permiso, funcionalidad, cobertura, nota)`. Clases: POR_ID, LISTADO,
   CREA_O_ACCION, PROPIA, PUBLICA, PLATAFORMA, MI_EMPRESA, PASARELA, SERVICIO, AUTH.
-  Cobertura MATRIZ (la recorre una prueba parametrizada) o EXENTA (máximo 12; la nota con
-  la razón, de 20 caracteres o más, es obligatoria). Una ruta de negocio sin permiso lleva
+  Cobertura MATRIZ (la recorre una prueba parametrizada) o EXENTA (máximo 16, hoy agotado:
+  `POST /public/contratacion/prueba` es la 12.ª y las 4 de `/public/contratacion/pedidos` son la 13.ª a 16.ª, PUBLICA
+  exentas porque crean empresas o llaman a PayPal; las rutas
+  PUBLICA son 34, 27 con código de tienda; la nota con la razón, de 20 caracteres o más, es obligatoria). Una ruta de negocio sin permiso lleva
   la nota "solo autenticado". Las guardianas (`test_registro_de_rutas.py`) fallan si una
   ruta nueva no está clasificada, si sobra una entrada, o si el permiso o la funcionalidad
   declarados no coinciden con lo que la ruta exige (se leen de `.permiso` y `.funcionalidad`
@@ -657,11 +744,11 @@ No es un CU nuevo: es la quinta clase de control de CU-04 (`GestionarCopiasSegur
 - **Nunca `pg_dump`** (copiaría a todas las empresas). El motor `core/copias.py` lee las tablas POR NOMBRE iterando
   `Base.metadata` (DEC-2: infraestructura genérica del `core`, no importa ningún paquete de negocio), con el filtro por
   `empresa_id` EXPLÍCITO en cada consulta y la empresa saliendo SOLO del token del administrador.
-- **Clasificación explícita** de las 66 tablas en `TABLAS_INCLUIDAS` (53: las de la empresa, más `empresa` por id y
+- **Clasificación explícita** de las 67 tablas en `TABLAS_INCLUIDAS` (53: las de la empresa, más `empresa` por id y
   `usuario_rol` por su usuario), `TABLAS_REFERENCIA` (7 catálogos globales que los datos referencian: `estado_*`,
   `metodo_pago`, `tipo_movimiento`, y solo el `plan` y los `rol` que la empresa usa; van en `referencias/`) y
-  `TABLAS_EXCLUIDAS` (6, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
-  `permiso`, `rol_permiso`). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
+  `TABLAS_EXCLUIDAS` (7, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
+  `pedido_contratacion`, `permiso`, `rol_permiso`). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
   clasificar: quien agregue una tabla DEBE decidir si se respalda (la E21 tendrá que clasificar `caja_turno`).
 - **Sin secretos:** no salen `usuario.password_hash`, `bitacora.ip`, las columnas generadas (`stock.cantidad_disponible`)
   ni cualquier columna cuyo nombre parezca un secreto (`PATRON_COLUMNA_SENSIBLE`). El manifiesto NOMBRA las columnas omitidas
