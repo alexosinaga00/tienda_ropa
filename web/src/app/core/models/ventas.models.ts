@@ -69,8 +69,16 @@ export interface Venta {
 /** Texto de la etiqueta "con devolución" de una venta, o null si no se devolvió nada. */
 export function etiquetaDevolucion(venta: Pick<Venta, 'detalle' | 'unidades_devueltas'>): string | null {
   const devueltas = venta.unidades_devueltas ?? 0;
+  if (devueltas <= 0) return null; // sin devolución no hace falta mirar el detalle
+  return etiquetaDevolucionUnidades(
+    venta.detalle.reduce((suma, linea) => suma + linea.cantidad, 0),
+    devueltas,
+  );
+}
+
+/** Lo mismo con las unidades ya contadas (el resumen de inicio las trae sin el detalle de cada línea). */
+export function etiquetaDevolucionUnidades(vendidas: number, devueltas: number): string | null {
   if (devueltas <= 0) return null;
-  const vendidas = venta.detalle.reduce((suma, linea) => suma + linea.cantidad, 0);
   return devueltas >= vendidas ? 'Devuelta' : `Con devolución (${devueltas} de ${vendidas})`;
 }
 

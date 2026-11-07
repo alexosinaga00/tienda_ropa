@@ -4,7 +4,7 @@
     <h1>{{ usuario()?.nombre ? 'Hola, ' + usuario()?.nombre : 'Hola' }}</h1>
   </div>
   <div class="dash-contexto">
-    <span class="dash-sucursal">{{ sucursalNombre() ?? 'Sin sucursal asignada' }}</span>
+    <span class="dash-sucursal">{{ sucursalNombre() ?? (cargando() ? '' : 'Sin sucursal asignada') }}</span>
     <span class="fs-caption">{{ fechaHoy }}</span>
   </div>
 </header>
@@ -15,28 +15,39 @@
     Tu rol no tiene indicadores en este resumen. Si necesitas más funciones, pídele a un administrador de tu empresa que
     revise tu rol.
   </p>
-} @else if (!cargando() && sucursalId() === null && !vistaGlobal()) {
+} @else if (sinSucursal()) {
   <p class="fs-aviso" role="status">
     <fs-icono nombre="alerta" [tam]="28" />
     No tienes una sucursal asignada. Pídele a un administrador que te asigne una para ver los indicadores.
   </p>
+} @else if (fallo()) {
+  <p class="fs-aviso" role="alert" data-testid="dash-fallo">
+    <fs-icono nombre="alerta" [tam]="28" />
+    No se pudo cargar el resumen de hoy.
+    <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="reintentar()">Reintentar</button>
+  </p>
 }
 
 @if (mostrarIndicadores()) {
-  <div class="dash-kpis">
+  <div class="dash-kpis" [attr.aria-busy]="cargando()">
     @if (puedeVentas()) {
       <div class="fs-card dash-kpi">
         <div class="dash-kpi__cabecera">
           <span class="dash-kpi__etiqueta">Ventas de hoy</span>
           <span class="dash-kpi__icono"><fs-icono nombre="dinero" [tam]="30" /></span>
         </div>
-        <span class="dash-kpi__valor fs-num">Bs {{ totalVentasHoy() | number: '1.2-2' }}</span>
-        <span class="dash-kpi__nota fs-num">{{ ticketsHoy() }} {{ ticketsHoy() === 1 ? 'ticket' : 'tickets' }}</span>
-        @if (porCobrarCantidad() > 0) {
-          <span class="dash-kpi__nota dash-kpi__nota--por-cobrar fs-num">
-            Por cobrar: {{ porCobrarCantidad() }} {{ porCobrarCantidad() === 1 ? 'venta' : 'ventas' }} (Bs
-            {{ porCobrarTotal() | number: '1.2-2' }})
-          </span>
+        @if (cargando()) {
+          <span class="dash-esqueleto dash-esqueleto--valor" aria-hidden="true"></span>
+          <span class="dash-esqueleto dash-esqueleto--nota" aria-hidden="true"></span>
+        } @else {
+          <span class="dash-kpi__valor fs-num">Bs {{ totalVentasHoy() | number: '1.2-2' }}</span>
+          <span class="dash-kpi__nota fs-num">{{ ticketsHoy() }} {{ ticketsHoy() === 1 ? 'ticket' : 'tickets' }}</span>
+          @if (porCobrarCantidad() > 0) {
+            <span class="dash-kpi__nota dash-kpi__nota--por-cobrar fs-num">
+              Por cobrar: {{ porCobrarCantidad() }} {{ porCobrarCantidad() === 1 ? 'venta' : 'ventas' }} (Bs
+              {{ porCobrarTotal() | number: '1.2-2' }})
+            </span>
+          }
         }
       </div>
     }
@@ -46,8 +57,13 @@
           <span class="dash-kpi__etiqueta">Alertas de stock bajo</span>
           <span class="dash-kpi__icono"><fs-icono nombre="inventario" [tam]="30" /></span>
         </div>
-        <span class="dash-kpi__valor fs-num">{{ totalAlertasStock() }}</span>
-        <span class="dash-kpi__nota">Prendas por debajo de su mínimo</span>
+        @if (cargando()) {
+          <span class="dash-esqueleto dash-esqueleto--valor" aria-hidden="true"></span>
+          <span class="dash-esqueleto dash-esqueleto--nota" aria-hidden="true"></span>
+        } @else {
+          <span class="dash-kpi__valor fs-num">{{ totalAlertasStock() }}</span>
+          <span class="dash-kpi__nota">Prendas por debajo de su mínimo</span>
+        }
       </div>
     }
     @if (puedeReservas()) {
@@ -56,8 +72,13 @@
           <span class="dash-kpi__etiqueta">Reservas de hoy</span>
           <span class="dash-kpi__icono"><fs-icono nombre="calendario" [tam]="30" /></span>
         </div>
-        <span class="dash-kpi__valor fs-num">{{ totalReservasHoy() }}</span>
-        <span class="dash-kpi__nota">Visitas programadas para hoy</span>
+        @if (cargando()) {
+          <span class="dash-esqueleto dash-esqueleto--valor" aria-hidden="true"></span>
+          <span class="dash-esqueleto dash-esqueleto--nota" aria-hidden="true"></span>
+        } @else {
+          <span class="dash-kpi__valor fs-num">{{ totalReservasHoy() }}</span>
+          <span class="dash-kpi__nota">Visitas programadas para hoy</span>
+        }
       </div>
     }
   </div>
@@ -127,7 +148,13 @@
         <h2>Últimas ventas</h2>
         <span class="fs-caption">De hoy</span>
       </div>
-      @if (ventasRecientes().length) {
+      @if (cargando()) {
+        <div class="dash-esqueleto-filas" aria-hidden="true">
+          @for (fila of filasEsqueleto; track fila) {
+            <span class="dash-esqueleto dash-esqueleto--fila"></span>
+          }
+        </div>
+      } @else if (ventasRecientes().length) {
         <div class="dash-tabla__scroll">
           <table>
             <thead>
@@ -168,15 +195,21 @@
       <div class="dash-panel__cabecera">
         <h2>Reservas de hoy</h2>
       </div>
-      <div class="dash-pills">
-        @for (r of resumenReservas(); track r.estado) {
-          <span class="dash-pill">
-            <span class="dash-pill__punto" [style.background]="r.color"></span>
-            {{ r.etiqueta }} <span class="fs-num">{{ r.cantidad }}</span>
-          </span>
-        }
-      </div>
-      @if (totalReservasHoy()) {
+      @if (cargando()) {
+        <div class="dash-esqueleto-filas" aria-hidden="true">
+          <span class="dash-esqueleto dash-esqueleto--fila"></span>
+        </div>
+      } @else {
+        <div class="dash-pills">
+          @for (r of resumenReservas(); track r.estado) {
+            <span class="dash-pill">
+              <span class="dash-pill__punto" [style.background]="r.color"></span>
+              {{ r.etiqueta }} <span class="fs-num">{{ r.cantidad }}</span>
+            </span>
+          }
+        </div>
+      }
+      @if (!cargando() && totalReservasHoy()) {
         <div class="dash-apilada" aria-hidden="true">
           @for (r of resumenReservas(); track r.estado) {
             <span [style.width.%]="(r.cantidad / totalReservasHoy()) * 100" [style.background]="r.color"></span>

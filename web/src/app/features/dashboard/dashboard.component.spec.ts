@@ -3,35 +3,42 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
+import { ResumenInicio, VentaRecienteInicio } from '../../core/models/inicio.models';
 import { DashboardComponent } from './dashboard.component';
 
 const API = environment.apiUrl;
+const RESUMEN = `${API}/inicio/resumen`;
 
-/** Un instante de HOY a la `hora` local del navegador ("23:12"), como lo manda el servidor: UTC con "Z". */
-function instanteDeHoy(hora: string, diasAtras = 0): string {
-  const [h, m] = hora.split(':').map(Number);
-  const instante = new Date();
-  instante.setDate(instante.getDate() - diasAtras);
-  instante.setHours(h, m, 0, 0);
-  return instante.toISOString();
-}
-
-function ventaDeHoy(id: number, estado: string, total: number, hora: string, diasAtras = 0) {
+function venta(id: number, estado: VentaRecienteInicio['estado'], total: string, extra: Partial<VentaRecienteInicio> = {}) {
   return {
     id,
     codigo: `V-00${id}`,
-    canal: 'presencial',
-    cliente_id: null,
-    sucursal_id: 1,
-    cajero_id: 2,
-    reserva_id: null,
-    estado,
-    fecha: instanteDeHoy(hora, diasAtras),
-    subtotal: total,
-    descuento: 0,
-    costo_envio: 0,
+    fecha: '2026-11-07T15:00:00Z',
     total,
-    detalle: [{ variante_id: 10 + id, cantidad: id, precio_unitario: 1, subtotal: 1 }],
+    estado,
+    unidades_vendidas: 1,
+    unidades_devueltas: 0,
+    ...extra,
+  } satisfies VentaRecienteInicio;
+}
+
+/** Un resumen con solo ventas, que cada prueba ajusta. */
+function resumen(cambios: Partial<ResumenInicio> = {}): ResumenInicio {
+  return {
+    fecha: '2026-11-07',
+    sucursal_id: 1,
+    sucursal_nombre: 'Central',
+    ventas: {
+      tickets: 0,
+      total_ventas: '0.00',
+      por_cobrar_cantidad: 0,
+      por_cobrar_total: '0.00',
+      mas_vendidas: [],
+      recientes: [],
+    },
+    stock: null,
+    reservas: null,
+    ...cambios,
   };
 }
 
@@ -76,65 +83,87 @@ describe('DashboardComponent', () => {
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
 
+  /** Abre la pantalla y responde el resumen: la única llamada que hace. */
+  function abrirCon(respuesta: ResumenInicio, roles = ['cajero'], permisos = ['ventas.gestionar_sucursal']) {
+    iniciarSesion(roles, permisos);
+    const abierta = crear();
+    http.expectOne(RESUMEN).flush(respuesta);
+    abierta.fixture.detectChanges();
+    return abierta;
+  }
+
   it('saluda con rótulo "Resumen" y muestra la sucursal', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http.match(() => true).forEach((r) => r.flush([]));
-    fixture.detectChanges();
+    const { el } = abrirCon(resumen());
 
     expect(el.querySelector('.fs-eyebrow')?.textContent).toBe('Resumen');
     expect(el.querySelector('h1')?.textContent).toBe('Hola, Ana');
     expect(el.querySelector('.dash-sucursal')?.textContent).toBe('Central');
   });
 
-  it('sin sucursal avisa en tuteo', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: null, activo: true });
+  it('hace UNA sola llamada: no pide empleado, sucursales, ventas, reservas ni fotos por separado', () => {
+    iniciarSesion(['administrador'], ['ventas.gestionar_sucursal', 'inventario.ver', 'reservas.gestionar_sucursal']);
+    const { fixture } = crear();
+    http.expectOne(RESUMEN).flush(resumen({ sucursal_id: null, sucursal_nombre: 'Todas las sucursales' }));
     fixture.detectChanges();
 
-    const aviso = el.querySelector('.fs-aviso')?.textContent ?? '';
-    expect(aviso).toContain('No tienes una sucursal asignada.');
-    expect(aviso).toContain('Pídele a un administrador');
-    expect(el.querySelector('.dash-kpis')).toBeNull();
+    http.expectNone(`${API}/empleados/yo`);
+    http.expectNone((r) => r.url.includes('/ventas/sucursal'));
+    http.expectNone((r) => r.url.includes('/reservas/sucursal'));
+    http.expectNone((r) => r.url.includes('/catalogo/variantes/detalle'));
+    http.expectNone((r) => r.url.includes('/inventario/alertas'));
+    http.expectNone(`${API}/sucursales?tamanio=100`);
+  });
+
+  it('mientras llega el resumen muestra esqueletos y NO un 0 de relleno', () => {
+    iniciarSesion(['administrador'], ['ventas.gestionar_sucursal', 'inventario.ver', 'reservas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+
+    expect(el.querySelectorAll('.dash-kpi').length).toBe(3);
+    expect(el.querySelectorAll('.dash-kpi .dash-esqueleto--valor').length).toBe(3);
+    expect(el.querySelector('.dash-kpi__valor')).toBeNull();
+    expect(el.querySelector('.dash-kpis')?.getAttribute('aria-busy')).toBe('true');
+    expect(el.querySelector('.dash-sucursal')?.textContent).toBe('');
+
+    http.expectOne(RESUMEN).flush(
+      resumen({
+        stock: { total_alertas: 0, alertas: [] },
+        reservas: { total: 0, por_estado: [] },
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(el.querySelector('.dash-esqueleto')).toBeNull();
+    expect(el.querySelectorAll('.dash-kpi__valor').length).toBe(3);
+    expect(el.querySelector('.dash-kpis')?.getAttribute('aria-busy')).toBe('false');
   });
 
   it('con permisos de ventas muestra la tarjeta de ventas, las barras y las últimas ventas con chips de estado', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http
-      .expectOne(`${API}/ventas/sucursal/1`)
-      .flush([
-        ventaDeHoy(1, 'pagada', 100, '09:30'),
-        ventaDeHoy(2, 'pendiente_pago', 250.5, '11:15'),
-        ventaDeHoy(3, 'anulada', 80, '12:00'),
-      ]);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
+    const { el } = abrirCon(
+      resumen({
+        ventas: {
+          tickets: 1,
+          total_ventas: '100.00',
+          por_cobrar_cantidad: 1,
+          por_cobrar_total: '250.50',
+          mas_vendidas: [{ variante_id: 11, nombre: 'Camisa Oxford', cantidad: 1 }],
+          recientes: [venta(3, 'anulada', '80.00'), venta(2, 'pendiente_pago', '250.50'), venta(1, 'pagada', '100.00')],
+        },
+      }),
+    );
 
     const kpi = el.querySelector('.dash-kpi') as HTMLElement;
     expect(kpi.textContent).toContain('Ventas de hoy');
-    // Solo la pagada cuenta como vendida: la pendiente de pago y la anulada no suman.
     expect(kpi.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 100.00');
     expect(kpi.querySelector('.dash-kpi__nota')?.textContent).toContain('1 ticket');
     expect(kpi.querySelector('.dash-kpi__nota')?.textContent).not.toContain('tickets');
-    // La pendiente de pago se avisa aparte.
     expect(kpi.querySelector('.dash-kpi__nota--por-cobrar')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       'Por cobrar: 1 venta (Bs 250.50)',
     );
-    // Ícono de 30 px dentro del cuadro de 52 px.
     expect(kpi.querySelector('.dash-kpi__icono svg')?.getAttribute('width')).toBe('30');
 
-    // Barras: una por prenda vendida (solo de la venta pagada); la más vendida va resaltada.
-    const barras = el.querySelectorAll('.dash-barra');
-    expect(barras.length).toBe(1);
+    expect(el.querySelectorAll('.dash-barra').length).toBe(1);
     expect(el.querySelectorAll('.dash-barra__relleno--max').length).toBe(1);
 
-    // Últimas ventas: la más reciente primero, con su chip.
     const filas = Array.from(el.querySelectorAll('.dash-tabla tbody tr'));
     expect(filas.map((f) => f.querySelector('td')?.textContent?.trim())).toEqual(['V-003', 'V-002', 'V-001']);
     const chips = Array.from(el.querySelectorAll('.dash-tabla .fs-chip'));
@@ -144,93 +173,176 @@ describe('DashboardComponent', () => {
     expect(chips[2].classList).toContain('fs-chip--exito');
   });
 
-  it('una venta con devolución sigue pagada (y cuenta como vendida) pero "Últimas ventas" dice que se devolvió', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http.expectOne(`${API}/ventas/sucursal/1`).flush([
-      { ...ventaDeHoy(2, 'pagada', 100, '10:00'), unidades_devueltas: 1 }, // vendió 2, devolvió 1
-      { ...ventaDeHoy(1, 'pagada', 50, '09:00'), unidades_devueltas: 1 }, // vendió 1, devolvió 1
-    ]);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
-
-    const marcas = Array.from(el.querySelectorAll('.dash-tabla [data-estado="con-devolucion"]')).map((c) =>
-      c.textContent?.trim(),
+  it('el plural de tickets y de ventas por cobrar sale del conteo que manda el servidor', () => {
+    const { el } = abrirCon(
+      resumen({
+        ventas: {
+          tickets: 2,
+          total_ventas: '100.00',
+          por_cobrar_cantidad: 2,
+          por_cobrar_total: '30.50',
+          mas_vendidas: [],
+          recientes: [],
+        },
+      }),
     );
-    expect(marcas).toEqual(['Con devolución (1 de 2)', 'Devuelta']);
-    // El estado sigue siendo "Pagada" y la venta sigue sumando (la devolución no resta ingresos).
-    expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Pagada');
-    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 150.00');
-  });
 
-  it('"hoy" se decide por el día LOCAL: una venta nocturna (23:12) y una de madrugada (00:30) cuentan, la de ayer no', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    // En una zona al oeste de UTC (Bolivia, UTC-4) las 23:12 son del día siguiente en UTC; al este, las 00:30 son del día
-    // anterior en UTC. Cortar el texto de la fecha falla en una de las dos; el día local las cuenta en cualquier zona.
-    http.expectOne(`${API}/ventas/sucursal/1`).flush([
-      ventaDeHoy(1, 'pagada', 100, '23:12'),
-      ventaDeHoy(2, 'pagada', 40, '00:30'),
-      ventaDeHoy(3, 'pagada', 999, '23:59', 1), // anoche: no es de hoy
-    ]);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 140.00');
-    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('2 tickets');
-    const filas = Array.from(el.querySelectorAll('.dash-tabla tbody tr'));
-    // La más reciente primero: la de las 23:12 va antes que la de las 00:30.
-    expect(filas.map((f) => f.querySelector('td')?.textContent?.trim())).toEqual(['V-001', 'V-002']);
-  });
-
-  it('una venta anulada no cuenta como vendida: ni total, ni tickets, ni gráfico, ni "Por cobrar"', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http.expectOne(`${API}/ventas/sucursal/1`).flush([ventaDeHoy(1, 'anulada', 189, '05:03')]);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 0.00');
-    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('0 tickets');
-    expect(el.querySelector('.dash-kpi__nota--por-cobrar')).toBeNull();
-    expect(el.querySelector('.dash-barras')).toBeNull();
-    // Pero en "Últimas ventas" sí se ve, con su etiqueta.
-    expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Anulada');
-  });
-
-  it('las ventas entregadas también cuentan como vendidas y varias pendientes se suman en "Por cobrar"', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http
-      .expectOne(`${API}/ventas/sucursal/1`)
-      .flush([
-        ventaDeHoy(1, 'entregada', 40, '09:00'),
-        ventaDeHoy(2, 'pagada', 60, '10:00'),
-        ventaDeHoy(3, 'pendiente_pago', 10, '11:00'),
-        ventaDeHoy(4, 'pendiente_pago', 20.5, '12:00'),
-      ]);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 100.00');
     expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('2 tickets');
     expect(el.querySelector('.dash-kpi__nota--por-cobrar')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       'Por cobrar: 2 ventas (Bs 30.50)',
     );
   });
 
+  it('una venta con devolución sigue pagada pero "Últimas ventas" dice que se devolvió', () => {
+    const { el } = abrirCon(
+      resumen({
+        ventas: {
+          tickets: 2,
+          total_ventas: '150.00',
+          por_cobrar_cantidad: 0,
+          por_cobrar_total: '0.00',
+          mas_vendidas: [],
+          recientes: [
+            venta(2, 'pagada', '100.00', { unidades_vendidas: 2, unidades_devueltas: 1 }),
+            venta(1, 'pagada', '50.00', { unidades_vendidas: 1, unidades_devueltas: 1 }),
+          ],
+        },
+      }),
+    );
+
+    const marcas = Array.from(el.querySelectorAll('.dash-tabla [data-estado="con-devolucion"]')).map((c) =>
+      c.textContent?.trim(),
+    );
+    expect(marcas).toEqual(['Con devolución (1 de 2)', 'Devuelta']);
+    expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Pagada');
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 150.00');
+  });
+
+  it('sin ventas hoy muestra Bs 0.00 y los estados vacíos (sin gráfico)', () => {
+    const { el } = abrirCon(resumen());
+
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 0.00');
+    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('0 tickets');
+    expect(el.querySelector('.dash-kpi__nota--por-cobrar')).toBeNull();
+    expect(el.querySelector('.dash-barras')).toBeNull();
+    expect(el.querySelector('.dash-tabla .fs-estado-vacio')?.textContent).toContain('Todavía no hay ventas hoy.');
+  });
+
+  it('el gráfico de barras tiene una alternativa textual con los valores', () => {
+    const { el } = abrirCon(
+      resumen({
+        ventas: {
+          tickets: 2,
+          total_ventas: '150.00',
+          por_cobrar_cantidad: 0,
+          por_cobrar_total: '0.00',
+          mas_vendidas: [
+            { variante_id: 12, nombre: 'Camisa Oxford', cantidad: 2 },
+            { variante_id: 11, nombre: 'Polera Lisa', cantidad: 1 },
+          ],
+          recientes: [],
+        },
+      }),
+    );
+
+    expect(el.querySelector('.dash-barras')?.getAttribute('aria-hidden')).toBe('true');
+    const lista = el.querySelector('ul.sr-solo') as HTMLElement;
+    expect(lista.getAttribute('aria-label')).toBe('Unidades vendidas hoy por prenda');
+    expect(Array.from(lista.querySelectorAll('li')).map((li) => li.textContent?.trim())).toEqual([
+      'Camisa Oxford: 2',
+      'Polera Lisa: 1',
+    ]);
+  });
+
+  it('muestra el stock bajo con el total real de alertas y la foto de cada prenda', () => {
+    const alertas = Array.from({ length: 4 }, (_, i) => ({
+      producto_id: i + 1,
+      variante_id: i + 1,
+      producto: `Prenda ${i + 1}`,
+      stock_minimo: 3,
+      cantidad_disponible: 1,
+      imagen: i === 0 ? 'https://res.cloudinary.com/x/foto.jpg' : null,
+    }));
+    const { el } = abrirCon(resumen({ ventas: null, stock: { total_alertas: 6, alertas } }), ['encargado'], ['inventario.ver']);
+
+    expect(el.querySelector('.dash-kpi__valor')?.textContent?.trim()).toBe('6');
+    expect(el.querySelectorAll('.dash-lista__fila').length).toBe(4);
+    expect(el.querySelector('.dash-lista__cantidad')?.textContent).toContain('1 u.');
+    expect(el.querySelector('.dash-lista__foto img')?.getAttribute('src')).toBe('https://res.cloudinary.com/x/foto.jpg');
+    expect(el.querySelector('.dash-tabla')).toBeNull(); // sin ventas no hay tabla de ventas
+  });
+
+  it('las reservas de hoy muestran su cantidad por estado en texto', () => {
+    const { el } = abrirCon(
+      resumen({
+        ventas: null,
+        reservas: {
+          total: 3,
+          por_estado: [
+            { codigo: 'pendiente', nombre: 'Pendiente', cantidad: 2 },
+            { codigo: 'completada', nombre: 'Completada', cantidad: 1 },
+          ],
+        },
+      }),
+      ['encargado'],
+      ['reservas.gestionar_sucursal'],
+    );
+
+    const pills = Array.from(el.querySelectorAll('.dash-pill')).map((p) => p.textContent?.replace(/\s+/g, ' ').trim());
+    expect(pills).toEqual(['Pendientes 2', 'En prueba 0', 'Completadas 1', 'Canceladas 0']);
+    expect(el.querySelector('.dash-kpi__valor')?.textContent?.trim()).toBe('3');
+    expect(el.querySelector('.dash-apilada')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('una sección que el servidor no manda (el plan no la incluye) no se dibuja aunque el rol la permita', () => {
+    const { el } = abrirCon(resumen({ reservas: null }), ['administrador'], [
+      'ventas.gestionar_sucursal',
+      'reservas.gestionar_sucursal',
+    ]);
+
+    expect(el.querySelector('.dash-kpi')?.textContent).toContain('Ventas de hoy');
+    expect(el.textContent).not.toContain('Reservas de hoy');
+  });
+
+  it('un administrador ve "Todas las sucursales"', () => {
+    const { el } = abrirCon(resumen({ sucursal_id: null, sucursal_nombre: 'Todas las sucursales' }), ['administrador']);
+
+    expect(el.querySelector('.dash-sucursal')?.textContent).toBe('Todas las sucursales');
+  });
+
+  it('sin sucursal asignada (403) avisa en tuteo y no dibuja indicadores', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(RESUMEN).flush({ detail: 'No tenés una sucursal asignada' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    const aviso = el.querySelector('.fs-aviso')?.textContent ?? '';
+    expect(aviso).toContain('No tienes una sucursal asignada.');
+    expect(aviso).toContain('Pídele a un administrador');
+    expect(el.querySelector('.dash-kpis')).toBeNull();
+  });
+
+  it('si falla la carga ofrece reintentar y al reintentar vuelve a pedir el resumen', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(RESUMEN).flush('error', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="dash-fallo"]')?.textContent).toContain('No se pudo cargar el resumen de hoy.');
+    expect(el.querySelector('.dash-kpis')).toBeNull();
+
+    (el.querySelector('[data-testid="dash-fallo"] button') as HTMLButtonElement).click();
+    http.expectOne(RESUMEN).flush(resumen());
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="dash-fallo"]')).toBeNull();
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 0.00');
+  });
+
   it('un rol sin ventas, inventario ni reservas (proveedor) ve un aviso claro y no un panel vacío', () => {
     iniciarSesion(['proveedor'], ['catalogo.ver']);
     const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: null, activo: true });
+    http.expectOne(RESUMEN).flush(resumen({ sucursal_id: null, sucursal_nombre: '', ventas: null }));
     fixture.detectChanges();
 
     const aviso = el.querySelector('.fs-aviso')?.textContent ?? '';
@@ -239,92 +351,10 @@ describe('DashboardComponent', () => {
     expect(el.querySelector('.dash-kpis')).toBeNull();
   });
 
-  it('muestra el stock bajo con el total real de alertas', () => {
-    iniciarSesion(['encargado'], ['inventario.ver']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    const alertas = Array.from({ length: 6 }, (_, i) => ({
-      producto_id: i + 1,
-      producto: `Prenda ${i + 1}`,
-      variante_id: i + 1,
-      cantidad_disponible: 1,
-      stock_minimo: 3,
-    }));
-    http.expectOne((r) => r.url.startsWith(`${API}/inventario/alertas`)).flush(alertas);
-    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-kpi__valor')?.textContent?.trim()).toBe('6');
-    expect(el.querySelectorAll('.dash-lista__fila').length).toBe(4);
-    expect(el.querySelector('.dash-lista__cantidad')?.textContent).toContain('1 u.');
-    // Sin permiso de ventas no hay tabla de ventas.
-    expect(el.querySelector('.dash-tabla')).toBeNull();
-  });
-
   it('mientras no se conoce al usuario el título es "Hola" (sin coma ni nombre vacío)', () => {
     const { el } = crear();
-    http.expectOne(`${API}/empleados/yo`);
+    http.expectOne(RESUMEN);
 
     expect(el.querySelector('h1')?.textContent).toBe('Hola');
-  });
-
-  it('las ventas sin datos muestran estados vacíos: sin gráfico y "Todavía no hay ventas hoy."', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http.expectOne(`${API}/ventas/sucursal/1`).flush([]);
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-barras')).toBeNull();
-    expect(el.querySelector('.dash-tabla .fs-estado-vacio')?.textContent).toContain('Todavía no hay ventas hoy.');
-    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 0.00');
-  });
-
-  it('el gráfico de barras tiene una alternativa textual con los valores', () => {
-    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    http.expectOne(`${API}/ventas/sucursal/1`).flush([ventaDeHoy(1, 'pagada', 100, '09:30'), ventaDeHoy(2, 'pagada', 50, '10:00')]);
-    http
-      .match((r) => r.url.includes('/catalogo/variantes/detalle'))
-      .forEach((r) =>
-        r.flush([
-          { variante_id: 11, producto_id: 1, producto_nombre: 'Camisa Oxford', imagen_principal: null, talla_codigo: null, color_nombre: null },
-        ]),
-      );
-    fixture.detectChanges();
-
-    expect(el.querySelector('.dash-barras')?.getAttribute('aria-hidden')).toBe('true');
-    const lista = el.querySelector('ul.sr-solo') as HTMLElement;
-    expect(lista.getAttribute('aria-label')).toBe('Unidades vendidas hoy por prenda');
-    expect(Array.from(lista.querySelectorAll('li')).map((li) => li.textContent?.trim())).toEqual([
-      'Variante 12: 2',
-      'Camisa Oxford: 1',
-    ]);
-  });
-
-  it('las reservas de hoy muestran su cantidad por estado en texto', () => {
-    iniciarSesion(['encargado'], ['reservas.gestionar_sucursal']);
-    const { fixture, el } = crear();
-    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
-    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
-    const hoy = new Date();
-    const dia = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-    http
-      .expectOne(`${API}/reservas/sucursal/1`)
-      .flush([
-        { id: 1, estado: 'pendiente', fecha_visita: dia },
-        { id: 2, estado: 'pendiente', fecha_visita: dia },
-        { id: 3, estado: 'completada', fecha_visita: dia },
-        { id: 4, estado: 'cancelada', fecha_visita: '2000-01-01' },
-      ]);
-    fixture.detectChanges();
-
-    const pills = Array.from(el.querySelectorAll('.dash-pill')).map((p) => p.textContent?.replace(/\s+/g, ' ').trim());
-    expect(pills).toEqual(['Pendientes 2', 'En prueba 0', 'Completadas 1', 'Canceladas 0']);
-    expect(el.querySelector('.dash-apilada')?.getAttribute('aria-hidden')).toBe('true');
   });
 });
