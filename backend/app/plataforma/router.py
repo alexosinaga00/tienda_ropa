@@ -20,6 +20,7 @@ from app.core.planes import FUNC_COPIAS_SEGURIDAD, exigir_funcionalidad
 from app.core.rate_limit import limiter
 from app.core.security import get_current_user, permisos_de_usuario, require_permission, require_service_token
 from app.plataforma.casos_uso.cu01_autenticar_registrar_usuarios import (
+    GestionarDispositivosPush,
     IniciarSesion,
     RecuperarContrasena,
     RegistrarCliente,
@@ -57,6 +58,8 @@ from app.plataforma.schemas import (
     CopiaPagina,
     CopiaRespuesta,
     CopiaTablasRespuesta,
+    DispositivoPushQuitar,
+    DispositivoPushRegistrar,
     EmpleadoActualizar,
     EmpleadoCrear,
     EmpleadoRespuesta,
@@ -117,6 +120,7 @@ cu_iniciar_sesion = IniciarSesion()
 cu_gestionar_usuarios = GestionarUsuarios()
 cu_gestionar_roles = GestionarRolesPermisos()
 cu_recuperar_contrasena = RecuperarContrasena()
+cu_gestionar_dispositivos_push = GestionarDispositivosPush()
 
 # ---- /api/v1/auth -----------------------------------------------------------
 
@@ -371,6 +375,34 @@ def marcar_leida(
     notificacion_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> NotificacionRespuesta:
     return politicas.marcar_leida(db, usuario.id, notificacion_id)
+
+
+# ---- /api/v1/dispositivos-push ------------------------------------------------------
+# El teléfono que recibe las notificaciones push (token de FCM). Cualquier usuario autenticado, sin permiso ni plan.
+
+dispositivos_push_router = APIRouter(prefix="/api/v1/dispositivos-push", tags=["dispositivos-push"])
+
+
+@dispositivos_push_router.post("", status_code=status.HTTP_204_NO_CONTENT)
+def registrar_dispositivo_push(
+    datos: DispositivoPushRegistrar,
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    cu_gestionar_dispositivos_push.registrar(db, usuario.id, datos, contexto)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@dispositivos_push_router.post("/baja", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_dispositivo_push(
+    datos: DispositivoPushQuitar,
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    cu_gestionar_dispositivos_push.quitar(db, usuario.id, datos, contexto)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---- Organización ----
@@ -1012,6 +1044,7 @@ routers = [
     usuarios_router,
     clientes_router,
     notificaciones_router,
+    dispositivos_push_router,
     ciudades_router,
     sucursales_router,
     horarios_router,

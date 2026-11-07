@@ -56,18 +56,22 @@ def test_cantidad_disponible_es_una_columna_generada(engine_pg, fabrica_pg, clie
     assert tuple(fila) == (10, 4, 6)
 
 
-def test_la_base_tiene_69_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_la_contratacion_y_el_paypal_guardado(
+def test_la_base_tiene_70_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_la_contratacion_el_paypal_guardado_y_el_push(
     engine_pg,
 ):
     # 59 anteriores + empresa, plan y suscripcion + bitacora + operacion_sync + modelo_ml + copia_seguridad
-    # + pedido_contratacion + metodo_pago_guardado + pedido_diferido (sin contar alembic_version).
+    # + pedido_contratacion + metodo_pago_guardado + pedido_diferido + dispositivo_push (sin contar alembic_version).
     tablas = set(inspect(engine_pg).get_table_names()) - {"alembic_version"}
 
-    assert len(tablas) == 69
+    assert len(tablas) == 70
     assert {
         "empresa", "plan", "suscripcion", "bitacora", "operacion_sync", "modelo_ml", "copia_seguridad",
-        "pedido_contratacion", "metodo_pago_guardado", "pedido_diferido",
+        "pedido_contratacion", "metodo_pago_guardado", "pedido_diferido", "dispositivo_push",
     } <= tablas  # fmt: skip
+    dispositivos = {i["name"]: i for i in inspect(engine_pg).get_indexes("dispositivo_push")}
+    assert "ix_dispositivo_push_usuario" in dispositivos
+    unicas = {u["name"]: u for u in inspect(engine_pg).get_unique_constraints("dispositivo_push")}
+    assert unicas["uq_dispositivo_push_empresa_token"]["column_names"] == ["empresa_id", "token"]
     guardados = {i["name"]: i for i in inspect(engine_pg).get_indexes("metodo_pago_guardado")}
     assert guardados["ux_metodo_pago_guardado_activo"]["unique"]
     assert "activo" in guardados["ux_metodo_pago_guardado_activo"]["dialect_options"]["postgresql_where"]

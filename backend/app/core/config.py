@@ -202,6 +202,16 @@ class Settings(BaseSettings):
     recuperar_max_solicitudes: int = 3
     recuperar_ventana_segundos: int = 3600
 
+    # Notificaciones push (core/push.py, Firebase Cloud Messaging HTTP v1). La credencial es el JSON COMPLETO de la
+    # cuenta de servicio de Firebase (de ahí sale también el project_id) y va SOLO en el entorno (regla 9). Sin ella
+    # no se envía ningún push y todo lo demás funciona igual. Nunca se registra en logs ni en respuestas.
+    firebase_credenciales_json: str = ""
+    # Dispositivos activos por usuario (al pasar, se desactiva el más antiguo) y altas/bajas de dispositivos por cuenta
+    # dentro de la ventana (en memoria, un solo worker).
+    push_max_dispositivos_por_usuario: int = 5
+    push_dispositivos_max_por_ventana: int = 30
+    push_dispositivos_ventana_segundos: int = 3600
+
     # Búsqueda por voz (paquete `inteligencia`, P6.1): Groq expone una API
     # HTTP compatible con OpenAI, sin SDK propio en requirements.txt (se
     # llama con httpx, igual que catalogo/casos_uso/cu11_probar_prenda_con_ia.py

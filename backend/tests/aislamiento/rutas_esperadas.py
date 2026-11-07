@@ -144,6 +144,8 @@ RUTAS: dict[tuple[str, str], Ruta] = {
     ('GET', '/api/v1/mi-empresa'): Ruta(MI_EMPRESA, 'empresa.gestionar', None, MATRIZ),
     ('PUT', '/api/v1/mi-empresa'): Ruta(MI_EMPRESA, 'empresa.gestionar', None, MATRIZ),
     ('GET', '/api/v1/mi-empresa/suscripcion'): Ruta(MI_EMPRESA, 'empresa.gestionar', None, MATRIZ),
+    ('POST', '/api/v1/dispositivos-push'): Ruta(CREA_O_ACCION, None, None, MATRIZ, 'solo autenticado'),
+    ('POST', '/api/v1/dispositivos-push/baja'): Ruta(CREA_O_ACCION, None, None, MATRIZ, 'solo autenticado'),
     ('GET', '/api/v1/notificaciones'): Ruta(PROPIA, None, None, MATRIZ, 'solo autenticado'),
     ('PUT', '/api/v1/notificaciones/{notificacion_id}/leida'): Ruta(POR_ID, None, None, MATRIZ, 'solo autenticado'),
     ('GET', '/api/v1/ordenes-compra'): Ruta(LISTADO, 'abastecimiento.gestionar', 'gestion_productos', MATRIZ),

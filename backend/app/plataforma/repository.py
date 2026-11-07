@@ -14,6 +14,7 @@ from app.plataforma.models import (
     Ciudad,
     Cliente,
     CopiaSeguridad,
+    DispositivoPush,
     Empleado,
     Empresa,
     HorarioSucursal,
@@ -333,6 +334,57 @@ class NotificacionRepository:
         db.commit()
         db.refresh(notificacion)
         return notificacion
+
+
+# ---- Dispositivos de notificaciones push ----
+
+
+class DispositivoPushRepository:
+    """Los teléfonos que reciben push. Todas las consultas pasan por el filtro automático de empresa. El token es único
+    por empresa: se busca SIN mirar el usuario, porque un teléfono puede cambiar de dueño."""
+
+    def obtener_por_token(self, db: Session, token: str) -> DispositivoPush | None:
+        return db.scalar(select(DispositivoPush).where(DispositivoPush.token == token))
+
+    def crear(self, db: Session, usuario_id: int, token: str, plataforma: str) -> DispositivoPush:
+        dispositivo = DispositivoPush(usuario_id=usuario_id, token=token, plataforma=plataforma, activo=True)
+        db.add(dispositivo)
+        db.flush()
+        return dispositivo
+
+    def listar_activos(self, db: Session, usuario_id: int) -> list[DispositivoPush]:
+        """Del más antiguo al más reciente (por último uso; `id` desempata)."""
+        return list(
+            db.scalars(
+                select(DispositivoPush)
+                .where(DispositivoPush.usuario_id == usuario_id, DispositivoPush.activo.is_(True))
+                .order_by(DispositivoPush.actualizado_en, DispositivoPush.id)
+            )
+        )
+
+    def para_notificaciones(self, db: Session, notificacion_ids: list[int]) -> list[tuple[Notificacion, DispositivoPush]]:
+        """Cada notificación (si sigue existiendo) con los dispositivos ACTIVOS de su usuario, si el usuario sigue activo."""
+        return [
+            (notificacion, dispositivo)
+            for notificacion, dispositivo in db.execute(
+                select(Notificacion, DispositivoPush)
+                .join(DispositivoPush, DispositivoPush.usuario_id == Notificacion.usuario_id)
+                .join(Usuario, Usuario.id == Notificacion.usuario_id)
+                .where(
+                    Notificacion.id.in_(notificacion_ids),
+                    DispositivoPush.activo.is_(True),
+                    Usuario.activo.is_(True),
+                )
+                .order_by(Notificacion.id, DispositivoPush.id)
+            )
+        ]
+
+    def desactivar(self, db: Session, dispositivo_ids: list[int], ahora: dt.datetime) -> None:
+        db.execute(
+            update(DispositivoPush)
+            .where(DispositivoPush.id.in_(dispositivo_ids))
+            .values(activo=False, actualizado_en=ahora)
+        )
 
 
 # ---- Organización ----

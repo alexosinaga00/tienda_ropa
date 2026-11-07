@@ -6,15 +6,19 @@ que nadie más tenga que tocarlas directamente."""
 import datetime as dt
 import logging
 import re
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session
 
+from app.core import push
 from app.core.auditoria import ENTIDAD_BITACORA, ACCION_PURGAR, ContextoAuditoria, sanear_datos
 from app.core.config import get_settings
 from app.core.correo import MensajeCorreo
@@ -28,7 +32,7 @@ from app.core.exceptions import (
 )
 from app.core.permisos import PERMISO_ALCANCE_GLOBAL, ROL_ADMINISTRADOR, ROL_SUPERADMINISTRADOR
 from app.core.planes import FUNCIONALIDADES
-from app.core.tenant import empresa_de, exigir_empresa, registrar_inicializador, sin_filtro
+from app.core.tenant import empresa_de, exigir_empresa, fijar_empresa, registrar_inicializador, sin_filtro
 from app.core.texto import normalizar_texto, quitar_tildes
 from app.core.tiempo import ahora_utc_naive, hoy_utc
 from app.plataforma.models import (
@@ -53,6 +57,7 @@ from app.plataforma.repository import (
     BitacoraRepository,
     CiudadRepository,
     ClienteRepository,
+    DispositivoPushRepository,
     EmpleadoRepository,
     HorarioRepository,
     NotificacionRepository,
@@ -500,8 +505,15 @@ def crear_notificacion(
 ) -> Notificacion:
     """`commit=False`: ver el comentario en catalogo.politicas.actualizar_stock_operacion
     (lo usa ReservarPrendas, que notifica a varios empleados
-    como parte de la misma transacción)."""
+    como parte de la misma transacción).
+
+    Es el ÚNICO punto que crea notificaciones, así que es también el único que programa el push: anota la
+    notificación como pendiente en la sesión y, cuando la transacción CONFIRMA (sea aquí o más tarde, quien llamó con
+    `commit=False`), `_despachar_push_al_confirmar` la manda en segundo plano. Si la transacción se revierte no sale
+    nada. Sin `FIREBASE_CREDENCIALES_JSON` ni siquiera se anota."""
     notificacion = notificacion_repo.crear(db, usuario_id, titulo, mensaje, tipo, referencia_id)
+    if push.envio_configurado():
+        db.info.setdefault(CLAVE_PUSH_PENDIENTES, []).append((notificacion.empresa_id, notificacion.id))
     if commit:
         db.commit()
         db.refresh(notificacion)
@@ -514,6 +526,116 @@ def listar_notificaciones(db: Session, usuario_id: int) -> list[Notificacion]:
 
 def marcar_leida(db: Session, usuario_id: int, notificacion_id: int) -> Notificacion:
     return notificacion_repo.marcar_leida(db, usuario_id, notificacion_id)
+
+
+# ---- Notificaciones push (FCM) ----
+#
+# El envío es de MEJOR ESFUERZO y no pertenece a ninguna petición: se programa cuando la transacción que creó la
+# notificación confirma, en un hilo aparte y con SESIÓN PROPIA y la empresa fijada de forma explícita (igual que las
+# tareas sin usuario). Así sirve igual a un endpoint, a la sincronización offline o a un pedido diferido, sin que
+# ninguno tenga que pasar un `BackgroundTasks`. Un fallo del push NUNCA rompe la operación que creó la notificación.
+
+dispositivo_push_repo = DispositivoPushRepository()
+
+CLAVE_PUSH_PENDIENTES = "push_pendientes"  # en `Session.info`: [(empresa_id, notificacion_id), ...]
+MAX_HILOS_PUSH = 2
+
+_ejecutor_push: ThreadPoolExecutor | None = None
+_cerrojo_ejecutor = threading.Lock()
+
+
+def _programar_en_segundo_plano(funcion: Callable[..., None], *args: Any) -> None:
+    """Corre `funcion(*args)` en un hilo aparte. Las pruebas lo sustituyen para correr los envíos a mano."""
+    global _ejecutor_push
+    with _cerrojo_ejecutor:
+        if _ejecutor_push is None:
+            _ejecutor_push = ThreadPoolExecutor(max_workers=MAX_HILOS_PUSH, thread_name_prefix="push")
+        ejecutor = _ejecutor_push
+    ejecutor.submit(funcion, *args)
+
+
+def _nueva_sesion() -> Session:
+    """Sesión propia del segundo plano (sin empresa; quien la usa la fija). Las pruebas la sustituyen."""
+    from app.core.database import SessionLocal
+
+    return SessionLocal()
+
+
+@event.listens_for(Session, "after_commit")
+def _despachar_push_al_confirmar(session: Session) -> None:
+    """Cuando la transacción confirma de verdad, programa el push de las notificaciones que creó. No lanza."""
+    if session.in_nested_transaction():  # soltar un SAVEPOINT no es confirmar: espera al commit real
+        return
+    pendientes = session.info.pop(CLAVE_PUSH_PENDIENTES, None)
+    if not pendientes:
+        return
+    try:
+        por_empresa: dict[int, set[int]] = {}
+        for empresa_id, notificacion_id in pendientes:
+            if empresa_id is not None and notificacion_id is not None:
+                por_empresa.setdefault(empresa_id, set()).add(notificacion_id)
+        for empresa_id, ids in por_empresa.items():
+            _programar_en_segundo_plano(enviar_push_de_notificaciones, empresa_id, sorted(ids))
+    except Exception as exc:  # noqa: BLE001 - confirmar una operación jamás puede fallar por un push
+        logger.error("push_no_programado tipo=%s", type(exc).__name__)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _descartar_push_al_revertir(session: Session, previous_transaction) -> None:
+    """Un rollback de la transacción completa descarta los avisos anotados; el de un SAVEPOINT no (el envío igual
+    revisa que cada notificación exista antes de mandarla)."""
+    if not previous_transaction.nested:
+        session.info.pop(CLAVE_PUSH_PENDIENTES, None)
+
+
+def enviar_push_de_notificaciones(empresa_id: int, notificacion_ids: list[int]) -> None:
+    """Segundo plano. Manda el push de cada notificación (que ya está confirmada) a los dispositivos activos de su
+    usuario y desactiva los tokens que FCM da por muertos. Nunca lanza."""
+    try:
+        envios = _armar_envios(empresa_id, notificacion_ids)
+        muertos = [
+            dispositivo_id
+            for dispositivo_id, mensaje in envios
+            if push.enviar_sin_romper(mensaje) is push.ResultadoEnvio.TOKEN_INVALIDO
+        ]
+        if muertos:
+            _desactivar_dispositivos(empresa_id, muertos)
+    except Exception as exc:  # noqa: BLE001 - mejor esfuerzo; el log lleva solo el tipo (nunca tokens ni textos)
+        logger.error("push_fallido empresa=%s tipo=%s", empresa_id, type(exc).__name__)
+
+
+def _armar_envios(empresa_id: int, notificacion_ids: list[int]) -> list[tuple[int, push.MensajePush]]:
+    db = _nueva_sesion()
+    try:
+        fijar_empresa(db, empresa_id)
+        return [
+            (
+                dispositivo.id,
+                push.MensajePush(
+                    token=dispositivo.token,
+                    titulo=notificacion.titulo,
+                    cuerpo=notificacion.mensaje or "",
+                    datos={
+                        "tipo": notificacion.tipo or "",
+                        "referencia_id": "" if notificacion.referencia_id is None else str(notificacion.referencia_id),
+                        "notificacion_id": str(notificacion.id),
+                    },
+                ),
+            )
+            for notificacion, dispositivo in dispositivo_push_repo.para_notificaciones(db, notificacion_ids)
+        ]
+    finally:
+        db.close()
+
+
+def _desactivar_dispositivos(empresa_id: int, dispositivo_ids: list[int]) -> None:
+    db = _nueva_sesion()
+    try:
+        fijar_empresa(db, empresa_id)
+        dispositivo_push_repo.desactivar(db, dispositivo_ids, ahora_utc_naive())
+        db.commit()
+    finally:
+        db.close()
 
 
 # ---- Organización ----

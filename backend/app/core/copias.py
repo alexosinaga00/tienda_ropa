@@ -73,7 +73,8 @@ _REFERENCIAS_COMPLETAS = frozenset({"estado_pago", "estado_reserva", "estado_ven
 # Fuera de la copia, con la razón (aparece en el manifiesto y en la pantalla).
 TABLAS_EXCLUIDAS: dict[str, str] = {
     "copia_seguridad": "es el historial de las propias copias",
-    "metodo_pago_guardado": "guarda el token de pago de PayPal de cada cliente: un secreto que no debe salir",
+    "dispositivo_push": "token de Firebase de cada teléfono: un identificador de dispositivo que no debe salir",
+    "metodo_pago_guardado":"guarda el token de pago de PayPal de cada cliente: un secreto que no debe salir",
     "modelo_ml": "modelos de Machine Learning serializados: se vuelven a entrenar",
     "pedido_contratacion": "datos de compra previos a la empresa y hash de contraseña",
     "permiso": "catálogo del sistema que ningún dato de la empresa referencia",

@@ -33,6 +33,7 @@ Proyecto académico, Sistemas II, UAGRM. Primer parcial: PUDS. Segundo parcial
   imports van dentro de las funciones (scikit-learn tarda ~1,3 s en importarse)
 - Pagos: Libélula y PayPal, ambos en sandbox
 - Correo: Brevo por su API HTTP (`core/correo.py`; hoy solo la recuperación de contraseña)
+- Push: Firebase Cloud Messaging HTTP v1 (`core/push.py`, `FIREBASE_CREDENCIALES_JSON`; ver "Notificaciones push (FCM)")
 - Despliegue: Railway sin Docker, y Vercel para el Angular
 
 ## Arquitectura
@@ -208,11 +209,12 @@ También pueden hacer falta, dentro del diseño: diagrama de navegación
 
 ## Esquema de base de datos
 El esquema completo y definitivo está en `docs/fashionstore_esquema.sql`
-(60 tablas en el SQL, que es el del primer parcial). La base real tiene 69:
+(60 tablas en el SQL, que es el del primer parcial). La base real tiene 70:
 las 59 de antes (`sesion_probador` se eliminó con el modo espejo) más
 `empresa`, `plan`, `suscripcion`, `operacion_sync` (E07), `modelo_ml` (E11),
 `copia_seguridad` (E22), `pedido_contratacion` (contratación de planes), `metodo_pago_guardado` y `pedido_diferido`
-(PayPal guardado y pedido sin conexión, CU-13 y CU-18) del segundo parcial, que no están en el SQL, y `bitacora`
+(PayPal guardado y pedido sin conexión, CU-13 y CU-18) y `dispositivo_push` (notificaciones push) del segundo parcial,
+que no están en el SQL, y `bitacora`
 (E06; el SQL ya trae su bloque actualizado). No inventar tablas ni columnas nuevas sin pedirlo
 explícitamente.
 Ese archivo es documentación de referencia: NO se ejecuta contra la base.
@@ -228,7 +230,7 @@ sincronización (E07) y su descarga de datos, conflictos y plazo de cambio (E08)
 hechos. El backend NO
 se despliega solo: tras la E03 el login de la web y del móvil actuales no
 funciona hasta que se adapten (E15, E16, E18).
-- Clasificación de las 69 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
+- Clasificación de las 70 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
   salvo `usuario`, donde NULL = superadministrador de la plataforma), 8
   globales del sistema (`permiso`, `rol`, `rol_permiso`, `tipo_movimiento`,
   `estado_reserva`, `estado_venta`, `metodo_pago`, `estado_pago`), `plan`
@@ -237,6 +239,7 @@ funciona hasta que se adapten (E15, E16, E18).
   empresa, `EmpresaMixin`; E07), `modelo_ml` (de la empresa, `EmpresaMixin`; E11),
   `copia_seguridad` (de la empresa, `EmpresaMixin`; E22),
   `metodo_pago_guardado` y `pedido_diferido` (de la empresa, `EmpresaMixin`; ver "PayPal guardado y pedido sin conexión"),
+  `dispositivo_push` (de la empresa, `EmpresaMixin`; ver "Notificaciones push (FCM)"),
   `pedido_contratacion` (global: SIN `empresa_id` ni mixin, porque quien compra
   aún no tiene empresa; ver "Planes y suscripciones") y
   `bitacora` (`empresa_id` NULL permitido y SIN el mixin: ver "Bitácora de
@@ -817,12 +820,12 @@ No es un CU nuevo: es la quinta clase de control de CU-04 (`GestionarCopiasSegur
 - **Nunca `pg_dump`** (copiaría a todas las empresas). El motor `core/copias.py` lee las tablas POR NOMBRE iterando
   `Base.metadata` (DEC-2: infraestructura genérica del `core`, no importa ningún paquete de negocio), con el filtro por
   `empresa_id` EXPLÍCITO en cada consulta y la empresa saliendo SOLO del token del administrador.
-- **Clasificación explícita** de las 69 tablas en `TABLAS_INCLUIDAS` (54: las de la empresa, más `empresa` por id y
+- **Clasificación explícita** de las 70 tablas en `TABLAS_INCLUIDAS` (54: las de la empresa, más `empresa` por id y
   `usuario_rol` por su usuario), `TABLAS_REFERENCIA` (7 catálogos globales que los datos referencian: `estado_*`,
   `metodo_pago`, `tipo_movimiento`, y solo el `plan` y los `rol` que la empresa usa; van en `referencias/`) y
-  `TABLAS_EXCLUIDAS` (8, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
-  `pedido_contratacion`, `metodo_pago_guardado` (guarda el token de pago de PayPal de cada cliente), `permiso`,
-  `rol_permiso`; `pedido_diferido` SÍ va incluida: solo guarda el resultado de cada pedido). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
+  `TABLAS_EXCLUIDAS` (9, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
+  `pedido_contratacion`, `metodo_pago_guardado` (guarda el token de pago de PayPal de cada cliente), `dispositivo_push`
+  (el token de Firebase de cada teléfono), `permiso`, `rol_permiso`; `pedido_diferido` SÍ va incluida: solo guarda el resultado de cada pedido). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
   clasificar: quien agregue una tabla DEBE decidir si se respalda (la E21 tendrá que clasificar `caja_turno`).
 - **Sin secretos:** no salen `usuario.password_hash`, `bitacora.ip`, las columnas generadas (`stock.cantidad_disponible`)
   ni cualquier columna cuyo nombre parezca un secreto (`PATRON_COLUMNA_SENSIBLE`). El manifiesto NOMBRA las columnas omitidas
@@ -925,7 +928,8 @@ plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcional
   MISMA transacción, y correo por Brevo en segundo plano (`construir_correo_pedido_diferido`, `despachar_correo`): "Cobramos tu
   pedido" (código, total en Bs, sucursal) o "No pudimos cobrar tu pedido" (motivo en palabras). Sin Brevo o si falla, el pedido
   no cambia. El cliente lee sus avisos con `GET /api/v1/notificaciones` y los marca con `PUT /api/v1/notificaciones/{id}/leida`
-  (ya existían: cualquier usuario autenticado ve las suyas). No hay notificaciones push.
+  (ya existían: cualquier usuario autenticado ve las suyas). Cada notificación nueva sale además como push (ver
+  "Notificaciones push (FCM)").
 - **Bitácora:** `metodo_pago_guardado/guardar` y `quitar`, `pedido_diferido/cobrar` (`venta_id`, líneas, unidades) y `rechazar`
   (`motivo`, líneas): ids y conteos, nunca tokens ni correos.
 - Pruebas (PayPal y Brevo simulados, ninguna sale a la red): `tests/comercial/test_paypal_guardado.py`,
@@ -935,6 +939,58 @@ plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcional
   Vault y el cobro con `vault_id` (idempotente por `PayPal-Request-Id`; `perder_respuestas_de_cobro`, `rechazar_cobro_vault`).
   Las 5 rutas están en `tests/aislamiento/rutas_esperadas.py` (PROPIA y CREA_O_ACCION, cobertura MATRIZ) y los dos ids del pedido
   en `casos_fk.py`.
+
+### Notificaciones push (FCM, `backend/app/core/push.py` y `plataforma`)
+Cada `Notificacion` que se crea para un usuario sale también como push a sus teléfonos registrados, con Firebase Cloud
+Messaging (API HTTP v1, sin el SDK `firebase-admin`). Es de MEJOR ESFUERZO: un push que no sale nunca rompe la operación que
+creó la notificación, y la notificación dentro del sistema sigue siendo la fuente de verdad. NO se probó contra Firebase real
+(las pruebas simulan FCM y el OAuth de Google con `httpx.MockTransport`).
+- **Tabla `dispositivo_push`** (`DispositivoPush`, `plataforma/models.py`, `EmpresaMixin`; migración `f4b8d2a6c139`):
+  `usuario_id`, `token` (String 512), `plataforma` (CHECK `'android'`), `activo`, `creado_en`, `actualizado_en`, UNIQUE
+  (`empresa_id`, `token`). Un token pertenece a UN usuario: si otro inicia sesión en el mismo teléfono, el registro se
+  REASIGNA al nuevo (y el anterior deja de recibir sus avisos). `activo` marca los que reciben push (no es borrado lógico de
+  negocio). EXCLUIDA de las copias de seguridad (identificador de dispositivo).
+- **Rutas** `/api/v1/dispositivos-push` (cualquier usuario autenticado: solo `get_current_user`, sin permiso ni plan, como
+  `/notificaciones`; clase `GestionarDispositivosPush` en `cu01_...py`, sin CU nuevo): `POST` `{token (20-512, sin espacios),
+  plataforma: "android"}` -> 204, alta idempotente (crea, reactiva o reasigna); `POST /baja` `{token}` -> 204, idempotente: solo
+  desactiva un token propio y activo, y un token ajeno o inexistente responde igual (204) sin revelar nada. Límites: máximo
+  `PUSH_MAX_DISPOSITIVOS_POR_USUARIO` (5) activos por usuario (al pasar, se desactiva el de uso más antiguo) y
+  `PUSH_DISPOSITIVOS_MAX_POR_VENTANA` (30) altas/bajas por cuenta cada `PUSH_DISPOSITIVOS_VENTANA_SEGUNDOS` (3600), 429 con
+  `Retry-After` (`limitador_dispositivos_push`, en memoria, un solo worker). La alta simultánea del mismo token no falla: la
+  segunda recoge la fila que creó la primera (SAVEPOINT + UNIQUE).
+- **Núcleo `core/push.py`** (infraestructura, sin imports de negocio): `MensajePush`, `enviar`, `enviar_sin_romper`,
+  `ResultadoEnvio` (`ENVIADO`, `TOKEN_INVALIDO`, `FALLIDO`), `envio_configurado`, `token_corto`. Autenticación: JWT RS256
+  (PyJWT + `cryptography`) de la cuenta de servicio -> `https://oauth2.googleapis.com/token` (scope `firebase.messaging`);
+  el token de acceso queda en memoria hasta 5 minutos antes de vencer. La credencial es la variable de entorno
+  `FIREBASE_CREDENCIALES_JSON` (el JSON COMPLETO de la cuenta de servicio; de ahí sale el `project_id`); SIN ella no se envía
+  nada y todo funciona igual (como Brevo sin clave). El mensaje lleva `notification {title, body}`, `data {tipo, referencia_id,
+  notificacion_id}` (todo texto), `android {priority: HIGH, notification {channel_id: "fashionstore_avisos"}}`.
+- **Errores de FCM.** `UNREGISTERED`, `NOT_FOUND` e `INVALID_ARGUMENT` (400/404) = el token está muerto: se DESACTIVA ese
+  dispositivo. 429, 5xx, red caída, OAuth caído o un 401 (descarta el token de acceso en caché) = UN reintento tras 0,5 s y,
+  si falla, se abandona sin desactivar nada. Cualquier otro 4xx no se reintenta ni desactiva.
+- **Dónde se engancha el envío.** `plataforma.politicas.crear_notificacion` es el ÚNICO punto que crea notificaciones (lo
+  usan reservas, carrito/pedido diferido, envíos, ventas y la resolución de conflictos de sincronización). Con la credencial
+  configurada anota `(empresa, notificación)` en `Session.info`; un `after_commit` de `Session` (que ignora la liberación de
+  un SAVEPOINT) programa el envío cuando la transacción CONFIRMA de verdad (con `commit=False` espera al commit de quien
+  llamó; un rollback lo descarta), en un hilo aparte (`ThreadPoolExecutor` de 2 hilos, `_programar_en_segundo_plano`) y con
+  SESIÓN PROPIA y la empresa fijada de forma explícita (`enviar_push_de_notificaciones`). Así sirve igual a un endpoint, a
+  la sincronización y a un pedido diferido, sin pasar `BackgroundTasks` por cada llamador. El envío relee las notificaciones
+  (una de un SAVEPOINT revertido ya no existe y se salta) y solo manda a dispositivos activos de usuarios activos.
+- **Privacidad.** Jamás se registra la credencial, el token de acceso, el cuerpo de una respuesta ni un token de dispositivo
+  completo (solo `...` + sus últimos 6 caracteres). Líneas de log: `push_no_enviado`, `push_fallido`, `push_no_programado`.
+  Bitácora: `dispositivo_push/registrar` (solo cuando el alta crea, reactiva o reasigna; `plataforma`, `reasignado`,
+  `reactivado`) y `quitar` (solo ids; nunca el token).
+- **Dependencia:** `cryptography==50.0.1` quedó fijada en `requirements.txt` (PyJWT la necesita para RS256; ya estaba
+  instalada como dependencia transitiva de `google-genai`).
+- **Pruebas** (nada sale a la red; `tests/conftest.py` vacía `FIREBASE_CREDENCIALES_JSON`): `tests/core/test_push.py` (cliente,
+  OAuth y caché, errores, logs), `tests/plataforma/test_dispositivos_push.py` (rutas, reasignación, límites, envío, savepoints,
+  FCM caído), `tests/comercial/test_push_pedido_diferido.py` (pedido cobrado y rechazado), `tests/sincronizacion/test_push_sincronizacion.py`
+  y `tests/postgres/test_dispositivo_push_pg.py` (altas simultáneas y envío con sesiones propias). `tests/push_simulado.py`
+  (`SimuladorFCM`) simula Google y captura el segundo plano (`correr()`). Las 2 rutas están en
+  `tests/aislamiento/rutas_esperadas.py` (CREA_O_ACCION, cobertura MATRIZ, "solo autenticado").
+- **Límites conocidos:** el envío en hilo se pierde si el proceso muere justo después del commit (no hay cola persistente);
+  un solo worker; `INVALID_ARGUMENT` también puede deberse a un mensaje mal armado (se desactiva igual, como pide el contrato);
+  sin push para iOS ni web; no hay reintento diferido de un push que falló.
 
 ## Plan de desarrollo
 `docs/plan_desarrollo_fashionstore.md`

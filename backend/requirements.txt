@@ -9,6 +9,7 @@ email-validator==2.2.0
 psycopg[binary]==3.2.3
 bcrypt==4.2.1
 pyjwt==2.10.1
+cryptography==50.0.1  # firma RS256 de PyJWT (notificaciones push: JWT de la cuenta de servicio de Firebase)
 python-multipart==0.0.20
 cloudinary==1.41.0
 Pillow==12.3.0

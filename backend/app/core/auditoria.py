@@ -48,6 +48,7 @@ ENTIDAD_MODELO_ML = "modelo_ml"  # E11
 ENTIDAD_PEDIDO_CONTRATACION = "pedido_contratacion"  # compra de un plan con PayPal (CU-04)
 ENTIDAD_METODO_PAGO_GUARDADO = "metodo_pago_guardado"  # PayPal guardado del cliente (CU-18)
 ENTIDAD_PEDIDO_DIFERIDO = "pedido_diferido"  # pedido hecho sin conexión y cobrado al reconectar (CU-13)
+ENTIDAD_DISPOSITIVO_PUSH = "dispositivo_push"  # teléfono que recibe notificaciones push (CU-01); sin tokens
 
 # ---- Acciones (máximo 40 caracteres: columna `accion`) ----
 ACCION_CREAR = "crear"

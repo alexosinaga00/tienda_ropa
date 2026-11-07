@@ -47,6 +47,8 @@ COPIA_SEGURIDAD = "copia_seguridad"
 # (EmpresaMixin, NOT NULL) y se cuentan aparte.
 METODO_PAGO_GUARDADO = "metodo_pago_guardado"
 PEDIDO_DIFERIDO = "pedido_diferido"
+# Notificaciones push (FCM): `dispositivo_push` también es de empresa (EmpresaMixin, NOT NULL) y se cuenta aparte.
+DISPOSITIVO_PUSH = "dispositivo_push"
 # Contratación de planes: `pedido_contratacion` es global y SIN `empresa_id` (quien compra aún no tiene empresa; la
 # empresa que se crea se enlaza en `empresa_creada_id`). Se trata como `plan`: sin pertenencia a una empresa.
 PEDIDO_CONTRATACION = "pedido_contratacion"
@@ -105,18 +107,19 @@ def test_los_conjuntos_coinciden_con_la_seccion_4_1():
     nombres = {t.name for t in Base.metadata.sorted_tables}
     # 59 tablas del primer parcial + empresa, plan, suscripcion + bitacora (E06) + operacion_sync (E07)
     # + modelo_ml (E11) + copia_seguridad (E22) + pedido_contratacion (contratación de planes, sin empresa_id)
-    # + metodo_pago_guardado y pedido_diferido (PayPal guardado y pedido sin conexión).
+    # + metodo_pago_guardado y pedido_diferido (PayPal guardado y pedido sin conexión) + dispositivo_push (push).
     assert nombres == EMPRESA_4_1 | GLOBALES_4_1 | HEREDA | SIN_EMPRESA | {
         "empresa", "plan", "suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD,
-        METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO,
+        METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO, DISPOSITIVO_PUSH,
     }  # fmt: skip
-    assert len(nombres) == 69
+    assert len(nombres) == 70
     # Las que llevan empresa_id: las 50 EMPRESA más suscripcion, bitacora, operacion_sync, modelo_ml, copia_seguridad,
-    # metodo_pago_guardado y pedido_diferido.
+    # metodo_pago_guardado, pedido_diferido y dispositivo_push.
     assert _con_empresa_id() == EMPRESA_4_1 | {
         "suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD, METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO,
+        DISPOSITIVO_PUSH,
     }  # fmt: skip
-    assert len(_con_empresa_id()) == 57
+    assert len(_con_empresa_id()) == 58
 
 
 def test_empresa_id_es_not_null_salvo_en_usuario_y_apunta_a_empresa():
@@ -251,6 +254,7 @@ def test_las_17_unicas_por_empresa_estan_en_el_modelo():
     assert del_modelo == {u[1] for u in UNICAS} | {
         "uq_operacion_sync_empresa_operacion",
         "uq_pedido_diferido_empresa_operacion",  # su prueba está en tests/comercial/test_pedido_diferido.py
+        "uq_dispositivo_push_empresa_token",  # su prueba está en tests/plataforma/test_dispositivos_push.py
         "uq_modelo_ml_empresa_tipo_version",  # su prueba está en tests/inteligencia/ml/test_persistencia_modelo_ml.py
     }
 

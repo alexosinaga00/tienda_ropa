@@ -208,6 +208,19 @@ class NotificacionRespuesta(BaseModel):
     creado_en: dt.datetime
 
 
+# ---- Dispositivos de notificaciones push ----
+
+
+class DispositivoPushRegistrar(BaseModel):
+    # Un token de FCM mide ~160 caracteres y no lleva espacios; el piso de 20 descarta basura obvia.
+    token: str = Field(min_length=20, max_length=512, pattern=r"^\S+$")
+    plataforma: Literal["android"]
+
+
+class DispositivoPushQuitar(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+
+
 # ---- Organización ----
 
 

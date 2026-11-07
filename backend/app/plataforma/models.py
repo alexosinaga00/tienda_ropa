@@ -140,6 +140,27 @@ class Notificacion(EmpresaMixin, Base):
     creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
 
+class DispositivoPush(EmpresaMixin, Base):
+    """Un teléfono (token de FCM) que recibe las notificaciones push de UN usuario. El token pertenece a un solo
+    usuario: si otro inicia sesión en el mismo teléfono, el registro se reasigna. `activo` aquí no es borrado lógico de
+    negocio: marca los que reciben push (un token que FCM da por muerto, o que el usuario quita, queda `activo = false`)."""
+
+    __tablename__ = "dispositivo_push"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "token", name="uq_dispositivo_push_empresa_token"),
+        CheckConstraint("plataforma IN ('android')", name="ck_dispositivo_push_plataforma"),
+        Index("ix_dispositivo_push_usuario", "usuario_id", "activo"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(512), nullable=False)
+    plataforma: Mapped[str] = mapped_column(String(15), nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    actualizado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
 # ---- Organización ----
 
 

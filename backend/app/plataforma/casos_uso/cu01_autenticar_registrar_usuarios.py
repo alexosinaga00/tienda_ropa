@@ -15,20 +15,26 @@ token de recuperación de un solo uso y, al confirmarlo con una contraseña
 nueva, el hash se actualiza.
 
 Caso de uso COMPUESTO: agrupa el alta del cliente (y la gestión de su propio
-perfil), el inicio de sesión (con el refresco del token) y la recuperación de
-contraseña. Cada clase es un controlador del caso de uso."""
+perfil), el inicio de sesión (con el refresco del token), la recuperación de
+contraseña y el registro del dispositivo que recibe las notificaciones push de
+la sesión (`GestionarDispositivosPush`). Cada clase es un controlador del caso
+de uso."""
 
 import datetime as dt
 import hmac
 import logging
 from collections.abc import Callable
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auditoria import (
     ACCION_CONTRASENA_RESTABLECIDA,
     ACCION_LOGIN_EXITOSO,
     ACCION_LOGIN_FALLIDO,
+    ACCION_QUITAR,
+    ACCION_REGISTRAR,
+    ENTIDAD_DISPOSITIVO_PUSH,
     ENTIDAD_SESION,
     ENTIDAD_USUARIO,
     ContextoAuditoria,
@@ -36,7 +42,8 @@ from app.core.auditoria import (
 from app.core.config import get_settings
 from app.core.exceptions import DemasiadosIntentosError, NoAutenticadoError
 from app.core.correo import MensajeCorreo, enviar_correo_sin_romper, envio_configurado
-from app.core.rate_limit import limitador_intentos, limitador_recuperacion
+from app.core.rate_limit import limitador_dispositivos_push, limitador_intentos, limitador_recuperacion
+from app.core.tiempo import ahora_utc_naive
 from app.core.tenant import fijar_empresa, fijar_empresa_de_usuario
 from app.core.security import (
     crear_access_token,
@@ -61,10 +68,13 @@ from app.plataforma.politicas import (
     obtener_usuario_para_auth,
     permisos_de_usuario,
     registrar_bitacora,
+    registrar_bitacora_de,
 )
-from app.plataforma.repository import ClienteRepository, UsuarioRepository
+from app.plataforma.repository import ClienteRepository, DispositivoPushRepository, UsuarioRepository
 from app.plataforma.schemas import (
     ClientePerfilActualizar,
+    DispositivoPushQuitar,
+    DispositivoPushRegistrar,
     LoginRequest,
     RegistroRequest,
     TokenRespuesta,
@@ -328,3 +338,93 @@ class RecuperarContrasena:
                 db, usuario.id, ENTIDAD_USUARIO, usuario.id, ACCION_CONTRASENA_RESTABLECIDA, {}, contexto.ip
             )
         db.commit()
+
+
+# ---- Dispositivos de notificaciones push (parte de la sesión del usuario en la app) ----
+
+
+class GestionarDispositivosPush:
+    """Registrar y quitar el teléfono que recibe las notificaciones push (token de FCM) de la sesión de la app.
+
+    Cualquier usuario autenticado gestiona SUS dispositivos; no hay permiso ni plan de por medio. Un token pertenece a
+    UN usuario: si otro inicia sesión en el mismo teléfono, el registro se reasigna al nuevo. Ambas operaciones son
+    idempotentes y la baja no revela nada (un token ajeno o inexistente responde igual que uno propio). Cada usuario
+    conserva como máximo `push_max_dispositivos_por_usuario` dispositivos activos: al pasar, se desactiva el más antiguo.
+    Por qué aquí y no en un CU nuevo: es parte de la sesión que CU-01 abre. El ENVÍO vive en
+    `plataforma.politicas.crear_notificacion` (cada notificación nueva programa su push) y en `core/push.py`."""
+
+    def __init__(self) -> None:
+        self._dispositivos = DispositivoPushRepository()
+
+    @staticmethod
+    def _contar_peticion(usuario_id: int) -> None:
+        clave = str(usuario_id)
+        espera = limitador_dispositivos_push.bloqueado(clave)
+        if espera is not None:
+            raise DemasiadosIntentosError(espera, "Registraste dispositivos muchas veces. Intenta más tarde.")
+        limitador_dispositivos_push.registrar_fallo(clave)  # cuenta cada alta y cada baja (no son "fallos")
+
+    def registrar(
+        self,
+        db: Session,
+        usuario_id: int,
+        datos: DispositivoPushRegistrar,
+        contexto: ContextoAuditoria | None = None,
+    ) -> None:
+        self._contar_peticion(usuario_id)
+        ahora = ahora_utc_naive()
+        dispositivo = self._dispositivos.obtener_por_token(db, datos.token)
+        nuevo = False
+        if dispositivo is None:
+            try:
+                with db.begin_nested():  # un alta simultánea del mismo token choca con el UNIQUE sin tumbar la sesión
+                    dispositivo = self._dispositivos.crear(db, usuario_id, datos.token, datos.plataforma)
+                nuevo = True
+            except IntegrityError:
+                dispositivo = self._dispositivos.obtener_por_token(db, datos.token)
+                if dispositivo is None:
+                    raise
+        reasignado = reactivado = False
+        if not nuevo:
+            reasignado = dispositivo.usuario_id != usuario_id
+            reactivado = not dispositivo.activo
+            dispositivo.usuario_id = usuario_id
+            dispositivo.activo = True
+            dispositivo.plataforma = datos.plataforma
+            dispositivo.actualizado_en = ahora  # último uso: ordena cuál es "el más antiguo"
+        db.flush()  # sin esto la consulta del límite no vería el dispositivo reactivado o reasignado
+        self._respetar_limite(db, usuario_id, conservar_id=dispositivo.id, ahora=ahora)
+        if nuevo or reasignado or reactivado:  # repetir el alta de un token ya activo no deja huella
+            registrar_bitacora_de(
+                db,
+                contexto,
+                ENTIDAD_DISPOSITIVO_PUSH,
+                dispositivo.id,
+                ACCION_REGISTRAR,
+                {"plataforma": datos.plataforma, "reasignado": reasignado, "reactivado": reactivado},
+            )
+        db.commit()
+
+    def quitar(
+        self,
+        db: Session,
+        usuario_id: int,
+        datos: DispositivoPushQuitar,
+        contexto: ContextoAuditoria | None = None,
+    ) -> None:
+        """Solo desactiva un token que sea del usuario actual y siga activo; en cualquier otro caso no hace nada."""
+        self._contar_peticion(usuario_id)
+        dispositivo = self._dispositivos.obtener_por_token(db, datos.token)
+        if dispositivo is None or dispositivo.usuario_id != usuario_id or not dispositivo.activo:
+            return
+        dispositivo.activo = False
+        dispositivo.actualizado_en = ahora_utc_naive()
+        registrar_bitacora_de(db, contexto, ENTIDAD_DISPOSITIVO_PUSH, dispositivo.id, ACCION_QUITAR, {})
+        db.commit()
+
+    def _respetar_limite(self, db: Session, usuario_id: int, *, conservar_id: int, ahora: dt.datetime) -> None:
+        maximo = max(get_settings().push_max_dispositivos_por_usuario, 1)
+        activos = self._dispositivos.listar_activos(db, usuario_id)
+        for sobrante in [d for d in activos if d.id != conservar_id][: max(len(activos) - maximo, 0)]:
+            sobrante.activo = False  # el más antiguo (por último uso) primero
+            sobrante.actualizado_en = ahora

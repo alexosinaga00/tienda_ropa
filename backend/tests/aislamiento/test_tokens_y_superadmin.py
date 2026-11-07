@@ -71,6 +71,8 @@ def extras_de(clave, universo=None) -> dict:
         },
         ("POST", f"{API}/probador/talla"): {"json": {"variante_id": ID_INEXISTENTE, "estatura_cm": 175, "peso_kg": 70}},
         ("PUT", f"{API}/clientes/perfil"): {"json": {"telefono": "70000000"}},
+        ("POST", f"{API}/dispositivos-push"): {"json": {"token": "t" * 40, "plataforma": "android"}},
+        ("POST", f"{API}/dispositivos-push/baja"): {"json": {"token": "t" * 40}},
     }
     return copy.deepcopy(tabla.get(clave, {}))
 

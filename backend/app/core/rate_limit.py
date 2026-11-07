@@ -152,6 +152,13 @@ def _limites_de_pedido_diferido() -> tuple[int, int]:
     return ajustes.pedido_diferido_max_por_ventana, ajustes.pedido_diferido_ventana_segundos
 
 
+def _limites_de_dispositivos_push() -> tuple[int, int]:
+    ajustes = get_settings()
+    return ajustes.push_dispositivos_max_por_ventana, ajustes.push_dispositivos_ventana_segundos
+
+
+# Altas y bajas de dispositivos de notificaciones push por cuenta de usuario (la app registra su token al iniciar sesión).
+limitador_dispositivos_push = LimitadorIntentos(limites=_limites_de_dispositivos_push)
 # Inicios del guardado de PayPal (cada uno crea un "setup token" en PayPal) por cuenta de cliente.
 limitador_paypal_guardado = LimitadorIntentos(limites=_limites_de_paypal_guardado)
 # Pedidos sin conexión NUEVOS por cuenta de cliente (un reenvío de la misma operación no cuenta).

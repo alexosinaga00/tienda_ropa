@@ -712,8 +712,9 @@ def test_formato_de_los_errores_funcionales(mundo, http, fabrica, provocar, codi
 # prefijos de ruta, razón). Una ruta nueva sin `funcionalidad` que no caiga aquí hace fallar la prueba:
 # o se le pone compuerta, o se justifica aquí por escrito.
 EXENTOS_DE_PLAN: list[tuple[tuple[str, ...] | None, tuple[str, ...], str]] = [
-    (None, (f"{API}/auth/yo", f"{API}/clientes/perfil", f"{API}/empleados/yo", f"{API}/notificaciones", f"{API}/favoritos"),
-     "perfil, sesión, avisos y favoritos del propio usuario: base de toda cuenta, el plan no los distingue"),
+    (None, (f"{API}/auth/yo", f"{API}/clientes/perfil", f"{API}/empleados/yo", f"{API}/notificaciones", f"{API}/favoritos",
+            f"{API}/dispositivos-push"),
+     "perfil, sesión, avisos (y el teléfono que los recibe) y favoritos del propio usuario: base de toda cuenta, el plan no los distingue"),
     (None, (f"{API}/ciudades", f"{API}/sucursales", f"{API}/empleados"),
      "organización básica de toda empresa; el plan limita CUÁNTAS sucursales (409 limite_plan_excedido), no el módulo"),
     (None, (f"{API}/usuarios", f"{API}/roles", f"{API}/permisos"),
