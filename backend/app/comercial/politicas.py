@@ -71,7 +71,7 @@ from app.core.config import get_settings
 from app.core.codigos import generar_codigo
 from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
 from app.core.deps import ParametrosPeriodo
-from app.core.correo import MensajeCorreo
+from app.core.correo import MensajeCorreo, enviar_correo_sin_romper
 from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
@@ -1685,3 +1685,183 @@ def cobrar_en_caja(
     confirmar(db, commit)
     db.refresh(pago)
     return pago, cambio
+
+
+def registrar_cobro_pasarela_aprobado(
+    db: Session,
+    venta: Venta,
+    *,
+    pasarela_codigo: str,
+    id_transaccion: str,
+    monto_usd: Decimal,
+    tipo_cambio: Decimal,
+    origen: str,
+) -> Pago:
+    """Deja asentado en el libro de pagos un cobro que la pasarela YA aprobó (sin que el cliente esté presente) y
+    confirma la venta (descuenta el stock) en la unidad de trabajo del llamador: nunca confirma ni revierte.
+
+    Es el mismo camino que el pago normal por pasarela: un `Pago` 'iniciado' con su primera `TransaccionPasarela`, y
+    `resolver_pago(aprobado)` que agrega la evidencia, marca el pago y llama a `confirmar_venta`. Lo guardado en los
+    payloads son montos y referencias, nunca el token con que se cobró."""
+    metodo = metodo_pago_repo.obtener_por_codigo(db, pasarela_codigo)
+    estado_iniciado = estado_pago_repo.obtener_por_codigo(db, "iniciado")
+    pago = Pago(
+        venta_id=venta.id,
+        metodo_pago_id=metodo.id,
+        estado_id=estado_iniciado.id,
+        monto=venta.total,
+        referencia_externa=id_transaccion,
+    )
+    pago_repo.crear(db, pago)  # flush: pago.id ya disponible
+    transaccion_repo.crear(
+        db,
+        TransaccionPasarela(
+            pago_id=pago.id,
+            pasarela=pasarela_codigo,
+            id_transaccion=id_transaccion,
+            payload_envio={
+                "monto": str(venta.total),
+                "monto_usd": str(monto_usd),
+                "tipo_cambio": str(tipo_cambio),
+                "referencia": venta.codigo,
+                "origen": origen,
+            },
+            payload_respuesta={"id_transaccion": id_transaccion},
+            estado="iniciado",
+        ),
+    )
+    return resolver_pago(
+        db,
+        pago.id,
+        pasarela_codigo=pasarela_codigo,
+        id_transaccion=id_transaccion,
+        estado_resultado="aprobado",
+        payload_respuesta={"origen": origen, "estado": "aprobado"},
+        commit=False,
+    )
+
+
+# ---- PayPal guardado y pedido sin conexión (CU-18 y CU-13) ----
+
+# Motivos estables de un pedido sin conexión rechazado (los lee el cliente: web y app).
+MOTIVO_SIN_METODO_PAGO = "sin_metodo_pago"
+MOTIVO_STOCK_INSUFICIENTE = "stock_insuficiente"
+MOTIVO_TOTAL_SUPERA_MAXIMO = "total_supera_maximo"
+MOTIVO_VARIANTE_INACTIVA = "variante_inactiva"
+MOTIVO_PAGO_RECHAZADO = "pago_rechazado"
+MOTIVO_PEDIDO_INVALIDO = "pedido_invalido"
+MOTIVO_SUSCRIPCION_NO_ACTIVA = "suscripcion_no_activa"
+MOTIVO_PEDIDO_VENCIDO = "pedido_vencido"
+
+# Cómo se dice cada motivo en el correo ("con el motivo en palabras").
+MOTIVOS_EN_PALABRAS = {
+    MOTIVO_SIN_METODO_PAGO: "no tienes un PayPal guardado",
+    MOTIVO_STOCK_INSUFICIENTE: "ya no hay stock suficiente de alguna prenda",
+    MOTIVO_TOTAL_SUPERA_MAXIMO: "el total subió por encima del máximo que aceptaste",
+    MOTIVO_VARIANTE_INACTIVA: "alguna prenda ya no está disponible",
+    MOTIVO_PAGO_RECHAZADO: "PayPal rechazó el cobro",
+    MOTIVO_PEDIDO_INVALIDO: "el pedido no es válido",
+    MOTIVO_SUSCRIPCION_NO_ACTIVA: "la tienda no está disponible por ahora",
+    MOTIVO_PEDIDO_VENCIDO: "pasaron demasiados días sin conexión y el pedido venció",
+}
+
+
+class RechazoPedido(Exception):
+    """Una decisión FINAL y esperada sobre un pedido sin conexión (no un error): el motivo estable y el texto para el
+    cliente. Se guarda como `rechazado` y el cliente la recibe con HTTP 200."""
+
+    def __init__(self, motivo: str, mensaje: str) -> None:
+        super().__init__(mensaje)
+        self.motivo = motivo
+        self.mensaje = mensaje
+
+
+class PagoIncierto(Exception):
+    """El cobro no tiene un resultado conocido (PayPal o la red no respondieron bien): ni cobrado ni rechazado. No se
+    guarda estado final; el cliente reintenta con la MISMA operación y PayPal, por el `PayPal-Request-Id`, no cobra
+    dos veces."""
+
+
+def enmascarar_correo(correo: str | None) -> str | None:
+    """'juan@gmail.com' -> 'j***@gmail.com'. El correo completo de PayPal no se guarda ni se devuelve."""
+    if not correo or "@" not in correo:
+        return None
+    usuario, _, dominio = correo.strip().partition("@")
+    if not usuario or not dominio:
+        return None
+    return f"{usuario[0]}***@{dominio}"
+
+
+def request_id_de_pedido(empresa_id: int, operacion_id) -> str:
+    """El `PayPal-Request-Id` de un pedido: depende SOLO de la empresa y de la operación. Reintentar la misma operación
+    manda la misma clave y PayPal devuelve el cobro original en vez de hacer otro."""
+    return f"pd-{empresa_id}-{operacion_id}"
+
+
+def paypal_rechazo_definitivo(error) -> bool:
+    """¿Este error de PayPal es una DECISIÓN (el cobro no se hizo y no se hará con esta petición)? 400, 404 y 422 lo
+    son: PayPal entendió la petición y la negó (instrumento rechazado, token de pago inexistente...). Todo lo demás
+    (sin respuesta, 401, 403, 429, 5xx) es incierto: el cobro pudo haberse hecho. Un `DUPLICATE_REQUEST_ID` también es
+    incierto: indica que esa clave ya se usó, o sea que un intento anterior pudo cobrar."""
+    if "DUPLICATE_REQUEST_ID" in getattr(error, "problemas", ()):
+        return False
+    return getattr(error, "status_code", None) in (400, 404, 422)
+
+
+def despachar_correo(mensaje: MensajeCorreo, programar_envio) -> None:
+    """Envía el correo ya (sin `programar_envio`) o lo deja para DESPUÉS de responder (el router pasa
+    `BackgroundTasks.add_task`). `enviar_correo_sin_romper` jamás lanza."""
+    if programar_envio is None:
+        enviar_correo_sin_romper(mensaje)
+    else:
+        programar_envio(enviar_correo_sin_romper, mensaje)
+
+
+def destinatario_de_usuario(db: Session, usuario_id: int) -> tuple[str, str] | None:
+    """(correo, nombre) de un usuario activo con correo, o None."""
+    usuario = plataforma_politicas.obtener_usuario(db, usuario_id)
+    if not usuario.activo or not usuario.email:
+        return None
+    return usuario.email, usuario.nombre
+
+
+def construir_correo_pedido_diferido(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    sucursal: str,
+    codigo_venta: str | None,
+    total: Decimal | None,
+    motivo: str | None,
+) -> MensajeCorreo:
+    """El aviso de un pedido sin conexión: 'Cobramos tu pedido' (con código, total en Bs y sucursal) si `codigo_venta`
+    viene, o 'No pudimos cobrar tu pedido' (con el motivo en palabras). Todo dato variable se escapa en el HTML."""
+    if codigo_venta is not None:
+        asunto = f"Cobramos tu pedido {codigo_venta} · {nombre_empresa}"
+        titulo = "Cobramos tu pedido"
+        detalle = [
+            f"Código: {codigo_venta}",
+            f"Total: Bs {total}",
+            f"Retíralo en: {sucursal}",
+        ]
+        cierre = "Pagamos con tu PayPal guardado mientras estabas sin conexión. Guarda este mensaje como constancia."
+    else:
+        asunto = f"No pudimos cobrar tu pedido · {nombre_empresa}"
+        titulo = "No pudimos cobrar tu pedido"
+        palabras = MOTIVOS_EN_PALABRAS.get(motivo or "", "hubo un problema con el pedido")
+        detalle = [f"Motivo: {palabras}", f"Sucursal: {sucursal}"]
+        cierre = "No se te cobró nada. Puedes volver a hacer tu pedido cuando quieras."
+    texto = f"Hola {nombre},\n\n{titulo} en {nombre_empresa}.\n" + "\n".join(detalle) + f"\n\n{cierre}\n"
+    filas = "".join(f'<li style="margin:0 0 8px">{escape(linea)}</li>' for linea in detalle)
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412"><div style="max-width:480px;margin:0 auto;padding:24px">'
+        '<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(nombre_empresa)}</p>"
+        f'<h1 style="font-size:22px;margin:0 0 12px">{escape(titulo)}</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)},</p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{filas}</ul>'
+        f'<p style="font-size:13px;line-height:1.5;color:#6B645C">{escape(cierre)}</p></div></body></html>'
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)

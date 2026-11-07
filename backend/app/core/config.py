@@ -166,6 +166,31 @@ class Settings(BaseSettings):
     # Minutos que un pedido sin pagar sigue abierto; pasado el plazo y sin aprobación en PayPal pasa a `vencido`.
     pedido_expira_minutos: int = 60
 
+    # PayPal guardado (Vault v3) y pedido sin conexión (CU-13 y CU-18). El cliente autoriza UNA vez, con conexión; el
+    # servidor guarda solo el token de PayPal y cobra después con él.
+    # - `paypal_vault_usage_pattern`: cómo se declara el uso del token al crear el "setup token". El documentado en los
+    #   ejemplos de PayPal es IMMEDIATE; UNSCHEDULED_POSTPAID (cobros del comercio sin calendario, después de recibir
+    #   el producto) es el que describe este uso y es un valor válido del enumerado. No se probó contra el sandbox
+    #   real: si PayPal lo rechaza, basta cambiar esta variable.
+    # - `paypal_vault_stored_credential`: si el cobro con el token manda `stored_credential` (MERCHANT / UNSCHEDULED /
+    #   SUBSEQUENT). El ejemplo oficial de cobro con `vault_id` no lo manda, por eso va apagado.
+    # - límites por cuenta (en memoria, un solo worker): iniciar el guardado y enviar pedidos sin conexión.
+    paypal_vault_usage_pattern: str = "UNSCHEDULED_POSTPAID"
+    paypal_vault_stored_credential: bool = False
+    paypal_guardado_max_por_ventana: int = 10
+    paypal_guardado_ventana_segundos: int = 3600
+    pedido_diferido_max_por_ventana: int = 30
+    pedido_diferido_ventana_segundos: int = 3600
+    # Topes de un pedido sin conexión (anti abuso): líneas, unidades por línea, unidades en total y costo de envío.
+    pedido_diferido_max_lineas: int = 30
+    pedido_diferido_max_unidades_por_linea: int = 20
+    pedido_diferido_max_unidades: int = 100
+    pedido_diferido_max_costo_envio: Decimal = Decimal("500")
+    # Antigüedad máxima de un pedido sin conexión (según su `fecha_pedido`): más viejo es `pedido_vencido`. Una fecha en el
+    # futuro más allá de la tolerancia (reloj del dispositivo mal puesto) es `pedido_invalido`.
+    pedido_diferido_max_dias: int = 7
+    pedido_diferido_tolerancia_futuro_horas: int = 24
+
     # Correo transaccional (core/correo.py, Brevo por HTTP). La clave va SOLO en el entorno (regla 9) y el remitente
     # debe estar verificado en Brevo; es uno solo para todas las empresas. Sin clave o sin remitente no se envía nada
     # (la recuperación de contraseña sigue respondiendo igual; en local entrega `token_dev`).

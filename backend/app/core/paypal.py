@@ -1,9 +1,10 @@
-"""Cliente mínimo de la API REST de PayPal (OAuth2 + Orders v2), compartido por quien cobra con PayPal.
+"""Cliente mínimo de la API REST de PayPal (OAuth2 + Orders v2 + Vault v3), compartido por quien cobra con PayPal.
 
 Infraestructura transversal: NO importa ningún paquete de negocio. Lo usan `comercial.pasarela.PayPalGateway` (pago
-de una venta de tienda) y la compra de un plan (`plataforma`, CU-04). Aquí vive lo único que sabe hablar con PayPal:
-el token OAuth, la URL base según `paypal_mode`, y crear, consultar y capturar una orden. Quien llama decide qué
-hacer con el resultado.
+de una venta de tienda), el PayPal guardado y el pedido sin conexión del cliente (`comercial`, CU-18 y CU-13) y la
+compra de un plan (`plataforma`, CU-04). Aquí vive lo único que sabe hablar con PayPal: el token OAuth, la URL base
+según `paypal_mode`, crear, consultar y capturar una orden, y guardar (Vault) el PayPal de un cliente para cobrarle
+después. Quien llama decide qué hacer con el resultado.
 
 - Cualquier fallo de red o respuesta HTTP de error se convierte en `PayPalError`, que HEREDA de `RuntimeError`:
   `cu18_procesar_pagos` captura `RuntimeError` para no romper el polling cuando la pasarela no responde.
@@ -212,6 +213,121 @@ def crear_orden(
         "",
     )
     return OrdenCreada(id=str(datos["id"]), url_aprobacion=url)
+
+
+# ---- Vault v3: guardar el PayPal del cliente para cobrarle después ------------------------------------------------------
+#
+# Flujo (documentación oficial de PayPal, "Save PayPal with the Payment Method Tokens API"):
+#   1. `crear_setup_token`  -> POST /v3/vault/setup-tokens. PayPal responde `status = PAYER_ACTION_REQUIRED` y un link
+#      `rel = approve` al que se manda al cliente. Al volver, PayPal agrega `?approval_token_id=<id del setup token>` a
+#      la `return_url`.
+#   2. `crear_payment_token` -> POST /v3/vault/payment-tokens con `payment_source.token {id, type: SETUP_TOKEN}`. Responde
+#      el `id` del payment token (el "vault_id" que se guarda) y, en `payment_source.paypal.email_address`, el correo.
+#   3. `cobrar_con_vault`    -> POST /v2/checkout/orders con `payment_source.paypal.vault_id` (intent CAPTURE): con un token
+#      de uso MERCHANT la orden sale ya COMPLETED (el ejemplo oficial); si saliera APPROVED se captura.
+#   4. `borrar_payment_token` -> DELETE /v3/vault/payment-tokens/{id} (204 sin cuerpo).
+# SUPOSICIONES (no probadas contra el sandbox real; todo se simula en las pruebas): `usage_pattern = UNSCHEDULED_POSTPAID`
+# es un valor válido del enumerado, pero los ejemplos oficiales usan IMMEDIATE (ver `Settings.paypal_vault_usage_pattern`);
+# `stored_credential` en el cobro es opcional (ver `Settings.paypal_vault_stored_credential`).
+
+@dataclass(frozen=True)
+class SetupTokenCreado:
+    id: str  # es el `approval_token_id` con el que PayPal vuelve a la `return_url`
+    url_aprobacion: str
+
+
+@dataclass(frozen=True)
+class PaymentTokenCreado:
+    id: str  # el `vault_id` con el que se cobra después
+    correo: str | None  # el correo de PayPal del cliente, si PayPal lo informa
+
+
+def _cabeceras_json(request_id: str | None = None) -> dict[str, str]:
+    cabeceras = {"Authorization": f"Bearer {obtener_token()}", "Content-Type": "application/json"}
+    if request_id:
+        cabeceras["PayPal-Request-Id"] = request_id
+    return cabeceras
+
+
+def crear_setup_token(*, return_url: str, cancel_url: str, request_id: str) -> SetupTokenCreado:
+    """Pide a PayPal un setup token (la autorización pendiente del cliente) y la URL a la que hay que mandarlo."""
+    cuerpo = {
+        "payment_source": {
+            "paypal": {
+                "usage_type": "MERCHANT",
+                "usage_pattern": get_settings().paypal_vault_usage_pattern,
+                "customer_type": "CONSUMER",
+                "experience_context": {"return_url": return_url, "cancel_url": cancel_url},
+            }
+        }
+    }
+    datos = _enviar("POST", f"{url_base()}/v3/vault/setup-tokens", headers=_cabeceras_json(request_id), json=cuerpo)
+    if not datos.get("id"):
+        raise PayPalError("PayPal no devolvió el id del setup token")
+    url = next(
+        (v["href"] for v in datos.get("links") or [] if isinstance(v, dict) and v.get("rel") in ("approve", "payer-action")),
+        "",
+    )
+    if not url:
+        raise PayPalError("PayPal no devolvió el enlace de aprobación del setup token")
+    return SetupTokenCreado(id=str(datos["id"]), url_aprobacion=url)
+
+
+def crear_payment_token(setup_token_id: str) -> PaymentTokenCreado:
+    """Cambia un setup token que el cliente ya aprobó por el payment token definitivo. Si el cliente no aprobó (o el
+    token venció) PayPal contesta con un error 4xx: `PayPalError` con `status_code`."""
+    cuerpo = {"payment_source": {"token": {"id": setup_token_id, "type": "SETUP_TOKEN"}}}
+    datos = _enviar("POST", f"{url_base()}/v3/vault/payment-tokens", headers=_cabeceras_json(), json=cuerpo)
+    if not datos.get("id"):
+        raise PayPalError("PayPal no devolvió el id del payment token")
+    fuente = (datos.get("payment_source") or {}).get("paypal") or {}
+    correo = fuente.get("email_address") if isinstance(fuente, dict) else None
+    return PaymentTokenCreado(id=str(datos["id"]), correo=str(correo) if correo else None)
+
+
+def borrar_payment_token(payment_token_id: str) -> None:
+    """Revoca un payment token en PayPal (204 sin cuerpo). Aquí NO se usa `_enviar`: no hay JSON que leer."""
+    token = obtener_token()
+    try:
+        with _crear_cliente() as cliente:
+            respuesta = cliente.request(
+                "DELETE",
+                f"{url_base()}/v3/vault/payment-tokens/{quote(payment_token_id, safe='')}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            respuesta.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise PayPalError(
+            f"PayPal respondió {exc.response.status_code}",
+            causa=exc,
+            status_code=exc.response.status_code,
+            problemas=_problemas(exc.response),
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise PayPalError("No se pudo comunicar con PayPal", causa=exc) from exc
+
+
+def cobrar_con_vault(
+    *, vault_id: str, monto: Decimal, moneda: str, referencia: str, descripcion: str | None, request_id: str
+) -> EstadoOrden:
+    """Cobra `monto` al PayPal guardado (sin que el cliente esté presente). `request_id` va en `PayPal-Request-Id`: si el
+    resultado se pierde y se repite la MISMA petición, PayPal devuelve la orden original sin cobrar otra vez. Una
+    orden `APPROVED` se captura (con un id derivado del anterior); `COMPLETED` ya está cobrada. Cualquier otro estado
+    lo interpreta quien llama (no se cobró dinero)."""
+    unidad: dict[str, Any] = {"reference_id": referencia, "amount": {"currency_code": moneda, "value": str(monto)}}
+    if descripcion:
+        unidad["description"] = descripcion[:LARGO_MAXIMO_DESCRIPCION]
+    fuente: dict[str, Any] = {"vault_id": vault_id}
+    if get_settings().paypal_vault_stored_credential:
+        fuente["stored_credential"] = {"payment_initiator": "MERCHANT", "payment_type": "UNSCHEDULED", "usage": "SUBSEQUENT"}
+    cuerpo = {"intent": "CAPTURE", "purchase_units": [unidad], "payment_source": {"paypal": fuente}}
+    datos = _enviar("POST", f"{url_base()}/v2/checkout/orders", headers=_cabeceras_json(request_id), json=cuerpo)
+    if not datos.get("id"):
+        raise PayPalError("PayPal no devolvió el id de la orden")
+    orden = _a_estado(datos)
+    if orden.estado == ESTADO_APROBADA:
+        return capturar_orden(orden.id, f"{request_id}-captura")
+    return orden
 
 
 def obtener_orden(order_id: str) -> EstadoOrden:

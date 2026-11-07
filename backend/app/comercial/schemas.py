@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from decimal import Decimal
 from typing import Literal
 
@@ -476,6 +477,88 @@ class PagoCajaRequest(BaseModel):
 class PagoCajaRespuesta(BaseModel):
     pago: PagoRespuesta
     cambio: Decimal | None = None
+
+
+# ---- PayPal guardado del cliente (CU-18) ----
+
+
+class MetodoPagoPayPalRespuesta(BaseModel):
+    guardado: bool
+    correo_paypal: str | None = None  # ya ENMASCARADO por el servidor ("j***@gmail.com"); null si PayPal no lo informó
+    guardado_en: FechaUTC | None = None
+
+
+class MetodoPagoPayPalIniciar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canal: Literal["web", "app"]
+
+
+class MetodoPagoPayPalIniciarRespuesta(BaseModel):
+    url_aprobacion: str
+    token_preparacion: str
+
+
+class MetodoPagoPayPalConfirmar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token_preparacion: str = Field(min_length=1, max_length=255, pattern=r"^[0-9A-Za-z_-]+$")
+
+
+# ---- Pedido sin conexión (CU-13) ----
+
+
+MotivoPedidoDiferido = Literal[
+    "sin_metodo_pago",
+    "stock_insuficiente",
+    "total_supera_maximo",
+    "variante_inactiva",
+    "pago_rechazado",
+    "pedido_invalido",
+    "suscripcion_no_activa",
+    "pedido_vencido",
+]
+
+
+class PedidoDiferidoLineaCrear(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # el cliente NO manda precios: el servidor los recalcula
+
+    variante_id: int
+    cantidad: int = Field(gt=0, le=1000)
+
+
+class PedidoDiferidoCrear(BaseModel):
+    """Lo que el cliente armó sin conexión. El servidor recalcula TODO (precios, promociones, total): el cliente solo
+    dice qué quiere, dónde lo retira y el tope que aceptó pagar (`total_maximo`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operacion_id: uuid.UUID
+    sucursal_id: int
+    costo_envio: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=2)
+    lineas: list[PedidoDiferidoLineaCrear] = Field(min_length=1, max_length=200)
+    total_maximo: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    # Cuándo lo armó el cliente. Informativa: no se usa para precios ni para la fecha de la venta.
+    fecha_pedido: dt.datetime | None = None
+
+    @model_validator(mode="after")
+    def _sin_variantes_repetidas(self) -> "PedidoDiferidoCrear":
+        variantes = [linea.variante_id for linea in self.lineas]
+        if len(variantes) != len(set(variantes)):
+            raise ValueError("Cada prenda va una sola vez en el pedido")
+        return self
+
+
+class PedidoDiferidoRespuesta(BaseModel):
+    operacion_id: uuid.UUID
+    estado: Literal["cobrado", "rechazado"]
+    motivo: MotivoPedidoDiferido | None = None
+    mensaje: str
+    venta_id: int | None = None
+    codigo_venta: str | None = None
+    total: Decimal | None = None
+    total_usd: Decimal | None = None
+    duplicada: bool = False
 
 
 # ---- Entregas ----

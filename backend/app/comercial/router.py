@@ -11,7 +11,11 @@ from app.comercial.casos_uso.cu12_gestionar_reservas import (
     ConsultarReservasSucursal,
     ReservarPrendas,
 )
-from app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital import GestionarCarrito, RealizarCompraDigital
+from app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital import (
+    GestionarCarrito,
+    RealizarCompraDigital,
+    RealizarPedidoDiferido,
+)
 from app.comercial.casos_uso.cu14_registrar_venta_presencial import RegistrarVentaPresencial
 from app.comercial.casos_uso.cu15_consultar_ventas import ConsultarHistorialCompras, ConsultarVentasSucursal
 from app.comercial.casos_uso.cu16_gestionar_promociones import GestionarPromociones
@@ -24,6 +28,7 @@ from app.comercial.casos_uso.cu17_gestionar_devoluciones_cambios import (
 )
 from app.comercial.casos_uso.cu18_procesar_pagos import (
     ConfirmarRechazarTransaccion,
+    GestionarMetodoPagoGuardado,
     PagarPasarelaDigital,
     ProcesarPagoCaja,
 )
@@ -56,11 +61,17 @@ from app.comercial.schemas import (
     EnvioEstadoActualizar,
     EnvioRespuesta,
     EstadoEnvio,
+    MetodoPagoPayPalConfirmar,
+    MetodoPagoPayPalIniciar,
+    MetodoPagoPayPalIniciarRespuesta,
+    MetodoPagoPayPalRespuesta,
     PagoCajaRequest,
     PagoCajaRespuesta,
     PagoIniciarRequest,
     PagoIniciarRespuesta,
     PagoRespuesta,
+    PedidoDiferidoCrear,
+    PedidoDiferidoRespuesta,
     PlazoCambioRespuesta,
     PromocionActualizar,
     PromocionCrear,
@@ -221,6 +232,8 @@ cu_plazo_cambio = ConsultarPlazoCambio()
 cu_solicitar_cambio = SolicitarCambio()
 cu_resolver_solicitud = ResolverSolicitudCambio()
 cu_consultar_solicitudes = ConsultarSolicitudesCambio()
+cu_metodo_pago_guardado = GestionarMetodoPagoGuardado()
+cu_pedido_diferido = RealizarPedidoDiferido()
 
 
 def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
@@ -471,7 +484,80 @@ def desactivar_promocion(promocion_id: int, db: Session = Depends(get_db)) -> Pr
     return cu_gestionar_promociones.desactivar(db, promocion_id)
 
 
-_routers_ventas = [carrito_router, ventas_router, devoluciones_router, solicitudes_cambio_router, promociones_router]
+# ---- /api/v1/metodos-pago/paypal ------------------------------------------------------
+# PayPal guardado del cliente (CU-18): se autoriza UNA vez, con conexión, y el servidor guarda solo el token de PayPal.
+
+metodos_pago_router = APIRouter(
+    prefix="/api/v1/metodos-pago", tags=["métodos de pago"], dependencies=[plan_gestion_ventas, digital_requerido]
+)
+
+
+@metodos_pago_router.get("/paypal", response_model=MetodoPagoPayPalRespuesta)
+def consultar_paypal_guardado(
+    usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> MetodoPagoPayPalRespuesta:
+    return cu_metodo_pago_guardado.consultar(db, usuario.id)
+
+
+@metodos_pago_router.post(
+    "/paypal/iniciar", response_model=MetodoPagoPayPalIniciarRespuesta, status_code=status.HTTP_201_CREATED
+)
+def iniciar_paypal_guardado(
+    datos: MetodoPagoPayPalIniciar, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> MetodoPagoPayPalIniciarRespuesta:
+    return cu_metodo_pago_guardado.iniciar(db, usuario.id, datos)
+
+
+@metodos_pago_router.post("/paypal/confirmar", response_model=MetodoPagoPayPalRespuesta)
+def confirmar_paypal_guardado(
+    datos: MetodoPagoPayPalConfirmar,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> MetodoPagoPayPalRespuesta:
+    return cu_metodo_pago_guardado.confirmar(db, usuario.id, datos, contexto)
+
+
+@metodos_pago_router.delete("/paypal", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_paypal_guardado(
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> None:
+    cu_metodo_pago_guardado.quitar(db, usuario.id, contexto)
+
+
+# ---- /api/v1/pedidos-diferidos -------------------------------------------------------
+# Pedido que el cliente armó SIN conexión; se envía al reconectar y el servidor lo cobra con su PayPal guardado.
+
+pedidos_diferidos_router = APIRouter(
+    prefix="/api/v1/pedidos-diferidos",
+    tags=["pedidos sin conexión"],
+    dependencies=[plan_gestion_ventas, digital_requerido],
+)
+
+
+@pedidos_diferidos_router.post("", response_model=PedidoDiferidoRespuesta)
+def enviar_pedido_diferido(
+    datos: PedidoDiferidoCrear,
+    segundo_plano: BackgroundTasks,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> PedidoDiferidoRespuesta:
+    # SIEMPRE 200 cuando el servidor llegó a una decisión final (cobrado o rechazado); el correo sale después de responder.
+    return cu_pedido_diferido.ejecutar(db, usuario.id, datos, contexto, segundo_plano.add_task)
+
+
+_routers_ventas = [
+    carrito_router,
+    ventas_router,
+    devoluciones_router,
+    solicitudes_cambio_router,
+    metodos_pago_router,
+    pedidos_diferidos_router,
+    promociones_router,
+]
 
 
 # ---- Pagos ----

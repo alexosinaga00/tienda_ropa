@@ -140,3 +140,19 @@ def _limites_de_solicitud_cambio() -> tuple[int, int]:
 
 # Solicitudes de cambio de talla o color por cuenta de cliente (clave: empresa + usuario).
 limitador_solicitud_cambio = LimitadorIntentos(limites=_limites_de_solicitud_cambio)
+
+
+def _limites_de_paypal_guardado() -> tuple[int, int]:
+    ajustes = get_settings()
+    return ajustes.paypal_guardado_max_por_ventana, ajustes.paypal_guardado_ventana_segundos
+
+
+def _limites_de_pedido_diferido() -> tuple[int, int]:
+    ajustes = get_settings()
+    return ajustes.pedido_diferido_max_por_ventana, ajustes.pedido_diferido_ventana_segundos
+
+
+# Inicios del guardado de PayPal (cada uno crea un "setup token" en PayPal) por cuenta de cliente.
+limitador_paypal_guardado = LimitadorIntentos(limites=_limites_de_paypal_guardado)
+# Pedidos sin conexión NUEVOS por cuenta de cliente (un reenvío de la misma operación no cuenta).
+limitador_pedido_diferido = LimitadorIntentos(limites=_limites_de_pedido_diferido)

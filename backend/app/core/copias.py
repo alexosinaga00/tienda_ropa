@@ -54,7 +54,7 @@ TABLAS_INCLUIDAS: tuple[str, ...] = (
     "activo_probador", "bitacora", "carrito", "carrito_detalle", "categoria", "ciudad", "cliente", "coleccion",
     "color", "consulta_voz", "devolucion", "devolucion_detalle", "direccion_cliente", "empleado", "empresa",
     "envio", "favorito", "historial_navegacion", "horario_sucursal", "material", "movimiento_inventario",
-    "notificacion", "operacion_sync", "orden_compra", "orden_compra_detalle", "pago", "producto",
+    "notificacion", "operacion_sync", "orden_compra", "orden_compra_detalle", "pago", "pedido_diferido", "producto",
     "producto_imagen", "producto_proveedor", "producto_variante", "promocion", "promocion_alcance", "proveedor",
     "recepcion", "recepcion_detalle", "recomendacion", "regla_tarifa_envio", "reserva", "reserva_detalle",
     "reserva_historial", "stock", "sucursal", "suscripcion", "tabla_medida", "talla", "temporada",
@@ -73,6 +73,7 @@ _REFERENCIAS_COMPLETAS = frozenset({"estado_pago", "estado_reserva", "estado_ven
 # Fuera de la copia, con la razón (aparece en el manifiesto y en la pantalla).
 TABLAS_EXCLUIDAS: dict[str, str] = {
     "copia_seguridad": "es el historial de las propias copias",
+    "metodo_pago_guardado": "guarda el token de pago de PayPal de cada cliente: un secreto que no debe salir",
     "modelo_ml": "modelos de Machine Learning serializados: se vuelven a entrenar",
     "pedido_contratacion": "datos de compra previos a la empresa y hash de contraseña",
     "permiso": "catálogo del sistema que ningún dato de la empresa referencia",

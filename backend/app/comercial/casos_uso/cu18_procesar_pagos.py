@@ -17,11 +17,19 @@ cancelar una compra que todavía no se pagó: libera el stock reservado y le
 devuelve las prendas al carrito), procesar el pago en caja y confirmar o
 rechazar la transacción (webhook real de Libélula/PayPal, polling activo de
 estado, pantalla QR sandbox que reusa el mismo webhook para no duplicar la
-resolución, y anular o reembolsar un pago ya aprobado)."""
+resolución, y anular o reembolsar un pago ya aprobado).
+
+También la clase de control `GestionarMetodoPagoGuardado`: el cliente autoriza
+UNA vez, con conexión, que se le cobre con su PayPal (PayPal Vault v3) y el
+servidor guarda solo el token que PayPal devuelve. Con él, el pedido sin
+conexión (`RealizarPedidoDiferido`, CU-13) cobra al reconectar. Los datos de
+tarjeta nunca pasan por aquí."""
 
 import base64
 import io
 import json
+import logging
+import uuid
 from decimal import Decimal
 from html import escape
 
@@ -29,7 +37,7 @@ import qrcode
 from qrcode.image.pil import PilImage
 from sqlalchemy.orm import Session
 
-from app.comercial.models import Pago, TransaccionPasarela
+from app.comercial.models import MetodoPagoGuardado, Pago, TransaccionPasarela
 from app.comercial.pasarela import QrOnlineGateway, obtener_pasarela
 from app.comercial.politicas import (
     anular_venta,
@@ -37,6 +45,7 @@ from app.comercial.politicas import (
     cerrar_pagos_iniciados,
     cobrar_en_caja,
     empresa_de_transaccion,
+    enmascarar_correo,
     obtener_comprobante,
     obtener_estado_codigo,
     obtener_venta,
@@ -46,16 +55,43 @@ from app.comercial.politicas import (
 )
 from app.comercial.repository import (
     EstadoPagoRepository,
+    MetodoPagoGuardadoRepository,
     MetodoPagoRepository,
     PagoRepository,
     TransaccionPasarelaRepository,
 )
-from app.comercial.schemas import PagoCajaRequest, PagoIniciarRequest
-from app.core.auditoria import ACCION_ANULAR_PAGO, ENTIDAD_VENTA, ContextoAuditoria
+from app.comercial.schemas import (
+    MetodoPagoPayPalConfirmar,
+    MetodoPagoPayPalIniciar,
+    MetodoPagoPayPalIniciarRespuesta,
+    MetodoPagoPayPalRespuesta,
+    PagoCajaRequest,
+    PagoIniciarRequest,
+)
+from app.core import paypal
+from app.core.auditoria import (
+    ACCION_ANULAR_PAGO,
+    ACCION_GUARDAR,
+    ACCION_QUITAR,
+    ENTIDAD_METODO_PAGO_GUARDADO,
+    ENTIDAD_VENTA,
+    ContextoAuditoria,
+)
 from app.core.config import get_settings
-from app.core.exceptions import ConflictoError, DomainError, NoEncontradoError, PermisoDenegadoError
+from app.core.exceptions import (
+    ConflictoError,
+    DemasiadosIntentosError,
+    DomainError,
+    ErrorFuncional,
+    NoEncontradoError,
+    PermisoDenegadoError,
+)
+from app.core.rate_limit import limitador_paypal_guardado
 from app.core.tenant import fijar_empresa
+from app.core.tiempo import ahora_utc_naive
 from app.plataforma import politicas as plataforma_politicas
+
+logger = logging.getLogger(__name__)
 
 
 # ---- Pagar mediante pasarela digital (antiguo CU-29) ----
@@ -108,6 +144,8 @@ class PagarPasarelaDigital:
         pago.referencia_externa = resultado.id_transaccion
 
         payload_envio = {"monto": str(venta.total), "referencia": venta.codigo}
+        if resultado.monto_usd is not None:  # PayPal cobra en dólares: queda la conversión que se hizo
+            payload_envio["monto_usd"] = str(resultado.monto_usd)
         payload_respuesta = {"id_transaccion": resultado.id_transaccion, "url_redireccion": resultado.url_redireccion}
         self._transacciones.crear(
             db,
@@ -377,3 +415,143 @@ class ConfirmarRechazarTransaccion:
         payload = json.dumps({"id_transaccion": id_transaccion, "estado": "aprobado"}).encode("utf-8")
         firma = QrOnlineGateway().firmar_confirmacion(payload)
         return self.procesar_webhook(db, "qr_online", payload, firma)
+
+
+# ---- PayPal guardado del cliente (Vault v3) ----
+
+
+def _paypal_no_disponible() -> ErrorFuncional:
+    return ErrorFuncional(
+        "paypal_no_disponible", "PayPal no está disponible por ahora. Intenta de nuevo en unos minutos.", 503
+    )
+
+
+def _respuesta_metodo(fila: MetodoPagoGuardado | None) -> MetodoPagoPayPalRespuesta:
+    if fila is None or fila.estado != "activo":
+        return MetodoPagoPayPalRespuesta(guardado=False)
+    return MetodoPagoPayPalRespuesta(guardado=True, correo_paypal=fila.correo_paypal, guardado_en=fila.confirmado_en)
+
+
+class GestionarMetodoPagoGuardado:
+    """Guardar, consultar y quitar el PayPal del cliente. El flujo es en dos pasos, siempre CON conexión:
+
+    1. `iniciar`: crea el setup token en PayPal y una fila `pendiente`; el cliente aprueba en PayPal.
+    2. `confirmar`: cambia el setup token (el `approval_token_id` con el que PayPal vuelve) por el payment token y lo
+       deja `activo`. Solo hay UN método activo por usuario: guardar otro revoca el anterior (en PayPal, mejor esfuerzo).
+
+    El correo de PayPal se guarda y se devuelve ENMASCARADO. Los tokens no salen nunca en una respuesta ni en la
+    bitácora. Por qué aquí y no en un CU nuevo: es parte de procesar pagos (CU-18)."""
+
+    def __init__(self) -> None:
+        self._metodos = MetodoPagoGuardadoRepository()
+
+    def consultar(self, db: Session, usuario_id: int) -> MetodoPagoPayPalRespuesta:
+        return _respuesta_metodo(self._metodos.obtener_activo(db, usuario_id))
+
+    def iniciar(
+        self, db: Session, usuario_id: int, datos: MetodoPagoPayPalIniciar
+    ) -> MetodoPagoPayPalIniciarRespuesta:
+        clave = str(usuario_id)
+        espera = limitador_paypal_guardado.bloqueado(clave)
+        if espera is not None:
+            raise DemasiadosIntentosError(espera, "Intentaste guardar tu PayPal muchas veces. Intenta más tarde.")
+        limitador_paypal_guardado.registrar_fallo(clave)  # cuenta cada inicio (no es un "fallo")
+
+        # Las URLs de retorno las arma el servidor (nunca el cliente): la web y la app (WebView) interceptan esta misma.
+        empresa = plataforma_politicas.obtener_empresa_de_la_sesion(db)
+        retorno = f"{get_settings().frontend_public_url.rstrip('/')}/t/{empresa.codigo}/mi-cuenta/paypal-guardado"
+        try:
+            setup = paypal.crear_setup_token(
+                return_url=retorno, cancel_url=f"{retorno}?cancelado=1", request_id=uuid.uuid4().hex
+            )
+        except paypal.PayPalError as exc:
+            logger.warning("paypal_guardado_no_iniciado estado_http=%s", exc.status_code)
+            raise _paypal_no_disponible() from exc
+
+        ahora = ahora_utc_naive()
+        for previa in self._metodos.listar_pendientes(db, usuario_id):  # un intento nuevo cancela los anteriores
+            previa.estado = "revocado"
+            previa.revocado_en = ahora
+        self._metodos.crear(
+            db, MetodoPagoGuardado(usuario_id=usuario_id, proveedor="paypal", estado="pendiente", setup_token_id=setup.id)
+        )
+        db.commit()
+        return MetodoPagoPayPalIniciarRespuesta(url_aprobacion=setup.url_aprobacion, token_preparacion=setup.id)
+
+    def confirmar(
+        self,
+        db: Session,
+        usuario_id: int,
+        datos: MetodoPagoPayPalConfirmar,
+        contexto: ContextoAuditoria | None = None,
+    ) -> MetodoPagoPayPalRespuesta:
+        # Solo el token de ESTE usuario: el de otra persona, uno inexistente o uno ya descartado se ven igual (404).
+        # Bloqueada (PostgreSQL): dos confirmaciones simultáneas se ponen en fila y la segunda ve el resultado.
+        fila = self._metodos.obtener_por_setup_token(db, usuario_id, datos.token_preparacion, bloquear=True)
+        if fila is None or fila.estado == "revocado":
+            raise NoEncontradoError("Token de preparación no encontrado")
+        if fila.estado == "activo":
+            return _respuesta_metodo(fila)  # idempotente: ya estaba confirmado
+
+        try:
+            creado = paypal.crear_payment_token(fila.setup_token_id)
+        except paypal.PayPalError as exc:
+            logger.warning("paypal_guardado_no_confirmado estado_http=%s", exc.status_code)
+            if exc.status_code in (400, 404, 422):  # PayPal entendió la petición y la negó: el cliente no aprobó
+                raise ErrorFuncional(
+                    "paypal_no_aprobado",
+                    "No terminaste de aprobar tu PayPal. Intenta guardarlo de nuevo.",
+                    409,
+                ) from exc
+            raise _paypal_no_disponible() from exc
+
+        ahora = ahora_utc_naive()
+        anterior = self._metodos.obtener_activo(db, usuario_id, bloquear=True)
+        token_anterior = None
+        if anterior is not None:  # reemplazo: el índice único deja UN solo activo, así que se revoca primero
+            token_anterior = anterior.payment_token_id
+            anterior.estado = "revocado"
+            anterior.revocado_en = ahora
+            db.flush()
+        fila.estado = "activo"
+        fila.payment_token_id = creado.id
+        fila.correo_paypal = enmascarar_correo(creado.correo)
+        fila.confirmado_en = ahora
+        plataforma_politicas.registrar_bitacora_de(
+            db, contexto, ENTIDAD_METODO_PAGO_GUARDADO, fila.id, ACCION_GUARDAR, {"reemplazo": anterior is not None}
+        )
+        db.commit()
+        db.refresh(fila)
+        self._revocar_en_paypal(token_anterior)
+        return _respuesta_metodo(fila)
+
+    def quitar(self, db: Session, usuario_id: int, contexto: ContextoAuditoria | None = None) -> None:
+        """Idempotente: sin nada guardado no hace nada. Revoca el token en PayPal (mejor esfuerzo: si PayPal no
+        responde, igual queda revocado aquí y no se le vuelve a cobrar) y descarta los intentos pendientes."""
+        ahora = ahora_utc_naive()
+        token = None
+        activo = self._metodos.obtener_activo(db, usuario_id, bloquear=True)
+        if activo is not None:
+            token = activo.payment_token_id
+            activo.estado = "revocado"
+            activo.revocado_en = ahora
+        pendientes = self._metodos.listar_pendientes(db, usuario_id)
+        for fila in pendientes:
+            fila.estado = "revocado"
+            fila.revocado_en = ahora
+        if activo is not None:
+            plataforma_politicas.registrar_bitacora_de(
+                db, contexto, ENTIDAD_METODO_PAGO_GUARDADO, activo.id, ACCION_QUITAR, {}
+            )
+        db.commit()
+        self._revocar_en_paypal(token)
+
+    @staticmethod
+    def _revocar_en_paypal(payment_token_id: str | None) -> None:
+        """Mejor esfuerzo: un fallo de PayPal no deshace nada (el token ya quedó revocado en la base)."""
+        if not payment_token_id:
+            return
+        try:
+            paypal.borrar_payment_token(payment_token_id)
+        except paypal.PayPalError as exc:
+            logger.warning("paypal_token_no_revocado estado_http=%s", exc.status_code)

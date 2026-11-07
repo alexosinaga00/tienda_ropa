@@ -8,6 +8,7 @@ cambie nada y que, con ids propios, la misma petición funcione.
 
 import datetime as dt
 import io
+import uuid
 from typing import Callable, NamedTuple
 
 from PIL import Image
@@ -110,6 +111,16 @@ def _solicitud_cambio(a: Universo) -> dict:
         "venta_id": a.ids["venta"],
         "motivo": "FK",
         "detalle": [{"venta_detalle_id": a.ids["venta_detalle"], "cantidad": 1, "variante_nueva_id": a.ids["variante"]}],
+    }
+
+
+def _pedido_diferido(a: Universo) -> dict:
+    return {
+        "operacion_id": str(uuid.uuid4()),
+        "sucursal_id": a.ids["sucursal"],
+        "costo_envio": "0.00",
+        "lineas": [{"variante_id": a.ids["variante"], "cantidad": 1}],
+        "total_maximo": "99999.00",
     }
 
 
@@ -302,6 +313,12 @@ CASOS_FK: list[CasoFK] = [
            ("detalle", 0, "venta_detalle_id"), "venta_detalle", token="cliente", espejo=False),
     CasoFK("solicitud_cambio.variante_nueva_id", "POST", "/solicitudes-cambio", _solicitud_cambio,
            ("detalle", 0, "variante_nueva_id"), "variante", token="cliente", espejo=False),
+    # Pedido sin conexión: la sucursal y cada prenda se resuelven (404) ANTES de reservar la operación. La petición
+    # positiva cobraría con PayPal: la prueba tests/comercial/test_pedido_diferido.py la hace con PayPal simulado.
+    CasoFK("pedido_diferido.sucursal_id", "POST", "/pedidos-diferidos", _pedido_diferido, ("sucursal_id",), "sucursal",
+           token="cliente", espejo=False),
+    CasoFK("pedido_diferido.lineas.variante_id", "POST", "/pedidos-diferidos", _pedido_diferido,
+           ("lineas", 0, "variante_id"), "variante", token="cliente", espejo=False),
     CasoFK("pago_caja.venta_id", "POST", "/pagos/caja",
            lambda a: {"venta_id": a.nuevo("venta_pendiente"), "metodo_pago": "efectivo", "monto_recibido": "99999"}, ("venta_id",), "venta"),
     CasoFK("pago_iniciar.venta_id", "POST", "/pagos/iniciar",

@@ -3,9 +3,12 @@ from __future__ import annotations
 import datetime as dt
 
 from sqlalchemy import Select, bindparam, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.comercial.models import (
+    MetodoPagoGuardado,
+    PedidoDiferido,
     Carrito,
     CarritoDetalle,
     Devolucion,
@@ -865,6 +868,79 @@ class TransaccionPasarelaRepository:
             .order_by(TransaccionPasarela.creado_en.asc())
             .limit(1)
         )
+
+
+# ---- PayPal guardado y pedido sin conexión ----
+
+
+def _bloquear_en_postgresql(db: Session, consulta):
+    """`SELECT ... FOR UPDATE` en PostgreSQL (en SQLite se omite) y la fila releída (`populate_existing`): quien espera
+    el candado ve lo que dejó el anterior, no su copia vieja en memoria."""
+    if db.get_bind().dialect.name == "postgresql":
+        consulta = consulta.with_for_update()
+    return consulta.execution_options(populate_existing=True)
+
+
+class MetodoPagoGuardadoRepository:
+    """No hereda `CRUDBase`: es un registro técnico, sin `activo`, que no se edita desde la API ni se borra (el estado
+    `revocado` es su baja). El filtro automático por empresa aplica a todas las consultas."""
+
+    def crear(self, db: Session, fila: MetodoPagoGuardado) -> MetodoPagoGuardado:
+        db.add(fila)
+        db.flush()
+        return fila
+
+    def obtener_activo(self, db: Session, usuario_id: int, *, bloquear: bool = False) -> MetodoPagoGuardado | None:
+        consulta = select(MetodoPagoGuardado).where(
+            MetodoPagoGuardado.usuario_id == usuario_id, MetodoPagoGuardado.estado == "activo"
+        )
+        if bloquear:
+            consulta = _bloquear_en_postgresql(db, consulta)
+        return db.scalar(consulta)
+
+    def obtener_por_setup_token(
+        self, db: Session, usuario_id: int, setup_token_id: str, *, bloquear: bool = False
+    ) -> MetodoPagoGuardado | None:
+        """Solo la fila de ESE usuario: el token de otra persona se ve igual que uno inexistente."""
+        consulta = select(MetodoPagoGuardado).where(
+            MetodoPagoGuardado.usuario_id == usuario_id, MetodoPagoGuardado.setup_token_id == setup_token_id
+        )
+        if bloquear:
+            consulta = _bloquear_en_postgresql(db, consulta)
+        return db.scalar(consulta)
+
+    def listar_pendientes(self, db: Session, usuario_id: int) -> list[MetodoPagoGuardado]:
+        return list(
+            db.scalars(
+                select(MetodoPagoGuardado).where(
+                    MetodoPagoGuardado.usuario_id == usuario_id, MetodoPagoGuardado.estado == "pendiente"
+                )
+            )
+        )
+
+
+class PedidoDiferidoRepository:
+    """Registro técnico del resultado de cada pedido sin conexión. Mismo patrón de reserva de clave que
+    `OperacionSyncRepository` (CU-25)."""
+
+    def obtener_por_operacion(self, db: Session, operacion_id) -> PedidoDiferido | None:
+        return db.scalar(select(PedidoDiferido).where(PedidoDiferido.operacion_id == operacion_id))
+
+    def reservar_clave(self, db: Session, **campos) -> PedidoDiferido | None:
+        """Inserta la fila `en_proceso` dentro de un SAVEPOINT. Si la clave (empresa, operación) ya existía devuelve
+        `None`: es un reenvío. En PostgreSQL, si OTRA transacción está insertando la misma clave, este INSERT espera a
+        que termine y luego cae en el error de unicidad: dos envíos simultáneos de la misma operación no se procesan
+        dos veces. Un error de integridad que NO sea de esa clave (una FK) se propaga."""
+        fila = PedidoDiferido(**campos)
+        try:
+            with db.begin_nested():
+                db.add(fila)
+                db.flush()
+        except IntegrityError:
+            if self.obtener_por_operacion(db, campos["operacion_id"]) is None:
+                raise
+            return None
+        return fila
 
 
 # ---- Entregas ----

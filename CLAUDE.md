@@ -208,10 +208,11 @@ También pueden hacer falta, dentro del diseño: diagrama de navegación
 
 ## Esquema de base de datos
 El esquema completo y definitivo está en `docs/fashionstore_esquema.sql`
-(60 tablas en el SQL, que es el del primer parcial). La base real tiene 67:
+(60 tablas en el SQL, que es el del primer parcial). La base real tiene 69:
 las 59 de antes (`sesion_probador` se eliminó con el modo espejo) más
 `empresa`, `plan`, `suscripcion`, `operacion_sync` (E07), `modelo_ml` (E11),
-`copia_seguridad` (E22) y `pedido_contratacion` (contratación de planes) del segundo parcial, que no están en el SQL, y `bitacora`
+`copia_seguridad` (E22), `pedido_contratacion` (contratación de planes), `metodo_pago_guardado` y `pedido_diferido`
+(PayPal guardado y pedido sin conexión, CU-13 y CU-18) del segundo parcial, que no están en el SQL, y `bitacora`
 (E06; el SQL ya trae su bloque actualizado). No inventar tablas ni columnas nuevas sin pedirlo
 explícitamente.
 Ese archivo es documentación de referencia: NO se ejecuta contra la base.
@@ -227,7 +228,7 @@ sincronización (E07) y su descarga de datos, conflictos y plazo de cambio (E08)
 hechos. El backend NO
 se despliega solo: tras la E03 el login de la web y del móvil actuales no
 funciona hasta que se adapten (E15, E16, E18).
-- Clasificación de las 67 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
+- Clasificación de las 69 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
   salvo `usuario`, donde NULL = superadministrador de la plataforma), 8
   globales del sistema (`permiso`, `rol`, `rol_permiso`, `tipo_movimiento`,
   `estado_reserva`, `estado_venta`, `metodo_pago`, `estado_pago`), `plan`
@@ -235,6 +236,7 @@ funciona hasta que se adapten (E15, E16, E18).
   `suscripcion` (de la empresa, con historial), `operacion_sync` (de la
   empresa, `EmpresaMixin`; E07), `modelo_ml` (de la empresa, `EmpresaMixin`; E11),
   `copia_seguridad` (de la empresa, `EmpresaMixin`; E22),
+  `metodo_pago_guardado` y `pedido_diferido` (de la empresa, `EmpresaMixin`; ver "PayPal guardado y pedido sin conexión"),
   `pedido_contratacion` (global: SIN `empresa_id` ni mixin, porque quien compra
   aún no tiene empresa; ver "Planes y suscripciones") y
   `bitacora` (`empresa_id` NULL permitido y SIN el mixin: ver "Bitácora de
@@ -441,8 +443,11 @@ funciona hasta que se adapten (E15, E16, E18).
     si no vuelve, no se cobra); sin reembolso automático; sin verificación de correo; la renovación manual y pasar de
     prueba a pago en una empresa existente no están en esta fase; dos pedidos pendientes pueden pedir el mismo nombre
     (el segundo en pagar queda `pagado_sin_empresa`); el tipo de cambio es fijo, no se consulta a ninguna fuente.
-  - **Defecto previo (no corregido):** `PayPalGateway.iniciar_pago` manda el total de una VENTA de tienda, en
-    bolivianos, a PayPal como USD sin convertir (`cu18` pasa `venta.total`). Solo la compra de un plan convierte.
+  - **Defecto previo (CORREGIDO al agregar el PayPal guardado):** `PayPalGateway.iniciar_pago` mandaba el total de una
+    VENTA de tienda, en bolivianos, a PayPal como USD sin convertir. Ahora TODO cobro con PayPal pasa por
+    `comercial.pasarela.monto_en_usd` (el mismo `tipo_cambio_bs_por_usd` y el mismo redondeo que la compra de un plan; sin
+    tipo de cambio, 503 `tipo_cambio_no_configurado`; un monto que en dólares queda en cero, 400). `ResultadoIniciar` trae
+    `monto_usd` y el `payload_envio` de la transacción guarda `monto` (Bs) y `monto_usd`.
 - Semilla de demostración: `python -m scripts.seed_empresas_prueba` (dry-run por
   defecto): FashionStore (Profesional) y Boutique Andina (Básico).
 - Población de demostración (8 organizaciones): `python -m scripts.poblar_demo --origen <carpeta
@@ -812,11 +817,12 @@ No es un CU nuevo: es la quinta clase de control de CU-04 (`GestionarCopiasSegur
 - **Nunca `pg_dump`** (copiaría a todas las empresas). El motor `core/copias.py` lee las tablas POR NOMBRE iterando
   `Base.metadata` (DEC-2: infraestructura genérica del `core`, no importa ningún paquete de negocio), con el filtro por
   `empresa_id` EXPLÍCITO en cada consulta y la empresa saliendo SOLO del token del administrador.
-- **Clasificación explícita** de las 67 tablas en `TABLAS_INCLUIDAS` (53: las de la empresa, más `empresa` por id y
+- **Clasificación explícita** de las 69 tablas en `TABLAS_INCLUIDAS` (54: las de la empresa, más `empresa` por id y
   `usuario_rol` por su usuario), `TABLAS_REFERENCIA` (7 catálogos globales que los datos referencian: `estado_*`,
   `metodo_pago`, `tipo_movimiento`, y solo el `plan` y los `rol` que la empresa usa; van en `referencias/`) y
-  `TABLAS_EXCLUIDAS` (7, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
-  `pedido_contratacion`, `permiso`, `rol_permiso`). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
+  `TABLAS_EXCLUIDAS` (8, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
+  `pedido_contratacion`, `metodo_pago_guardado` (guarda el token de pago de PayPal de cada cliente), `permiso`,
+  `rol_permiso`; `pedido_diferido` SÍ va incluida: solo guarda el resultado de cada pedido). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
   clasificar: quien agregue una tabla DEBE decidir si se respalda (la E21 tendrá que clasificar `caja_turno`).
 - **Sin secretos:** no salen `usuario.password_hash`, `bitacora.ip`, las columnas generadas (`stock.cantidad_disponible`)
   ni cualquier columna cuyo nombre parezca un secreto (`PATRON_COLUMNA_SENSIBLE`). El manifiesto NOMBRA las columnas omitidas
@@ -847,6 +853,88 @@ No es un CU nuevo: es la quinta clase de control de CU-04 (`GestionarCopiasSegur
 - Pruebas: `tests/core/test_copias_clasificacion.py` (G1-G3), `tests/core/test_copias_motor.py`,
   `tests/plataforma/test_copias_humo.py`, `test_copias_seguridad.py` (C1-C13), `test_copias_restauracion.py` (R1-R6) y
   `tests/postgres/test_copias_postgres.py` (P1-P4). Las 4 rutas están en `tests/aislamiento/rutas_esperadas.py`.
+
+### PayPal guardado y pedido sin conexión (CU-13 y CU-18, `backend/app/comercial/`)
+El cliente autoriza UNA vez, CON conexión, que se le cobre con su PayPal (PayPal Vault v3); el servidor guarda solo el token
+que PayPal devuelve (nunca datos de tarjeta). Sin conexión, la web o la app arma un pedido en cola; al reconectar lo envía y
+el servidor lo cobra con ese token. No son CU nuevos: son clases de control de CU-18 (`GestionarMetodoPagoGuardado`, en
+`cu18_...py`) y de CU-13 (`RealizarPedidoDiferido`, en `cu13_...py`). Todas las rutas: `/api/v1`, permiso `ventas.digital`,
+plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcionales `{detail, codigo, mensaje}`.
+- **Vault en `core/paypal.py`** (infraestructura, sin imports de negocio): `crear_setup_token` (`POST /v3/vault/setup-tokens`,
+  `usage_type=MERCHANT`, `customer_type=CONSUMER`, `usage_pattern` de `PAYPAL_VAULT_USAGE_PATTERN`, `experience_context` con las
+  URL de retorno), `crear_payment_token` (`POST /v3/vault/payment-tokens` con `payment_source.token {id, type: SETUP_TOKEN}`),
+  `borrar_payment_token` (`DELETE`, 204) y `cobrar_con_vault` (`POST /v2/checkout/orders` con `payment_source.paypal.vault_id`,
+  `intent=CAPTURE` y `PayPal-Request-Id`; una orden `APPROVED` se captura con la clave `<id>-captura`, `COMPLETED` ya está cobrada).
+  **SUPOSICIONES NO PROBADAS contra el sandbox real** (el entorno de desarrollo no puede; todo se probó con `tests/paypal_simulado.py`):
+  los campos salen de la documentación oficial, pero `usage_pattern=UNSCHEDULED_POSTPAID` es un valor del enumerado que los ejemplos
+  oficiales no usan (ellos usan `IMMEDIATE`: si el sandbox lo rechaza, cambiar la variable), y el ejemplo oficial de cobro con
+  `vault_id` no manda `stored_credential` (por eso `PAYPAL_VAULT_STORED_CREDENTIAL` está apagado; encendido manda
+  `MERCHANT`/`UNSCHEDULED`/`SUBSEQUENT`). Queda por verificar en el sandbox: el flujo completo, que `return_url` reciba
+  `approval_token_id`, el correo en la respuesta del payment token y que el cobro con el token salga `COMPLETED`.
+- **Guardar el PayPal** (`GestionarMetodoPagoGuardado`): `GET /metodos-pago/paypal` -> `{guardado, correo_paypal, guardado_en}`;
+  `POST .../iniciar {canal: web|app}` (201; `{url_aprobacion, token_preparacion}`; 10/hora por cuenta, `PAYPAL_GUARDADO_*`);
+  `POST .../confirmar {token_preparacion}` y `DELETE ...` (204, idempotente). Las URL de retorno las arma el servidor
+  (`{frontend_public_url}/t/<codigo>/mi-cuenta/paypal-guardado`, cancelar con `?cancelado=1`); `token_preparacion` es el setup
+  token de PayPal, el mismo `approval_token_id` con que PayPal vuelve. `confirmar` solo acepta el token de una fila `pendiente`
+  del MISMO usuario (otro o inexistente: 404 igual); sin aprobar, 409 `paypal_no_aprobado`; PayPal caído, 503
+  `paypal_no_disponible`; un token ya confirmado devuelve lo mismo sin llamar a PayPal. Un inicio nuevo descarta los pendientes
+  anteriores; guardar otro PayPal revoca el anterior (en PayPal, mejor esfuerzo: si falla igual queda revocado aquí). El
+  correo de PayPal se guarda y se devuelve ENMASCARADO (`j***@gmail.com`; null si PayPal no lo informa). Los tokens no salen en
+  ninguna respuesta, bitácora ni log.
+- **`metodo_pago_guardado`** (`EmpresaMixin`): `usuario_id`, `proveedor` (`paypal`), `estado` (`pendiente|activo|revocado`),
+  `setup_token_id`, `payment_token_id` (el `vault_id`), `correo_paypal` enmascarado, `creado_en`, `confirmado_en`, `revocado_en`.
+  Índice único parcial `ux_metodo_pago_guardado_activo`: UN solo `activo` por usuario. EXCLUIDA de las copias de seguridad (guarda
+  un token de pago). Migración `e7a3c91d5b28` (a mano, sobre `d2f8a6c14b97`).
+- **Pedido sin conexión** (`RealizarPedidoDiferido`): `POST /pedidos-diferidos {operacion_id (UUID del cliente), sucursal_id,
+  costo_envio, lineas: [{variante_id, cantidad}], total_maximo, fecha_pedido?}` (`extra=forbid`: el cliente NUNCA manda precios).
+  SIEMPRE 200 cuando hay una decisión FINAL: `{operacion_id, estado: cobrado|rechazado, motivo, mensaje, venta_id,
+  codigo_venta, total, total_usd, duplicada}`. Motivos: `sin_metodo_pago`, `stock_insuficiente`, `total_supera_maximo`,
+  `variante_inactiva`, `pago_rechazado`, `pedido_vencido` (la `fecha_pedido` tiene más de `PEDIDO_DIFERIDO_MAX_DIAS` = 7 días
+  respecto al servidor: "Tu pedido venció: pasaron más de 7 días sin conexión"; sin venta ni cobro, se guarda, avisa por correo
+  y notificación; una fecha sin zona se toma como UTC y sin `fecha_pedido` no se comprueba), `pedido_invalido` (también una
+  `fecha_pedido` en el futuro más allá de `PEDIDO_DIFERIDO_TOLERANCIA_FUTURO_HORAS` = 24 h; más de `PEDIDO_DIFERIDO_MAX_LINEAS`/`_UNIDADES_POR_LINEA`/`_UNIDADES`,
+  `costo_envio` sobre `PEDIDO_DIFERIDO_MAX_COSTO_ENVIO`, o sin costo de envío en un depósito: igual que la compra digital).
+  `suscripcion_no_activa` figura en el contrato pero NO se emite: la suscripción vencida responde 403 antes de llegar al caso
+  de uso, como en todas las rutas. Una sucursal o prenda que no es de la empresa responde 404 (como inexistente) antes de
+  reservar nada.
+- **Idempotencia (UNIQUE `(empresa_id, operacion_id)` en `pedido_diferido`).** La operación se reserva primero (INSERT en un
+  SAVEPOINT; en PostgreSQL un envío simultáneo de la misma operación ESPERA al primero y recibe lo guardado). Reenviar devuelve
+  lo mismo con `duplicada=true` (ignora el cuerpo nuevo), sin volver a cobrar, avisar ni contar para el límite
+  (`PEDIDO_DIFERIDO_MAX_POR_VENTANA`, 30/hora por cuenta). Los rechazos también son finales: la operación rechazada no se
+  reabre, el cliente arma otra. La fila de otra persona se ve inexistente (404). `en_proceso` es un estado interno que jamás
+  se confirma. Tabla `pedido_diferido` (`EmpresaMixin`, incluida en las copias): `operacion_id`, `usuario_id`, `sucursal_id`,
+  `estado`, `motivo`, `mensaje`, `venta_id`, `total`, `total_usd`, `creado_en`.
+- **Cómo se cobra, sin doble cobro.** TODO en UNA transacción: reservar la operación, `registrar_venta(commit=False)` (la venta
+  nace `pendiente_pago` con el stock RESERVADO y los bloqueos en orden de siempre), comprobar `total <= total_maximo`, convertir
+  a USD (`monto_en_usd`), cobrar con PayPal y, si salió `COMPLETED`, asentar `Pago` + `TransaccionPasarela` (pasarela `paypal`) con
+  `registrar_cobro_pasarela_aprobado` (que reutiliza `resolver_pago` y `confirmar_venta`: descuenta el stock). El
+  `PayPal-Request-Id` es `pd-<empresa>-<operación>` y el cuerpo es FIJO por operación (`reference_id` = la operación, no el
+  código de la venta, que cambia): reintentar manda la misma clave y el mismo cuerpo, y PayPal devuelve el cobro original.
+  - **Rechazo definitivo** (PayPal contesta 400, 404 o 422, la orden no sale `COMPLETED`, la captura no es `COMPLETED`): `rechazado`
+    `pago_rechazado`; el SAVEPOINT deshace la venta y el stock apartado. Igual con `stock_insuficiente` y `total_supera_maximo`:
+    no queda venta, ni stock reservado, ni cobro.
+  - **Resultado INCIERTO** (PayPal o la red no responden, 401/403/429/5xx, `DUPLICATE_REQUEST_ID`, captura `PENDING`, monto o
+    moneda distintos, o cualquier fallo DESPUÉS de cobrar): 503 `paypal_no_disponible`, se revierte TODO (ni venta colgada, ni
+    stock apartado, ni fila `pedido_diferido`) y el cliente reintenta con la MISMA `operacion_id`. Si PayPal sí había cobrado
+    y la respuesta se perdió, el reintento recibe el cobro original (misma clave y cuerpo) y arma la venta con él: un solo
+    cobro, una sola venta. Límites conocidos: si entre intentos cambian los precios, el cuerpo ya no coincide y PayPal rechaza la
+    clave repetida (503 hasta que expire su ventana de idempotencia); una captura `PENDING` se queda en 503; el reembolso de
+    cualquier cobro huérfano es MANUAL; la transacción de la base queda abierta durante la llamada a PayPal (hasta 15 s por
+    petición), con el stock de esas variantes bloqueado en PostgreSQL.
+- **Avisos.** Notificación dentro del sistema (`notificacion`, tipo `pedido_diferido`, `referencia_id` = la venta si se cobró) en la
+  MISMA transacción, y correo por Brevo en segundo plano (`construir_correo_pedido_diferido`, `despachar_correo`): "Cobramos tu
+  pedido" (código, total en Bs, sucursal) o "No pudimos cobrar tu pedido" (motivo en palabras). Sin Brevo o si falla, el pedido
+  no cambia. El cliente lee sus avisos con `GET /api/v1/notificaciones` y los marca con `PUT /api/v1/notificaciones/{id}/leida`
+  (ya existían: cualquier usuario autenticado ve las suyas). No hay notificaciones push.
+- **Bitácora:** `metodo_pago_guardado/guardar` y `quitar`, `pedido_diferido/cobrar` (`venta_id`, líneas, unidades) y `rechazar`
+  (`motivo`, líneas): ids y conteos, nunca tokens ni correos.
+- Pruebas (PayPal y Brevo simulados, ninguna sale a la red): `tests/comercial/test_paypal_guardado.py`,
+  `tests/comercial/test_pedido_diferido.py` (incluye el cobro cuya respuesta se pierde), `test_pasarela_paypal.py` (conversión
+  Bs a USD), `tests/postgres/test_paypal_guardado_pg.py` (envíos simultáneos de la misma operación, pedidos que compiten por el
+  último stock y confirmaciones simultáneas) y `tests/postgres/test_esquema_postgres.py`. `tests/paypal_simulado.py` simula el
+  Vault y el cobro con `vault_id` (idempotente por `PayPal-Request-Id`; `perder_respuestas_de_cobro`, `rechazar_cobro_vault`).
+  Las 5 rutas están en `tests/aislamiento/rutas_esperadas.py` (PROPIA y CREA_O_ACCION, cobertura MATRIZ) y los dos ids del pedido
+  en `casos_fk.py`.
 
 ## Plan de desarrollo
 `docs/plan_desarrollo_fashionstore.md`

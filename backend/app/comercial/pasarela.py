@@ -31,12 +31,30 @@ from decimal import Decimal
 
 from app.core import paypal
 from app.core.config import get_settings
+from app.core.exceptions import DomainError, ErrorFuncional
+from app.plataforma import politicas as plataforma_politicas
+
+CUATRO_DECIMALES = Decimal("0.0001")
+
+
+def monto_en_usd(monto_bs: Decimal) -> tuple[Decimal, Decimal]:
+    """(monto en dólares, tipo de cambio usado) de un total en bolivianos. PayPal solo cobra en USD, así que TODO cobro
+    con PayPal pasa por aquí (el mismo tipo de cambio de referencia y el mismo redondeo que la compra de un plan). El
+    tipo de cambio sale de `Settings` (a 4 decimales, como lo guarda el pedido de contratación)."""
+    tipo_cambio = get_settings().tipo_cambio_bs_por_usd.quantize(CUATRO_DECIMALES)
+    if tipo_cambio <= 0:
+        raise ErrorFuncional("tipo_cambio_no_configurado", "El tipo de cambio no está configurado", 503)
+    monto_usd = plataforma_politicas.convertir_bs_a_usd(monto_bs, tipo_cambio)
+    if monto_usd <= 0:
+        raise DomainError("El monto es demasiado bajo para cobrarlo con PayPal")
+    return monto_usd, tipo_cambio
 
 
 @dataclass(frozen=True)
 class ResultadoIniciar:
     id_transaccion: str
     url_redireccion: str
+    monto_usd: Decimal | None = None  # lo que se mandó a PayPal, si la pasarela cobra en otra moneda
 
 
 @dataclass(frozen=True)
@@ -123,11 +141,12 @@ class PayPalGateway(PasarelaBase):
         self._webhook_secret = get_settings().paypal_webhook_secret
 
     def iniciar_pago(self, *, monto: Decimal, referencia: str) -> ResultadoIniciar:
-        # DEFECTO PREVIO CONOCIDO (no se corrige aquí): `monto` es el total de la venta en bolivianos y se manda a
-        # PayPal como USD sin convertir. La compra de un plan (plataforma, CU-04) sí convierte con el tipo de cambio.
+        # `monto` es el total de la venta en BOLIVIANOS y PayPal cobra en dólares: se convierte con el tipo de cambio
+        # de referencia (el mismo de la compra de un plan). Antes se mandaba el total en Bs como si fueran USD.
+        monto_usd, _tipo_cambio = monto_en_usd(monto)
         try:
             orden = paypal.crear_orden(
-                monto=monto,
+                monto=monto_usd,
                 moneda="USD",
                 referencia=referencia,
                 descripcion=None,
@@ -139,7 +158,7 @@ class PayPalGateway(PasarelaBase):
             if exc.causa is None:  # sin credenciales: el mensaje de configuración, como siempre
                 raise
             raise RuntimeError(f"No se pudo iniciar el pago con PayPal: {exc.causa}") from exc
-        return ResultadoIniciar(id_transaccion=orden.id, url_redireccion=orden.url_aprobacion)
+        return ResultadoIniciar(id_transaccion=orden.id, url_redireccion=orden.url_aprobacion, monto_usd=monto_usd)
 
     def consultar_estado(self, id_transaccion: str) -> str:
         try:

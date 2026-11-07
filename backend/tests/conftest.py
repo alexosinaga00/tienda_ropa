@@ -32,7 +32,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
-from app.core.rate_limit import limiter, limitador_intentos, limitador_recuperacion, limitador_solicitud_cambio
+from app.core.rate_limit import (
+    limiter,
+    limitador_intentos,
+    limitador_paypal_guardado,
+    limitador_pedido_diferido,
+    limitador_recuperacion,
+    limitador_solicitud_cambio,
+)
 from app.main import app
 from app.catalogo import models as _catalogo_models  # noqa: F401  (registra las tablas)
 from app.catalogo.repository import VW_INVENTARIO_CONSOLIDADO_V2_SQL
@@ -66,11 +73,15 @@ def _limpiar_limite_de_trafico():
     limitador_intentos.reiniciar()
     limitador_recuperacion.reiniciar()
     limitador_solicitud_cambio.reiniciar()
+    limitador_paypal_guardado.reiniciar()
+    limitador_pedido_diferido.reiniciar()
     yield
     limiter.reset()
     limitador_intentos.reiniciar()
     limitador_recuperacion.reiniciar()
     limitador_solicitud_cambio.reiniciar()
+    limitador_paypal_guardado.reiniciar()
+    limitador_pedido_diferido.reiniciar()
 
 
 def crear_empresa(db, codigo: str, plan: str = "profesional", nombre: str | None = None) -> Empresa:

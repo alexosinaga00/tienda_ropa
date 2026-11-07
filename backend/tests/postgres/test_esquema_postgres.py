@@ -56,18 +56,21 @@ def test_cantidad_disponible_es_una_columna_generada(engine_pg, fabrica_pg, clie
     assert tuple(fila) == (10, 4, 6)
 
 
-def test_la_base_tiene_67_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_y_la_contratacion(
+def test_la_base_tiene_69_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_la_contratacion_y_el_paypal_guardado(
     engine_pg,
 ):
     # 59 anteriores + empresa, plan y suscripcion + bitacora + operacion_sync + modelo_ml + copia_seguridad
-    # + pedido_contratacion (sin contar alembic_version).
+    # + pedido_contratacion + metodo_pago_guardado + pedido_diferido (sin contar alembic_version).
     tablas = set(inspect(engine_pg).get_table_names()) - {"alembic_version"}
 
-    assert len(tablas) == 67
+    assert len(tablas) == 69
     assert {
         "empresa", "plan", "suscripcion", "bitacora", "operacion_sync", "modelo_ml", "copia_seguridad",
-        "pedido_contratacion",
+        "pedido_contratacion", "metodo_pago_guardado", "pedido_diferido",
     } <= tablas  # fmt: skip
+    guardados = {i["name"]: i for i in inspect(engine_pg).get_indexes("metodo_pago_guardado")}
+    assert guardados["ux_metodo_pago_guardado_activo"]["unique"]
+    assert "activo" in guardados["ux_metodo_pago_guardado_activo"]["dialect_options"]["postgresql_where"]
     indices = {i["name"]: i for i in inspect(engine_pg).get_indexes("copia_seguridad")}
     assert indices["ux_copia_en_proceso"]["unique"]
     assert "en_proceso" in indices["ux_copia_en_proceso"]["dialect_options"]["postgresql_where"]

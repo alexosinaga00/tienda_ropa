@@ -46,6 +46,8 @@ ENTIDAD_COPIA_SEGURIDAD = "copia_seguridad"  # E22
 ENTIDAD_CIERRE_CAJA = "cierre_caja"  # E21
 ENTIDAD_MODELO_ML = "modelo_ml"  # E11
 ENTIDAD_PEDIDO_CONTRATACION = "pedido_contratacion"  # compra de un plan con PayPal (CU-04)
+ENTIDAD_METODO_PAGO_GUARDADO = "metodo_pago_guardado"  # PayPal guardado del cliente (CU-18)
+ENTIDAD_PEDIDO_DIFERIDO = "pedido_diferido"  # pedido hecho sin conexión y cobrado al reconectar (CU-13)
 
 # ---- Acciones (máximo 40 caracteres: columna `accion`) ----
 ACCION_CREAR = "crear"
@@ -85,6 +87,9 @@ ACCION_APROBAR = "aprobar"  # el personal aprueba esa solicitud
 ACCION_VENCER = "vencer"
 ACCION_PAGADO_SIN_EMPRESA = "pagado_sin_empresa"  # se cobró pero la empresa no se pudo crear (reembolso manual)
 ACCION_PAGO_NO_COINCIDE = "pago_no_coincide"  # PayPal informó otro monto u otra moneda: no se cobró
+ACCION_GUARDAR = "guardar"  # el cliente confirma su PayPal guardado
+ACCION_QUITAR = "quitar"  # el cliente quita su PayPal guardado
+ACCION_COBRAR = "cobrar"  # un pedido sin conexión se cobró
 
 # ---- Contexto: quién y desde dónde ----
 

@@ -18,17 +18,57 @@ def test_iniciar_pago_crea_la_orden_y_devuelve_su_id_y_la_url(pp):
     resultado = obtener_pasarela("paypal").iniciar_pago(monto=Decimal("100.50"), referencia="VTA-1")
 
     assert resultado == ResultadoIniciar(
-        id_transaccion="ORD-SIM-0001", url_redireccion="https://www.sandbox.paypal.com/checkoutnow?token=ORD-SIM-0001"
+        id_transaccion="ORD-SIM-0001",
+        url_redireccion="https://www.sandbox.paypal.com/checkoutnow?token=ORD-SIM-0001",
+        monto_usd=Decimal("14.44"),
     )
     (cuerpo,) = pp.cuerpos_de_creacion
     unidad = cuerpo["purchase_units"][0]
-    # Comportamiento previo conservado: el total (Bs) se manda como USD sin convertir.
-    assert unidad["reference_id"] == "VTA-1" and unidad["amount"] == {"currency_code": "USD", "value": "100.50"}
+    # El total (Bs) se CONVIERTE a dólares con el tipo de cambio (6,96): 100,50 / 6,96 = 14,44. Antes se mandaba 100.50 USD.
+    assert unidad["reference_id"] == "VTA-1" and unidad["amount"] == {"currency_code": "USD", "value": "14.44"}
     assert "description" not in unidad
     contexto = cuerpo["payment_source"]["paypal"]["experience_context"]
     assert contexto["return_url"] == "https://fashionstore.example.com/pago/retorno"
     assert contexto["cancel_url"] == "https://fashionstore.example.com/pago/cancelado"
     assert (contexto["landing_page"], contexto["user_action"]) == ("GUEST_CHECKOUT", "PAY_NOW")
+
+
+@pytest.mark.parametrize(
+    ("total_bs", "tipo_cambio", "esperado"),
+    [
+        ("696.00", "6.96", "100.00"),
+        ("100.00", "6.96", "14.37"),
+        ("1.00", "6.96", "0.14"),
+        ("129.00", "10", "12.90"),
+        ("0.01", "6.96", None),  # en dólares quedaría en cero: PayPal no cobra 0
+    ],
+)
+def test_el_total_en_bolivianos_se_convierte_a_dolares(pp, monkeypatch, total_bs, tipo_cambio, esperado):
+    from app.comercial.pasarela import monto_en_usd
+    from app.core.config import get_settings
+    from app.core.exceptions import DomainError
+
+    monkeypatch.setattr(get_settings(), "tipo_cambio_bs_por_usd", Decimal(tipo_cambio))
+    if esperado is None:
+        with pytest.raises(DomainError):
+            monto_en_usd(Decimal(total_bs))
+        return
+
+    monto_usd, usado = monto_en_usd(Decimal(total_bs))
+    assert monto_usd == Decimal(esperado) and usado == Decimal(tipo_cambio).quantize(Decimal("0.0001"))
+    PayPalGateway().iniciar_pago(monto=Decimal(total_bs), referencia="VTA-9")
+    assert pp.cuerpos_de_creacion[-1]["purchase_units"][0]["amount"]["value"] == esperado
+
+
+def test_sin_tipo_de_cambio_no_se_cobra(pp, monkeypatch):
+    from app.comercial.pasarela import monto_en_usd
+    from app.core.config import get_settings
+    from app.core.exceptions import ErrorFuncional
+
+    monkeypatch.setattr(get_settings(), "tipo_cambio_bs_por_usd", Decimal("0"))
+    with pytest.raises(ErrorFuncional):
+        monto_en_usd(Decimal("100"))
+    assert pp.cuerpos_de_creacion == []
 
 
 def test_sin_credenciales_iniciar_pago_da_el_mismo_runtime_error_de_siempre(monkeypatch):

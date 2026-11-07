@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Time,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -320,6 +322,75 @@ class TransaccionPasarela(EmpresaMixin, Base):
     payload_envio: Mapped[dict | None] = mapped_column(_TipoJson)
     payload_respuesta: Mapped[dict | None] = mapped_column(_TipoJson)
     estado: Mapped[str] = mapped_column(String(25), nullable=False)
+    creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+# ---- PayPal guardado y pedido sin conexión (CU-18 y CU-13) ----
+
+
+class MetodoPagoGuardado(EmpresaMixin, Base):
+    """El PayPal que un cliente autorizó UNA vez, con conexión, para que el servidor le cobre después (Vault v3). Guarda
+    solo lo que PayPal devuelve (el token), nunca datos de tarjeta, y el correo ya ENMASCARADO. Es una tabla EXCLUIDA de
+    las copias de seguridad: guarda un token de pago.
+
+    Estados: `pendiente` (el cliente todavía no aprobó en PayPal; solo tiene el setup token), `activo` (hay payment
+    token; a lo sumo UNO por usuario) y `revocado` (quitado por el cliente o reemplazado). No se borra: es evidencia."""
+
+    __tablename__ = "metodo_pago_guardado"
+    __table_args__ = (
+        CheckConstraint("proveedor IN ('paypal')", name="ck_metodo_pago_guardado_proveedor"),
+        CheckConstraint("estado IN ('pendiente','activo','revocado')", name="ck_metodo_pago_guardado_estado"),
+        Index("ix_metodo_pago_guardado_usuario", "usuario_id", "estado"),
+        # (El índice único parcial "un solo activo por usuario" se declara debajo de la clase.)
+        # El setup token es único (PayPal lo genera): así confirmar encuentra UNA sola fila.
+        Index("ux_metodo_pago_guardado_setup", "empresa_id", "setup_token_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    proveedor: Mapped[str] = mapped_column(String(20), nullable=False, default="paypal")
+    estado: Mapped[str] = mapped_column(String(15), nullable=False, default="pendiente")
+    setup_token_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    payment_token_id: Mapped[str | None] = mapped_column(String(255))  # el "vault_id" con el que se cobra
+    correo_paypal: Mapped[str | None] = mapped_column(String(120))  # enmascarado: "j***@gmail.com"
+    creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    confirmado_en: Mapped[dt.datetime | None]
+    revocado_en: Mapped[dt.datetime | None]
+
+
+# Un solo método ACTIVO por usuario; los pendientes y los revocados se acumulan. Se declara con la expresión de la
+# columna (no con SQL en texto: una prueba prohíbe `text(` fuera de los sitios conocidos).
+Index(
+    "ux_metodo_pago_guardado_activo",
+    MetodoPagoGuardado.usuario_id,
+    unique=True,
+    postgresql_where=MetodoPagoGuardado.estado == "activo",
+    sqlite_where=MetodoPagoGuardado.estado == "activo",
+)
+
+
+class PedidoDiferido(EmpresaMixin, Base):
+    """Un pedido que el cliente armó SIN conexión y el servidor cobró (o rechazó) al reconectar, con su resultado FINAL:
+    es lo que hace idempotente el reenvío (UNIQUE empresa + operación). Un fallo temporal no deja fila. `en_proceso` es
+    interno: solo existe dentro de la transacción mientras se procesa (el commit ya lleva `cobrado` o `rechazado`)."""
+
+    __tablename__ = "pedido_diferido"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "operacion_id", name="uq_pedido_diferido_empresa_operacion"),
+        CheckConstraint("estado IN ('en_proceso','cobrado','rechazado')", name="ck_pedido_diferido_estado"),
+        Index("ix_pedido_diferido_usuario", "usuario_id", "creado_en"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operacion_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)  # lo genera el cliente
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    sucursal_id: Mapped[int] = mapped_column(ForeignKey("sucursal.id"), nullable=False)
+    estado: Mapped[str] = mapped_column(String(15), nullable=False)
+    motivo: Mapped[str | None] = mapped_column(String(40))
+    mensaje: Mapped[str | None] = mapped_column(String(300))
+    venta_id: Mapped[int | None] = mapped_column(ForeignKey("venta.id"))
+    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    total_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
 

@@ -104,6 +104,7 @@ REF_NOTIFICACION = {
     "reserva_preparada": "reserva",
     "envio": "venta",
     "sincronizacion": "operacion_sync",
+    "pedido_diferido": "venta",  # el aviso de un pedido cobrado apunta a su venta
 }
 REF_BITACORA = {
     "usuario": "usuario",
@@ -727,6 +728,7 @@ def agregar_datos_extra(universo) -> dict[str, Any]:
     padre (id menor que el del padre: obliga a la segunda pasada de `categoria`), más productos, reservas,
     empleados y direcciones, y filas con referencias blandas de cada tipo. Devuelve los ids creados."""
     from app.catalogo.models import Categoria, MovimientoInventario, TipoMovimiento
+    from app.comercial.models import PedidoDiferido
     from app.core.auditoria import ENTIDAD_VENTA
     from app.plataforma.models import Bitacora, Notificacion
     from app.sincronizacion.models import OperacionSync
@@ -770,7 +772,12 @@ def agregar_datos_extra(universo) -> dict[str, Any]:
             resultado={"venta_id": ids["venta"], "avisos": ["precio_distinto"], "ajustes": [{"variante_id": ids["variante"], "movimiento_id": ids["movimiento"]}]},
             fecha_operacion=dt.datetime(2026, 10, 2, 9, 30, 0), procesada_en=dt.datetime(2026, 10, 2, 9, 30, 5),
         )  # fmt: skip
-        db.add_all([notificacion, bitacora, sync])
+        pedido = PedidoDiferido(
+            operacion_id=uuid.uuid4(), usuario_id=universo.empresa.admin_id, sucursal_id=ids["sucursal"],
+            estado="cobrado", venta_id=ids["venta"], total=Decimal("100.00"), total_usd=Decimal("14.37"),
+            mensaje=universo.m("pedido-diferido"),
+        )  # fmt: skip
+        db.add_all([notificacion, bitacora, sync, pedido])
         db.flush()
         extra["movimiento_libre"] = libre.id
     return extra
