@@ -188,6 +188,12 @@ También pueden hacer falta, dentro del diseño: diagrama de navegación
    ocupa un solo archivo (si agrupa varias entidades del mismo dominio, el
    archivo tiene varias clases de control, ver la convención de casos de
    uso). No repetir código CRUD ni dividir un CRUD en varios casos de uso.
+   Búsqueda por texto en el servidor: un repositorio declara `CAMPOS_BUSQUEDA` (columnas de texto) y `listar(buscar=)`
+   exige que CADA palabra aparezca (ILIKE, `%` y `_` escapados, máx. 5 palabras, tildes sí cuentan) en alguna de esas
+   columnas. Hoy solo la usa `GET /usuarios?buscar=` (nombre, apellido y correo, máx. 100 caracteres; el router recibe
+   `Query` y el caso de uso se lo pasa al repositorio). La tabla genérica de la web la usa con `[busquedaServidor]="true"`
+   (espera 300 ms, vuelve a la página 1 y descarta respuestas viejas); sin esa opción el buscador sigue filtrando solo la
+   página cargada. Pruebas: `tests/plataforma/test_usuarios_roles.py` y `tests/postgres/test_busqueda_usuarios_pg.py`.
 4. Todo cambio de esquema va en una migración de Alembic. Nunca a mano.
 5. El router no toca la base de datos ni contiene lógica de negocio: solo
    instancia el caso de uso correspondiente y llama a ejecutar() (o al

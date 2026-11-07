@@ -278,8 +278,9 @@ usuarios_router = APIRouter(prefix="/api/v1/usuarios", tags=["usuarios"])
 def listar_usuarios(
     db: Session = Depends(get_db),
     paginacion: ParametrosPaginacion = Depends(parametros_paginacion),
+    buscar: str | None = Query(default=None, max_length=100, description="Texto a buscar en nombre, apellido o correo"),
 ) -> list[UsuarioRespuesta]:
-    usuarios = cu_gestionar_usuarios.listar(db, paginacion)
+    usuarios = cu_gestionar_usuarios.listar(db, paginacion, buscar)
     return [UsuarioRespuesta.from_modelo(u) for u in usuarios]
 
 

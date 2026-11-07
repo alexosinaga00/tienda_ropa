@@ -92,6 +92,8 @@ class RolRepository(CRUDBase[Rol, RolCrear, RolActualizar]):
 
 
 class UsuarioRepository(CRUDBase[Usuario, UsuarioCrear, UsuarioActualizar]):
+    CAMPOS_BUSQUEDA = ("nombre", "apellido", "email")
+
     def __init__(self) -> None:
         super().__init__(Usuario)
 

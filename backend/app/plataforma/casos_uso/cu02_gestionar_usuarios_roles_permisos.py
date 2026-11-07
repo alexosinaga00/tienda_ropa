@@ -37,8 +37,10 @@ class GestionarUsuarios:
     def __init__(self) -> None:
         self._repo = UsuarioRepository()
 
-    def listar(self, db: Session, paginacion: ParametrosPaginacion) -> list[Usuario]:
-        return list(self._repo.listar(db, paginacion))
+    def listar(self, db: Session, paginacion: ParametrosPaginacion, buscar: str | None = None) -> list[Usuario]:
+        """Los usuarios activos de la empresa, paginados. `buscar` filtra en el servidor (nombre, apellido y correo)
+        sobre TODOS los usuarios, no solo sobre la página que se está viendo."""
+        return list(self._repo.listar(db, paginacion, buscar=buscar))
 
     def crear(self, db: Session, datos: UsuarioCrear, contexto: ContextoAuditoria | None = None) -> Usuario:
         # Un usuario dado de baja con el mismo correo se reactiva en vez de duplicarse.

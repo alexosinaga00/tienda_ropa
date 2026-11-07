@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import Select, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -58,6 +58,14 @@ def _guardar(
         raise ConflictoError(texto) from exc
 
 
+MAX_PALABRAS_BUSQUEDA = 5
+
+
+def _escapar_like(texto: str) -> str:
+    """Para que `%`, `_` y `\\` del texto buscado valgan como letras y no como comodines de LIKE."""
+    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _aplicar(instancia: Base, datos: BaseModel) -> None:
     for campo, valor in datos.model_dump(exclude_unset=True).items():
         setattr(instancia, campo, valor)
@@ -68,8 +76,23 @@ class _CRUDComun(Generic[ModeloT, CrearSchemaT, ActualizarSchemaT]):
     `_consulta_base()` y pasa por `_aplicar_alcance()`: ese es el único lugar
     donde se inyectará el alcance (la empresa, en el multitenant)."""
 
+    # Columnas de texto en las que busca `listar(buscar=...)`. Vacío = ese CRUD no ofrece búsqueda por texto.
+    CAMPOS_BUSQUEDA: tuple[str, ...] = ()
+
     def __init__(self, modelo: type[ModeloT]) -> None:
         self.modelo = modelo
+
+    def _filtrar_por_texto(self, consulta: Select, buscar: str | None) -> Select:
+        """Cada palabra del texto debe aparecer (sin distinguir mayúsculas) en alguna de las columnas de
+        `CAMPOS_BUSQUEDA` (así «juan lopez» encuentra a Juan López aunque nombre y apellido sean columnas
+        distintas). Los tildes sí cuentan: «lopez» no encuentra «López». Máximo `MAX_PALABRAS_BUSQUEDA` palabras."""
+        if not buscar or not self.CAMPOS_BUSQUEDA:
+            return consulta
+        columnas = [getattr(self.modelo, campo) for campo in self.CAMPOS_BUSQUEDA]
+        for palabra in buscar.split()[:MAX_PALABRAS_BUSQUEDA]:
+            patron = f"%{_escapar_like(palabra)}%"
+            consulta = consulta.where(or_(*[columna.ilike(patron, escape="\\") for columna in columnas]))
+        return consulta
 
     def _consulta_base(self) -> Select:
         return select(self.modelo)
@@ -94,12 +117,14 @@ class _CRUDComun(Generic[ModeloT, CrearSchemaT, ActualizarSchemaT]):
         db: Session,
         paginacion: ParametrosPaginacion,
         filtros: dict[str, Any] | None = None,
+        buscar: str | None = None,
     ) -> list[ModeloT]:
         consulta = self._aplicar_alcance(self._consulta_listado())
         for campo, valor in (filtros or {}).items():
             columna = getattr(self.modelo, campo, None)
             if columna is not None and valor is not None:
                 consulta = consulta.where(columna == valor)
+        consulta = self._filtrar_por_texto(consulta, buscar)
         # Orden determinista por la clave primaria: sin ORDER BY las páginas
         # de offset/limit pueden repetir o saltar filas en Postgres.
         consulta = (

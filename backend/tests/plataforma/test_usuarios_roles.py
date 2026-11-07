@@ -149,6 +149,77 @@ def test_listar_usuarios_no_incluye_desactivados(client, admin_headers):
     assert creado["id"] not in ids
 
 
+# ---- Usuarios: búsqueda en el servidor -----------------------------------------------------
+
+
+def _buscar(client, admin_headers, texto: str, **parametros) -> list[dict]:
+    respuesta = client.get(USUARIOS, params={"buscar": texto, **parametros}, headers=admin_headers)
+    assert respuesta.status_code == 200, respuesta.text
+    return respuesta.json()
+
+
+def test_buscar_usuarios_por_nombre_apellido_o_correo_sin_distinguir_mayusculas(client, admin_headers):
+    ana = _crear_usuario(client, admin_headers, email="ana.gomez@example.com", nombre="Ana", apellido="Gomez")
+    _crear_usuario(client, admin_headers, email="otro@example.com", nombre="Otro", apellido="Zapata")
+
+    assert [u["id"] for u in _buscar(client, admin_headers, "ana")] == [ana["id"]]
+    assert [u["id"] for u in _buscar(client, admin_headers, "GOMEZ")] == [ana["id"]]
+    assert [u["id"] for u in _buscar(client, admin_headers, "ana.gomez@")] == [ana["id"]]
+
+
+def test_buscar_usuarios_con_nombre_y_apellido_a_la_vez(client, admin_headers):
+    ana = _crear_usuario(client, admin_headers, email="ana1@example.com", nombre="Ana", apellido="Gomez")
+    _crear_usuario(client, admin_headers, email="ana2@example.com", nombre="Ana", apellido="Rojas")
+
+    assert [u["id"] for u in _buscar(client, admin_headers, "Ana Gomez")] == [ana["id"]]
+    assert [u["id"] for u in _buscar(client, admin_headers, "gomez   ana")] == [ana["id"]]  # orden y espacios no importan
+
+
+def test_buscar_usuarios_encuentra_a_quien_esta_fuera_de_la_primera_pagina(client, admin_headers):
+    for i in range(6):
+        _crear_usuario(client, admin_headers, email=f"relleno{i}@example.com")
+    lejano = _crear_usuario(client, admin_headers, email="lejano@example.com", nombre="Zacarias", apellido="Lejano")
+    primera_pagina = [u["id"] for u in client.get(f"{USUARIOS}?pagina=1&tamanio=3", headers=admin_headers).json()]
+    assert lejano["id"] not in primera_pagina  # sin buscar, no sale en la primera página
+
+    encontrados = _buscar(client, admin_headers, "zacarias", pagina=1, tamanio=3)
+
+    assert [u["id"] for u in encontrados] == [lejano["id"]]
+
+
+def test_buscar_usuarios_sin_coincidencias_devuelve_lista_vacia(client, admin_headers):
+    _crear_usuario(client, admin_headers)
+
+    assert _buscar(client, admin_headers, "nadie-se-llama-asi") == []
+
+
+def test_buscar_usuarios_vacio_o_solo_espacios_devuelve_todos(client, admin_headers):
+    _crear_usuario(client, admin_headers)
+    todos = [u["id"] for u in client.get(USUARIOS, headers=admin_headers).json()]
+
+    assert [u["id"] for u in _buscar(client, admin_headers, "")] == todos
+    assert [u["id"] for u in _buscar(client, admin_headers, "   ")] == todos
+
+
+def test_buscar_usuarios_trata_porcentaje_y_guion_bajo_como_letras(client, admin_headers):
+    _crear_usuario(client, admin_headers, email="normal@example.com", nombre="Normal", apellido="Persona")
+
+    assert _buscar(client, admin_headers, "%") == []  # no es un comodín que traiga a todos
+    assert _buscar(client, admin_headers, "_") == []
+    assert _buscar(client, admin_headers, "Nor_al") == []  # `_` no reemplaza a una letra
+
+
+def test_buscar_usuarios_no_trae_a_los_desactivados(client, admin_headers):
+    creado = _crear_usuario(client, admin_headers, email="baja@example.com", nombre="Baja", apellido="Pronto")
+    client.delete(f"{USUARIOS}/{creado['id']}", headers=admin_headers)
+
+    assert _buscar(client, admin_headers, "baja") == []
+
+
+def test_buscar_usuarios_rechaza_un_texto_demasiado_largo(client, admin_headers):
+    assert client.get(USUARIOS, params={"buscar": "a" * 101}, headers=admin_headers).status_code == 422
+
+
 # ---- Usuarios: actualizar -------------------------------------------------------------------
 
 
