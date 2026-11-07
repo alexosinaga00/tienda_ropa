@@ -13,29 +13,24 @@
 }
 
 .hero {
-  // La foto comparte el fondo con el texto, sin un recuadro independiente.
-  position: relative;
-  isolation: isolate;
   max-width: 1360px;
-  min-height: clamp(440px, calc(100svh - 110px), 600px);
   margin: 0 auto;
-  padding: clamp(16px, 3svh, 24px) 32px;
+  padding: 24px 32px 56px;
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: center;
-  background: var(--fs-carbon);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  align-items: stretch;
 }
 
 .hero__texto {
-  position: relative;
-  z-index: 1;
+  flex: 1 1 480px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  gap: clamp(16px, 3svh, 28px);
-  padding: 12px 0;
+  gap: 28px;
+  padding: 24px 0;
   min-width: 0;
 }
 
@@ -64,12 +59,13 @@
 }
 
 .hero__foto {
-  position: absolute;
-  inset: 0 0 0 auto;
-  width: 56%;
-  height: 100%;
+  flex: 1 1 480px;
+  min-height: 600px;
+  min-width: 0;
+  position: relative;
   overflow: hidden;
-  background: var(--fs-carbon);
+  background: var(--fs-carbon-panel);
+  border-radius: var(--fs-radio-md);
 
   img {
     position: absolute;
@@ -77,7 +73,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: 50% 22%;
+    object-position: 50% 18%;
   }
 }
 
@@ -85,16 +81,7 @@
 .hero__velo {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(
-      90deg,
-      var(--fs-carbon) 0%,
-      color-mix(in srgb, var(--fs-carbon) 85%, transparent) 10%,
-      color-mix(in srgb, var(--fs-carbon) 35%, transparent) 32%,
-      transparent 62%
-    ),
-    linear-gradient(0deg, color-mix(in srgb, var(--fs-carbon) 70%, transparent), transparent 30%);
-  pointer-events: none;
+  background: linear-gradient(90deg, var(--fs-carbon) 0%, transparent 30%);
 }
 
 .hero__probador {
@@ -448,8 +435,6 @@
 
 @media (max-width: 760px) {
   .hero {
-    display: flex;
-    min-height: 0;
     padding: 24px 16px;
     flex-direction: column;
     flex-wrap: nowrap;
@@ -480,21 +465,14 @@
     flex: 1 1 auto;
   }
 
-  // En celular se conserva la composición apilada y el fundido es vertical.
+  // En celular la foto es un recuadro 4:3 sin la tarjeta ni el lema encima.
   .hero__foto {
-    position: relative;
-    inset: auto;
     flex: none;
-    width: 100%;
-    height: auto;
     min-height: 0;
     aspect-ratio: 4 / 3;
   }
 
-  .hero__velo {
-    background: linear-gradient(180deg, var(--fs-carbon), transparent 28%);
-  }
-
+  .hero__velo,
   .hero__probador,
   .hero__lema {
     display: none;
