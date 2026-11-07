@@ -1,0 +1,73 @@
+@use './comun' as c;
+
+.retorno {
+  @include c.pagina(720px);
+}
+
+.encabezado {
+  @include c.encabezado;
+}
+
+.fs-estado-vacio {
+  padding-block: 32px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.panel--exito {
+  border-color: var(--fs-exito);
+}
+
+.panel--error {
+  border-color: var(--fs-error);
+}
+
+.panel__icono {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fs-neutro-suave);
+  border-radius: 50%;
+  color: var(--fs-tinta);
+}
+
+.panel--exito .panel__icono {
+  background: var(--fs-exito-suave);
+  color: var(--fs-exito);
+}
+
+.panel--error .panel__icono {
+  background: var(--fs-error-suave);
+  color: var(--fs-error);
+}
+
+.panel__titulo {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.panel__texto {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fs-texto-tenue);
+  overflow-wrap: anywhere;
+}
+
+.volver {
+  margin-top: 20px;
+}

@@ -6,10 +6,7 @@
     </div>
   </div>
 
-  <nav class="fs-tabs pestanas" aria-label="Mi cuenta">
-    <a class="fs-tab" [routerLink]="tienda.ruta('mis-compras')">Compras</a>
-    <a class="fs-tab fs-tab--activa" [routerLink]="tienda.ruta('mis-reservas')" aria-current="page">Reservas</a>
-  </nav>
+  <app-mi-cuenta-pestanas activa="reservas" />
 
   @if (cargando()) {
     <p class="fs-estado-vacio" role="status">Cargando…</p>

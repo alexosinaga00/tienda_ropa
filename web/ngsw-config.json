@@ -55,6 +55,19 @@
         "maxAge": "1d",
         "timeout": "5s"
       }
+    },
+    {
+      "name": "fotos-catalogo",
+      "urls": [
+        "https://res.cloudinary.com/*/image/upload/**"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 80,
+        "maxAge": "7d",
+        "timeout": "3s",
+        "cacheOpaqueResponses": true
+      }
     }
   ]
 }

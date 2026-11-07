@@ -226,7 +226,13 @@
   } @else if (error()) {
     <div class="fs-aviso fs-aviso--error estado-error" role="alert">
       <fs-icono nombre="alerta" [tam]="24" />
-      <span class="estado-error__texto">No se pudo cargar el catálogo.</span>
+      <span class="estado-error__texto" data-estado="catalogo-error">
+        {{
+          sinConexion()
+            ? 'Sin conexión: esta parte del catálogo no estaba guardada en tu equipo. Conéctate para verla.'
+            : 'No se pudo cargar el catálogo.'
+        }}
+      </span>
       <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="cargarProductos()">Reintentar</button>
     </div>
   } @else if (!productos().length) {

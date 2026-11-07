@@ -98,7 +98,44 @@
 
 <main class="tienda-principal">
   <app-indicador-conexion variante="franja" />
+  @if (sesionDeEstaTienda() && !enPedidosSinConexion()) {
+    <app-aviso-pedidos-sin-conexion />
+  }
   <router-outlet />
 </main>
+
+@if (dialogoSalida()) {
+  <div class="salida-fondo" (click)="cancelarSalida()" aria-hidden="true"></div>
+  <div
+    class="salida"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="salida-titulo"
+    aria-describedby="salida-texto"
+    data-estado="dialogo-salida"
+  >
+    <h2 id="salida-titulo" class="salida__titulo">
+      Tienes {{ cola.pendientes().length }} {{ cola.pendientes().length === 1 ? 'pedido sin enviar' : 'pedidos sin enviar' }}
+    </h2>
+    <p id="salida-texto" class="salida__texto">
+      Si los conservas, se enviarán y se cobrarán de tu PayPal cuando vuelvas a entrar con esta cuenta y haya conexión. Si
+      los borras, se quitan de este dispositivo y no se cobra nada.
+    </p>
+    <div class="salida__botones">
+      <button #botonConservar type="button" class="fs-btn fs-btn--primario" data-estado="conservar-pedidos" (click)="conservarYSalir()">
+        Conservarlos
+      </button>
+      <button
+        type="button"
+        class="fs-btn fs-btn--secundario"
+        data-estado="borrar-pedidos"
+        [disabled]="saliendo()"
+        (click)="borrarYSalir()"
+      >
+        {{ saliendo() ? 'Borrando…' : 'Borrarlos y salir' }}
+      </button>
+    </div>
+  </div>
+}
 
 <footer class="tienda-pie">Con la tecnología de FashionStore</footer>

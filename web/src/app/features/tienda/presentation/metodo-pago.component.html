@@ -1,0 +1,131 @@
+<div class="cuenta">
+  <div class="encabezado">
+    <div>
+      <span class="fs-eyebrow">Mi cuenta</span>
+      <h1 class="fs-display">Método de pago</h1>
+    </div>
+  </div>
+
+  <app-mi-cuenta-pestanas activa="metodo-pago" />
+
+  @if (sinConexion()) {
+    <p class="fs-aviso fs-aviso--advertencia aviso" role="status" data-estado="sin-conexion">
+      <fs-icono nombre="enlace-roto" [tam]="24" />
+      <span>Sin conexión: puedes ver si tienes un PayPal guardado, pero guardarlo o quitarlo necesita conexión.</span>
+    </p>
+  }
+
+  @if (error()) {
+    <p class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="error-metodo">
+      <fs-icono nombre="alerta" [tam]="24" />
+      <span>{{ error() }}</span>
+    </p>
+  }
+
+  @if (cargando()) {
+    <p class="fs-estado-vacio" role="status">Cargando tu método de pago…</p>
+  } @else {
+    <section class="tarjeta" aria-labelledby="titulo-paypal" data-estado="tarjeta-paypal">
+      <span class="tarjeta__icono"><fs-icono nombre="tarjeta" [tam]="36" /></span>
+      <div class="tarjeta__datos">
+        <h2 id="titulo-paypal" class="tarjeta__titulo">PayPal</h2>
+        @if (vista(); as v) {
+          @if (v.guardado) {
+            <span class="fs-chip fs-chip--exito" data-estado="paypal-guardado">Guardado</span>
+            <p class="tarjeta__texto">
+              @if (v.correo_paypal) {
+                Cuenta <strong class="fs-num" data-estado="correo-paypal">{{ v.correo_paypal }}</strong>.
+              } @else {
+                Tu cuenta de PayPal está guardada.
+              }
+              @if (v.guardado_en) {
+                Guardado el {{ v.guardado_en | date: 'mediumDate' }}.
+              }
+            </p>
+          } @else {
+            <span class="fs-chip" data-estado="paypal-no-guardado">Sin guardar</span>
+            <p class="tarjeta__texto">Todavía no guardaste tu PayPal. Sin él no puedes pagar un pedido hecho sin conexión.</p>
+          }
+          @if (esRecordado()) {
+            <p class="tarjeta__nota" data-estado="dato-recordado">Dato recordado de tu última visita con conexión.</p>
+          }
+        } @else {
+          <p class="tarjeta__texto">No pudimos consultar tu método de pago.</p>
+        }
+      </div>
+
+      <div class="tarjeta__acciones">
+        @if (vista()?.guardado) {
+          @if (confirmandoQuitar()) {
+            <div class="confirmar" role="alertdialog" aria-labelledby="titulo-quitar" data-estado="confirmar-quitar">
+              <p id="titulo-quitar" class="confirmar__texto">
+                ¿Quitar tu PayPal? Ya no podrás pagar pedidos sin conexión hasta que lo guardes otra vez.
+              </p>
+              <div class="confirmar__botones">
+                <button
+                  type="button"
+                  class="fs-btn fs-btn--primario fs-btn--sm"
+                  data-estado="confirmar-quitar-si"
+                  [disabled]="quitando()"
+                  (click)="quitar()"
+                >
+                  {{ quitando() ? 'Quitando…' : 'Sí, quitar' }}
+                </button>
+                <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" [disabled]="quitando()" (click)="cancelarQuitar()">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="fs-btn fs-btn--secundario"
+              data-estado="quitar-paypal"
+              [disabled]="sinConexion()"
+              [attr.title]="sinConexion() ? 'Requiere conexión' : null"
+              (click)="pedirQuitar()"
+            >
+              <fs-icono nombre="basura" [tam]="24" />
+              Quitar
+            </button>
+          }
+        }
+        <button
+          type="button"
+          class="fs-btn fs-btn--primario"
+          data-estado="guardar-paypal"
+          [disabled]="sinConexion() || guardando()"
+          [attr.title]="sinConexion() ? 'Requiere conexión' : null"
+          (click)="guardar()"
+        >
+          <fs-icono nombre="candado" [tam]="24" />
+          {{ guardando() ? 'Abriendo PayPal…' : vista()?.guardado ? 'Cambiar mi PayPal' : 'Guardar mi PayPal' }}
+        </button>
+        @if (sinConexion()) {
+          <p class="tarjeta__nota" data-estado="motivo-sin-conexion">Necesitas conexión para guardar o quitar tu PayPal.</p>
+        }
+      </div>
+    </section>
+
+    <section class="explicacion" aria-label="Cómo funciona">
+      <h2 class="explicacion__titulo">Cómo funciona</h2>
+      <ul class="explicacion__lista">
+        <li>
+          <fs-icono nombre="escudo-check" [tam]="24" />
+          <span>PayPal guarda tu medio de pago. Nosotros nunca vemos ni guardamos los datos de tu tarjeta.</span>
+        </li>
+        <li>
+          <fs-icono nombre="reloj" [tam]="24" />
+          <span>
+            Si haces un pedido sin conexión, autorizas que lo cobremos de tu PayPal cuando vuelva la conexión, siempre hasta
+            el total que veas y aceptes.
+          </span>
+        </li>
+        <li>
+          <fs-icono nombre="basura" [tam]="24" />
+          <span>Puedes quitar tu PayPal cuando quieras.</span>
+        </li>
+      </ul>
+    </section>
+  }
+</div>

@@ -1,0 +1,155 @@
+@use './comun' as c;
+
+.cuenta {
+  @include c.pagina(1100px);
+}
+
+.encabezado {
+  @include c.encabezado;
+
+  margin-bottom: 24px;
+}
+
+.fs-estado-vacio {
+  padding-block: 32px;
+}
+
+.aviso {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.tarjeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 20px;
+  padding: 20px 22px;
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.tarjeta__icono {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fs-neutro-suave);
+  border-radius: var(--fs-radio-md);
+  color: var(--fs-tinta);
+}
+
+.tarjeta__datos {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tarjeta__titulo {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tarjeta__texto {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tarjeta__nota {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.tarjeta__acciones {
+  flex: 1 1 260px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+
+  .tarjeta__nota {
+    flex: 1 1 100%;
+    text-align: right;
+  }
+}
+
+.confirmar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--fs-neutro-suave);
+  border-radius: var(--fs-radio-md);
+}
+
+.confirmar__texto {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirmar__botones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.explicacion {
+  margin-top: 28px;
+}
+
+.explicacion__titulo {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.explicacion__lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fs-texto-tenue);
+  }
+
+  fs-icono {
+    flex: none;
+    color: var(--fs-tinta);
+  }
+}
+
+@media (max-width: 760px) {
+  .tarjeta__acciones {
+    justify-content: stretch;
+
+    .fs-btn {
+      flex: 1 1 100%;
+    }
+
+    .tarjeta__nota {
+      text-align: left;
+    }
+  }
+}

@@ -7,6 +7,7 @@ import { TiendaActualService } from '../features/tienda/state/tienda-actual.serv
 import { ConectividadService } from './conectividad.service';
 import { RecuperarRespuesta, RegistroRequest, TokenRespuesta, Usuario, UsuarioYo } from './models/seguridad.models';
 import { SesionOfflineService } from './offline/sesion-offline.service';
+import type { ClienteOfflineService as ClienteOfflineServicio } from './offline-cliente/cliente-offline.service';
 
 const CLAVE_ACCESS_TOKEN = 'fs_access_token';
 const CLAVE_REFRESH_TOKEN = 'fs_refresh_token';
@@ -132,7 +133,10 @@ export class AuthService {
       if (!Number.isInteger(alcance.empresaId) || !Number.isInteger(alcance.usuarioId)) return null;
       const empresaId = alcance.empresaId as number;
       const usuarioId = alcance.usuarioId as number;
-      const perfil = await this.injector.get(SesionOfflineService).perfilGuardado(empresaId, usuarioId);
+      // El del personal y, si no hay, el del comprador de una tienda (cada uno vive en su propia base).
+      const perfil =
+        (await this.injector.get(SesionOfflineService).perfilGuardado(empresaId, usuarioId)) ??
+        (await (await this.clienteOffline()).perfilGuardado(empresaId, usuarioId));
       // El perfil guardado debe ser exactamente de esa empresa y ese usuario.
       if (!perfil || perfil.id !== usuarioId || perfil.empresa_id !== empresaId) return null;
       return perfil;
@@ -182,13 +186,21 @@ export class AuthService {
   /** Guarda el perfil local sin bloquear ni romper el inicio de sesión: un fallo solo queda en la consola. */
   private guardarPerfilSinBloquear(usuario: UsuarioYo): void {
     try {
-      this.injector
-        .get(SesionOfflineService)
-        .alIniciarSesion(usuario)
-        .catch((error: unknown) => console.warn('No se pudo guardar el perfil para el modo sin conexión.', error));
+      // Un comprador de la tienda guarda su perfil en su propia base (la del personal no lo acepta).
+      const esComprador = usuario.roles.length > 0 && usuario.roles.every((rol) => rol === 'cliente');
+      const guardado = esComprador
+        ? this.clienteOffline().then((cliente) => cliente.alIniciarSesion(usuario))
+        : this.injector.get(SesionOfflineService).alIniciarSesion(usuario);
+      guardado.catch((error: unknown) => console.warn('No se pudo guardar el perfil para el modo sin conexión.', error));
     } catch (error) {
       console.warn('No se pudo guardar el perfil para el modo sin conexión.', error);
     }
+  }
+
+  /** El almacén sin conexión del comprador se carga aparte: el arranque de la app no lo paga (solo lo usan los compradores). */
+  private async clienteOffline(): Promise<ClienteOfflineServicio> {
+    const { ClienteOfflineService } = await import('./offline-cliente/cliente-offline.service');
+    return this.injector.get(ClienteOfflineService);
   }
 
   /** Los clientes se registran por tienda: POST /public/{codigo}/registro. */
@@ -234,10 +246,17 @@ export class AuthService {
 
   private limpiarLocalSinBloquear(): void {
     try {
-      this.injector
-        .get(SesionOfflineService)
-        .alCerrarSesion()
-        .catch((error: unknown) => console.warn('No se pudo limpiar el almacenamiento local al salir.', error));
+      // El alcance del comprador se toma AHORA (síncrono): el almacén se carga aparte y para entonces la sesión ya se limpió.
+      const usuario = this.usuarioActual();
+      const alcanceComprador =
+        this.esSoloCliente() && usuario !== null && typeof usuario.empresa_id === 'number'
+          ? { empresaId: usuario.empresa_id, usuarioId: usuario.id }
+          : null;
+      const limpieza =
+        alcanceComprador !== null
+          ? this.clienteOffline().then((cliente) => cliente.alCerrarSesion(alcanceComprador))
+          : this.injector.get(SesionOfflineService).alCerrarSesion();
+      limpieza.catch((error: unknown) => console.warn('No se pudo limpiar el almacenamiento local al salir.', error));
     } catch (error) {
       console.warn('No se pudo limpiar el almacenamiento local al salir.', error);
     }

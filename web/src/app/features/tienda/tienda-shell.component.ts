@@ -5,8 +5,10 @@ import { AuthService } from '../../core/auth.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { IndicadorConexionComponent } from '../../shared/indicador-conexion/indicador-conexion.component';
 import { MarcaComponent } from '../../shared/marca/marca.component';
+import { AvisoPedidosSinConexionComponent } from './aviso-pedidos-sin-conexion.component';
 import { CarritoService } from './data/carrito.service';
 import { irAColeccion } from './ir-a-coleccion';
+import { PedidosSinConexionService } from './state/pedidos-sin-conexion.service';
 import { ReservaCarritoService } from './state/reserva-carrito.service';
 import { TiendaActualService } from './state/tienda-actual.service';
 
@@ -16,7 +18,14 @@ const ANCHO_MOVIL = '(max-width: 960px)';
 @Component({
   selector: 'app-tienda-shell',
   standalone: true,
-  imports: [RouterLink, RouterOutlet, MarcaComponent, IconoComponent, IndicadorConexionComponent],
+  imports: [
+    RouterLink,
+    RouterOutlet,
+    MarcaComponent,
+    IconoComponent,
+    IndicadorConexionComponent,
+    AvisoPedidosSinConexionComponent,
+  ],
   templateUrl: './tienda-shell.component.html',
   styleUrl: './tienda-shell.component.scss',
 })
@@ -55,6 +64,9 @@ export class TiendaShellComponent {
 
   protected readonly enlacePortada = computed(() => this.base());
 
+  /** En la pantalla de pedidos sin conexión no hace falta la franja que ya cuenta lo mismo. */
+  protected readonly enPedidosSinConexion = computed(() => this.rutaActual().endsWith('/pedidos-sin-conexion'));
+
   // El monograma y el nombre de la marca no caben en 390 px: versión pequeña en celular.
   protected readonly esMovil = signal(this.coincideMovil());
 
@@ -62,7 +74,19 @@ export class TiendaShellComponent {
   protected readonly menuAbierto = signal(false);
   private readonly botonMenu = viewChild<ElementRef<HTMLButtonElement>>('botonMenu');
 
+  // Diálogo de salida con pedidos sin enviar.
+  protected readonly cola = inject(PedidosSinConexionService);
+  protected readonly dialogoSalida = signal(false);
+  protected readonly saliendo = signal(false);
+  private readonly botonConservar = viewChild<ElementRef<HTMLButtonElement>>('botonConservar');
+
   constructor() {
+    // "Conservarlos" es lo predeterminado: el foco cae ahí al abrir el diálogo.
+    effect(() => {
+      const boton = this.botonConservar();
+      if (this.dialogoSalida() && boton) boton.nativeElement.focus();
+    });
+
     effect(() => {
       if (this.sesionDeEstaTienda()) {
         this.carritoService.cargar().subscribe({ error: () => undefined });
@@ -89,6 +113,10 @@ export class TiendaShellComponent {
   /** Escape cierra el menú de celular y devuelve el foco al botón que lo abrió. */
   @HostListener('document:keydown.escape')
   protected cerrarMenuConEscape(): void {
+    if (this.dialogoSalida()) {
+      this.cancelarSalida();
+      return;
+    }
     if (!this.menuAbierto()) return;
     this.menuAbierto.set(false);
     this.botonMenu()?.nativeElement.focus();
@@ -98,9 +126,39 @@ export class TiendaShellComponent {
     this.menuAbierto.update((abierto) => !abierto);
   }
 
+  /**
+   * "Salir" del cliente. Si hay pedidos hechos sin conexión que todavía no salieron, pregunta qué hacer con ellos; sin
+   * pedidos sin enviar, sale directo. El cierre FORZADO (401, sesión vencida) no pasa por aquí: llama a `logout()` del
+   * servicio de sesión y ahí los pedidos se conservan sin preguntar.
+   */
   cerrarSesion(): void {
     this.menuAbierto.set(false);
+    if (this.cola.pendientes().length > 0) {
+      this.dialogoSalida.set(true);
+      return;
+    }
     this.authService.logout();
+  }
+
+  /** "Conservarlos": salir dejando los pedidos; se envían cuando vuelva a entrar la misma cuenta. */
+  conservarYSalir(): void {
+    this.dialogoSalida.set(false);
+    this.authService.logout();
+  }
+
+  /** "Borrarlos y salir": los pedidos sin enviar se borran del equipo junto con el resto. */
+  async borrarYSalir(): Promise<void> {
+    if (this.saliendo()) return;
+    this.saliendo.set(true);
+    await this.cola.borrarTodoDeEstaCuenta();
+    this.saliendo.set(false);
+    this.dialogoSalida.set(false);
+    this.authService.logout();
+  }
+
+  /** Cerrar el diálogo sin salir (Escape o tocar fuera): se sigue con la sesión abierta. */
+  cancelarSalida(): void {
+    if (!this.saliendo()) this.dialogoSalida.set(false);
   }
 
   /** "Colección" y la lupa de la portada: bajan a la sección del catálogo (y enfocan el buscador). */

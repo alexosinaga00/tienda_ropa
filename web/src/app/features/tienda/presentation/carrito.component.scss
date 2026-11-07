@@ -30,6 +30,21 @@
   margin-bottom: 20px;
 }
 
+// "Pasar a mi carrito" / "Descartar": el texto ocupa el ancho y los botones bajan en pantallas angostas.
+.aviso-local {
+  flex-wrap: wrap;
+}
+
+.aviso-local__texto {
+  flex: 1 1 260px;
+}
+
+.aviso-local__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .aviso-pendiente__enlace {
   margin-left: 6px;
   font-weight: 600;

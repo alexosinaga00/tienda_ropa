@@ -10,6 +10,53 @@
     </a>
   </div>
 
+  @if (sinConexion()) {
+    <p class="fs-aviso fs-aviso--advertencia aviso-pendiente" role="status" data-estado="carrito-sin-conexion">
+      <fs-icono nombre="enlace-roto" [tam]="24" />
+      <span>
+        Sin conexión: este carrito se guarda en tu equipo. Lo pagas con tu PayPal guardado y se cobra cuando vuelva la
+        conexión.
+      </span>
+    </p>
+  } @else {
+    @if (carritoLocal.cantidadLineas() > 0) {
+      <div class="fs-aviso fs-aviso--advertencia aviso-pendiente aviso-local" role="status" data-estado="carrito-local-pendiente">
+        <fs-icono nombre="carrito" [tam]="24" />
+        <span class="aviso-local__texto">
+          Tienes {{ carritoLocal.cantidadPrendas() }}
+          {{ carritoLocal.cantidadPrendas() === 1 ? 'prenda guardada' : 'prendas guardadas' }} de cuando no tenías conexión (Bs
+          {{ subtotalLocal() | number: '1.2-2' }}). Sus precios pueden haber cambiado.
+        </span>
+        <span class="aviso-local__acciones">
+          <button
+            type="button"
+            class="fs-btn fs-btn--secundario fs-btn--sm"
+            data-estado="pasar-a-mi-carrito"
+            [disabled]="pasando()"
+            (click)="pasarAMiCarrito()"
+          >
+            {{ pasando() ? 'Pasando…' : 'Pasar a mi carrito' }}
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn--secundario fs-btn--sm"
+            data-estado="descartar-carrito-local"
+            [disabled]="pasando()"
+            (click)="descartarLocal()"
+          >
+            Descartar
+          </button>
+        </span>
+      </div>
+    }
+    @if (resultadoPaso()) {
+      <p class="fs-aviso aviso-pendiente" role="status" data-estado="resultado-paso">
+        <fs-icono nombre="check" [tam]="24" />
+        <span>{{ resultadoPaso() }}</span>
+      </p>
+    }
+  }
+
   @if (comprasPendientes().length > 0) {
     <div class="fs-aviso fs-aviso--advertencia aviso-pendiente" role="status" data-estado="compras-pendientes">
       <fs-icono nombre="reloj" [tam]="24" />
@@ -34,30 +81,33 @@
     </div>
   }
 
-  @if (cargando()) {
+  @if (cargando() && !sinConexion()) {
     <p class="fs-estado-vacio" role="status">Cargando…</p>
-  } @else if (carritoService.lineas().length === 0) {
+  } @else if (lineasVista().length === 0) {
     <div class="fs-estado-vacio vacio">
       <fs-icono nombre="carrito" [tam]="52" />
       <p>Todavía no has agregado ninguna prenda.</p>
+      @if (sinConexion()) {
+        <p class="nota">Puedes agregar las prendas del catálogo que ya cargaste: se guardan aquí hasta que las pagues.</p>
+      }
       <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta()">Ver catálogo</a>
     </div>
   } @else {
     <div class="columnas">
       <div class="columnas__principal">
-        @for (linea of carritoService.lineas(); track linea.variante_id) {
+        @for (linea of lineasVista(); track linea.varianteId) {
           <div class="linea" [class.linea--aviso]="!linea.disponible">
-            @if (linea.imagenPrincipal) {
-              <img class="linea__foto" [src]="linea.imagenPrincipal" alt="" />
+            @if (linea.imagen) {
+              <img class="linea__foto" [src]="linea.imagen" alt="" />
             } @else {
               <div class="linea__foto linea__foto--vacia"><fs-icono nombre="imagen" [tam]="36" /></div>
             }
             <div class="linea__info">
-              <span class="linea__nombre">{{ linea.productoNombre ?? 'Prenda' }}</span>
-              @if (linea.tallaCodigo || linea.colorNombre) {
-                <span class="linea__detalle">{{ [linea.tallaCodigo, linea.colorNombre].join(' · ') }}</span>
+              <span class="linea__nombre">{{ linea.nombre }}</span>
+              @if (linea.detalle) {
+                <span class="linea__detalle">{{ linea.detalle }}</span>
               }
-              <span class="linea__precio fs-num">Bs {{ linea.precio_unitario | number: '1.2-2' }}</span>
+              <span class="linea__precio fs-num">Bs {{ linea.precio | number: '1.2-2' }}</span>
               @if (!linea.disponible) {
                 <span class="linea__no-disponible">
                   <fs-icono nombre="advertencia" [tam]="24" />
@@ -71,7 +121,7 @@
                   type="button"
                   class="cantidad__boton"
                   aria-label="Disminuir cantidad"
-                  (click)="disminuir(linea.variante_id, linea.cantidad)"
+                  (click)="disminuir(linea.varianteId, linea.cantidad)"
                 >
                   <fs-icono nombre="menos" [tam]="24" />
                 </button>
@@ -81,7 +131,7 @@
                   class="cantidad__boton"
                   aria-label="Aumentar cantidad"
                   [disabled]="!linea.disponible"
-                  (click)="aumentar(linea.variante_id, linea.cantidad)"
+                  (click)="aumentar(linea.varianteId, linea.cantidad)"
                 >
                   <fs-icono nombre="mas" [tam]="24" />
                 </button>
@@ -89,8 +139,8 @@
               <button
                 type="button"
                 class="linea__quitar"
-                [attr.aria-label]="'Quitar ' + (linea.productoNombre ?? 'prenda')"
-                (click)="quitar(linea.variante_id)"
+                [attr.aria-label]="'Quitar ' + linea.nombre"
+                (click)="quitar(linea.varianteId)"
               >
                 <fs-icono nombre="basura" [tam]="24" />
                 Quitar
@@ -101,29 +151,54 @@
       </div>
 
       <div class="columnas__lateral">
-        <app-resumen-compra
-          [subtotal]="carritoService.resumen()?.subtotal ?? null"
-          [descuento]="carritoService.resumen()?.descuento ?? 0"
-          [total]="carritoService.resumen()?.total ?? null"
-          [cargando]="carritoService.calculandoResumen()"
-        >
-          <button
-            type="button"
-            class="fs-btn fs-btn--primario fs-btn--bloque continuar"
-            [disabled]="hayNoDisponibles()"
-            (click)="continuar()"
+        @if (sinConexion()) {
+          <app-resumen-compra [subtotal]="subtotalLocal()" [total]="subtotalLocal()">
+            <button
+              type="button"
+              class="fs-btn fs-btn--primario fs-btn--bloque continuar"
+              data-estado="pagar-paypal-guardado"
+              [disabled]="!metodoPagoLocal.tienePaypal()"
+              (click)="continuar()"
+            >
+              <fs-icono nombre="candado" [tam]="24" />
+              Pagar con mi PayPal guardado
+            </button>
+            @if (!metodoPagoLocal.tienePaypal()) {
+              <p class="nota" data-estado="sin-paypal-guardado">
+                Guarda tu PayPal con conexión para pagar sin internet.
+                <a class="aviso-pendiente__enlace" [routerLink]="tienda.ruta('mi-cuenta', 'metodo-pago')">Ir a Método de pago</a>
+              </p>
+            }
+            <p class="nota">
+              Estos precios son los que tenías guardados. Sin conexión no se calculan promociones: el servidor las aplica al
+              cobrar y nunca cobrará más del total que aceptes.
+            </p>
+          </app-resumen-compra>
+        } @else {
+          <app-resumen-compra
+            [subtotal]="carritoService.resumen()?.subtotal ?? null"
+            [descuento]="carritoService.resumen()?.descuento ?? 0"
+            [total]="carritoService.resumen()?.total ?? null"
+            [cargando]="carritoService.calculandoResumen()"
           >
-            Continuar
-            <fs-icono nombre="flecha-derecha" [tam]="24" />
-          </button>
-          @if (hayNoDisponibles()) {
-            <p class="nota">Quita las prendas que ya no están disponibles para continuar con la compra.</p>
-          }
-          <p class="seguro">
-            <fs-icono nombre="escudo-check" [tam]="28" />
-            Pagos seguros con QR o PayPal.
-          </p>
-        </app-resumen-compra>
+            <button
+              type="button"
+              class="fs-btn fs-btn--primario fs-btn--bloque continuar"
+              [disabled]="hayNoDisponibles()"
+              (click)="continuar()"
+            >
+              Continuar
+              <fs-icono nombre="flecha-derecha" [tam]="24" />
+            </button>
+            @if (hayNoDisponibles()) {
+              <p class="nota">Quita las prendas que ya no están disponibles para continuar con la compra.</p>
+            }
+            <p class="seguro">
+              <fs-icono nombre="escudo-check" [tam]="28" />
+              Pagos seguros con QR o PayPal.
+            </p>
+          </app-resumen-compra>
+        }
       </div>
     </div>
   }

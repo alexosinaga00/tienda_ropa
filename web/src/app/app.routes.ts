@@ -169,6 +169,41 @@ export const routes: Routes = [
               ),
           },
           {
+            // Pago con el PayPal guardado cuando no hay conexión (el pedido queda en cola y se cobra al volver la red).
+            path: 'checkout/sin-conexion',
+            canActivate: GUARDS_PRIVADOS_DE_TIENDA,
+            loadComponent: () =>
+              import('./features/tienda/presentation/checkout-sin-conexion.component').then(
+                (m) => m.CheckoutSinConexionComponent,
+              ),
+          },
+          {
+            path: 'mi-cuenta',
+            pathMatch: 'full',
+            redirectTo: 'mi-cuenta/metodo-pago',
+          },
+          {
+            path: 'mi-cuenta/metodo-pago',
+            canActivate: GUARDS_PRIVADOS_DE_TIENDA,
+            loadComponent: () =>
+              import('./features/tienda/presentation/metodo-pago.component').then((m) => m.MetodoPagoComponent),
+          },
+          {
+            // A donde PayPal devuelve al cliente tras autorizar (o cancelar) el guardado de su método de pago.
+            path: 'mi-cuenta/paypal-guardado',
+            canActivate: GUARDS_PRIVADOS_DE_TIENDA,
+            loadComponent: () =>
+              import('./features/tienda/presentation/paypal-guardado.component').then((m) => m.PaypalGuardadoComponent),
+          },
+          {
+            path: 'mi-cuenta/pedidos-sin-conexion',
+            canActivate: GUARDS_PRIVADOS_DE_TIENDA,
+            loadComponent: () =>
+              import('./features/tienda/presentation/pedidos-sin-conexion.component').then(
+                (m) => m.PedidosSinConexionComponent,
+              ),
+          },
+          {
             path: 'checkout/estado/:pagoId',
             canActivate: GUARDS_PRIVADOS_DE_TIENDA,
             loadComponent: () =>

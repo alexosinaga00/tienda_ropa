@@ -1,0 +1,59 @@
+<div class="retorno">
+  <div class="encabezado">
+    <div>
+      <span class="fs-eyebrow">Mi cuenta</span>
+      <h1 class="fs-display">Tu PayPal</h1>
+    </div>
+  </div>
+
+  @switch (resultado()) {
+    @case ('confirmando') {
+      <p class="fs-estado-vacio" role="status" data-estado="confirmando">Confirmando tu PayPal con el servidor…</p>
+    }
+    @case ('exito') {
+      <div class="panel panel--exito" role="status" data-estado="paypal-exito">
+        <span class="panel__icono"><fs-icono nombre="check" [tam]="36" /></span>
+        <h2 class="panel__titulo">Listo, guardamos tu PayPal</h2>
+        <p class="panel__texto">
+          @if (metodo()?.correo_paypal) {
+            Cuenta <strong class="fs-num">{{ metodo()?.correo_paypal }}</strong>.
+          }
+          Ahora puedes pagar pedidos sin conexión: los cobraremos de tu PayPal cuando vuelva la conexión, siempre hasta el total
+          que veas y aceptes.
+        </p>
+      </div>
+    }
+    @case ('cancelado') {
+      <div class="panel" role="status" data-estado="paypal-cancelado">
+        <span class="panel__icono"><fs-icono nombre="advertencia" [tam]="36" /></span>
+        <h2 class="panel__titulo">No guardamos tu PayPal</h2>
+        <p class="panel__texto">Cancelaste la autorización en PayPal. No se guardó nada y no se cobró nada.</p>
+      </div>
+    }
+    @case ('error') {
+      <div class="panel panel--error" role="alert" data-estado="paypal-error">
+        <span class="panel__icono"><fs-icono nombre="alerta" [tam]="36" /></span>
+        <h2 class="panel__titulo">No pudimos guardar tu PayPal</h2>
+        <p class="panel__texto">{{ mensajeError() }}</p>
+        <button type="button" class="fs-btn fs-btn--secundario" data-estado="reintentar-confirmar" (click)="confirmar()">
+          <fs-icono nombre="refrescar" [tam]="24" />
+          Reintentar
+        </button>
+      </div>
+    }
+    @default {
+      <div class="panel" role="status" data-estado="paypal-sin-datos">
+        <span class="panel__icono"><fs-icono nombre="alerta" [tam]="36" /></span>
+        <h2 class="panel__titulo">Este enlace no trae datos de PayPal</h2>
+        <p class="panel__texto">Vuelve a tu cuenta y toca “Guardar mi PayPal” para empezar de nuevo.</p>
+      </div>
+    }
+  }
+
+  @if (resultado() !== 'confirmando') {
+    <a class="fs-btn fs-btn--primario volver" data-estado="volver-metodo-pago" [routerLink]="tienda.ruta('mi-cuenta', 'metodo-pago')">
+      <fs-icono nombre="flecha-izquierda" [tam]="24" />
+      Volver a mi método de pago
+    </a>
+  }
+</div>

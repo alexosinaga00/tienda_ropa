@@ -109,6 +109,9 @@ const RUTAS_PROHIBIDAS = [
 
 const SIETE_DIAS_MS = 7 * 86_400_000;
 
+/** Única excepción a "solo /public/": las fotos del catálogo, que son públicas y viven en Cloudinary. */
+const FOTOS_CATALOGO = 'https://res.cloudinary.com/*/image/upload/**';
+
 describe('ngsw-config.json: seguridad de la caché', () => {
   let config: ConfigNgsw;
 
@@ -130,13 +133,21 @@ describe('ngsw-config.json: seguridad de la caché', () => {
     expect(patronesDeAssets().length).toBeGreaterThan(0);
   });
 
-  it('TODA url de dataGroups es de la API pública: contiene "/public/"', () => {
+  it('TODA url de dataGroups es de la API pública ("/public/") o de las fotos públicas del catálogo en Cloudinary', () => {
     expect(urlsDeDatos().length).toBeGreaterThan(0);
     for (const grupo of dataGroups()) {
       expect(grupo.urls.length, `el grupo "${grupo.name}" no tiene urls`).toBeGreaterThan(0);
     }
-    const ajenas = urlsDeDatos().filter((url) => !url.includes('/public/'));
+    const ajenas = urlsDeDatos().filter((url) => !url.includes('/public/') && url !== FOTOS_CATALOGO);
     expect(ajenas).toEqual([]);
+  });
+
+  it('las fotos del catálogo (Cloudinary) se guardan solo como imágenes, pocas y por pocos días', () => {
+    const grupo = dataGroups().find((g) => g.name === 'fotos-catalogo');
+    expect(grupo, 'falta el grupo fotos-catalogo').toBeDefined();
+    expect(grupo?.urls).toEqual([FOTOS_CATALOGO]);
+    expect(grupo?.cacheConfig?.maxSize).toBeLessThanOrEqual(100);
+    expect(duracionAMs(grupo?.cacheConfig?.maxAge ?? '')).toBeLessThanOrEqual(SIETE_DIAS_MS);
   });
 
   it.each(RUTAS_PROHIBIDAS)('ninguna url de dataGroups ni de assetGroups contiene %s', (ruta) => {

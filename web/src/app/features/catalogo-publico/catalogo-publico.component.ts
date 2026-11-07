@@ -1,9 +1,10 @@
 import { DecimalPipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
+import { ConectividadService } from '../../core/conectividad.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { irAColeccion } from '../tienda/ir-a-coleccion';
 import { TiendaActualService } from '../tienda/state/tienda-actual.service';
@@ -41,6 +42,7 @@ const GENEROS: { valor: Genero; etiqueta: string }[] = [
 export class CatalogoPublicoComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly messageService = inject(MessageService);
+  private readonly conectividad = inject(ConectividadService);
   protected readonly tienda = inject(TiendaActualService);
   private temporizadorBusqueda?: ReturnType<typeof setTimeout>;
 
@@ -57,6 +59,9 @@ export class CatalogoPublicoComponent implements OnInit {
   protected readonly cargando = signal(true);
   protected readonly cargandoMas = signal(false);
   protected readonly error = signal(false);
+
+  /** Sin red o con el servidor caído: solo se ve lo que el Service Worker ya tenía guardado. */
+  protected readonly sinConexion = computed(() => this.conectividad.estado() !== 'en_linea');
 
   // `hayMas` no viene del backend: /catalogo y /catalogo/buscar devuelven una
   // lista pelada, sin total. Se deduce igual que en la app móvil -- si la
@@ -196,6 +201,8 @@ export class CatalogoPublicoComponent implements OnInit {
   private avisarError(err: HttpErrorResponse): void {
     // El 429 ya lo explica el interceptor de errores: no se duplica el aviso.
     if (err.status === 429) return;
+    // Sin conexión lo dice la propia pantalla (y la franja de arriba): un aviso más sería ruido.
+    if (this.sinConexion()) return;
     this.messageService.add({
       severity: 'error',
       summary: 'No se pudo cargar el catálogo',

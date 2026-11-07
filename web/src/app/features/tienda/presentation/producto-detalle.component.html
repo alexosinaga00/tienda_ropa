@@ -3,8 +3,15 @@
     <p class="fs-estado-vacio" role="status">Cargando…</p>
   } @else if (error() || !detalle()) {
     <div class="fs-estado-vacio">
-      <fs-icono nombre="alerta" [tam]="52" />
-      <p>No se pudo cargar esta prenda.</p>
+      @if (sinConexion()) {
+        <fs-icono nombre="enlace-roto" [tam]="52" />
+        <p data-estado="prenda-sin-conexion">
+          Sin conexión: esta prenda no estaba guardada en tu equipo. Conéctate para verla.
+        </p>
+      } @else {
+        <fs-icono nombre="alerta" [tam]="52" />
+        <p>No se pudo cargar esta prenda.</p>
+      }
       <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta()">Volver al catálogo</a>
     </div>
   } @else {
@@ -130,9 +137,20 @@
                   Agregado
                 } @else {
                   <fs-icono nombre="carrito" [tam]="24" />
-                  Agregar al carrito
+                  {{ sinConexion() ? 'Agregar al carrito sin conexión' : 'Agregar al carrito' }}
                 }
               </button>
+              @if (sinConexion()) {
+                <p class="fs-caption" data-estado="aviso-carrito-local">
+                  Sin conexión se guarda en un carrito de tu equipo y lo pagas con tu PayPal guardado.
+                </p>
+              }
+              @if (errorLocal()) {
+                <p class="fs-error-texto" role="alert" data-estado="error-carrito-local">
+                  <fs-icono nombre="alerta" [tam]="24" />
+                  {{ errorLocal() }}
+                </p>
+              }
               <button type="button" class="fs-btn fs-btn--secundario fs-btn--bloque" (click)="reservarParaProbar()">
                 @if (reservaCarritoService.contiene(varianteActiva()!.id)) {
                   <fs-icono nombre="check" [tam]="24" />
@@ -168,6 +186,14 @@
           <span class="selector__titulo">Disponibilidad por sucursal</span>
           @if (!varianteActiva()) {
             <p class="fs-caption">Elige talla y color para ver la disponibilidad.</p>
+          } @else if (disponibilidadDesconocida()) {
+            <p class="fs-caption" role="status" data-estado="disponibilidad-desconocida">
+              {{
+                sinConexion()
+                  ? 'Sin conexión: no podemos mostrar la disponibilidad de esta combinación. El stock se confirma al comprar.'
+                  : 'No pudimos consultar la disponibilidad ahora. Prueba de nuevo en un momento.'
+              }}
+            </p>
           } @else {
             <ul>
               @for (fila of disponibilidadPorSucursal(); track fila.sucursal.id) {

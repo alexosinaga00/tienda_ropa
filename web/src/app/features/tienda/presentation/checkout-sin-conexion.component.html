@@ -1,0 +1,157 @@
+<div class="checkout">
+  <div class="encabezado">
+    <div>
+      <span class="fs-eyebrow">Tu compra</span>
+      <h1 class="fs-display">Pagar sin conexión</h1>
+    </div>
+    <a class="enlace-volver" [routerLink]="tienda.ruta('carrito')">
+      <fs-icono nombre="flecha-izquierda" [tam]="24" />
+      Volver al carrito
+    </a>
+  </div>
+
+  @if (!sinConexion()) {
+    <p class="fs-aviso fs-aviso--exito aviso" role="status" data-estado="volvio-conexion">
+      <fs-icono nombre="check" [tam]="24" />
+      <span>
+        Ya tienes conexión: puedes pagar con QR o PayPal desde tu carrito. Si prefieres, también puedes dejar este pedido para
+        cobrarlo de tu PayPal guardado.
+      </span>
+    </p>
+  }
+
+  @if (cargando()) {
+    <p class="fs-estado-vacio" role="status">Preparando tu pedido…</p>
+  } @else if (carrito.cantidadLineas() === 0) {
+    <div class="fs-estado-vacio vacio" data-estado="carrito-vacio">
+      <fs-icono nombre="carrito" [tam]="52" />
+      <p>No hay prendas en tu carrito sin conexión.</p>
+      <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta('carrito')">Ir a mi carrito</a>
+    </div>
+  } @else {
+    <div class="columnas">
+      <div class="columnas__principal">
+        <section class="bloque" aria-labelledby="titulo-prendas">
+          <span id="titulo-prendas" class="bloque__titulo">Tus prendas</span>
+          <ul class="prendas">
+            @for (linea of carrito.lineas(); track linea.variante_id) {
+              <li class="prenda">
+                <span class="prenda__texto">
+                  <span class="prenda__nombre">{{ linea.producto_nombre }}</span>
+                  @if (detalleDe(linea.talla, linea.color); as detalle) {
+                    <span class="prenda__detalle">{{ detalle }}</span>
+                  }
+                </span>
+                <span class="prenda__cuenta fs-num">{{ linea.cantidad }} × Bs {{ linea.precio_unitario }}</span>
+              </li>
+            }
+          </ul>
+          @if (demasiadasLineas()) {
+            <p class="fs-error-texto" role="alert" data-estado="demasiadas-lineas">
+              <fs-icono nombre="alerta" [tam]="24" />
+              Son demasiadas prendas distintas para un solo pedido sin conexión. Quita algunas en tu carrito.
+            </p>
+          }
+        </section>
+
+        <section class="bloque" aria-labelledby="titulo-entrega">
+          <span id="titulo-entrega" class="bloque__titulo">Retiro en sucursal</span>
+          <p class="fs-caption">Sin conexión solo puedes retirar en una sucursal (sin costo de envío).</p>
+          @if (retirables().length === 0) {
+            <p class="fs-error-texto" role="alert" data-estado="sin-sucursales">
+              <fs-icono nombre="alerta" [tam]="24" />
+              No tenemos sucursales guardadas en este equipo. Conéctate una vez para guardarlas.
+            </p>
+          } @else {
+            <div class="fs-pill-fila" role="group" aria-label="Sucursal de retiro">
+              @for (sucursal of retirables(); track sucursal.id) {
+                <button
+                  type="button"
+                  class="fs-pill"
+                  [class.activa]="sucursalId() === sucursal.id"
+                  [attr.aria-pressed]="sucursalId() === sucursal.id"
+                  (click)="elegirSucursal(sucursal.id)"
+                >
+                  {{ sucursal.nombre }}
+                </button>
+              }
+            </div>
+            <p class="fs-caption">El stock se confirma al cobrar: si ya no hay, no se cobra nada y te avisamos.</p>
+          }
+        </section>
+
+        <section class="bloque" aria-labelledby="titulo-pago">
+          <span id="titulo-pago" class="bloque__titulo">Pago</span>
+          @if (metodoPago.tienePaypal()) {
+            <div class="metodo metodo--elegido" data-estado="metodo-paypal-guardado">
+              <span class="metodo__icono"><fs-icono nombre="tarjeta" [tam]="36" /></span>
+              <span>
+                <span class="metodo__nombre">Mi PayPal guardado</span>
+                <span class="metodo__texto">
+                  @if (metodoPago.recordado()?.correo_paypal) {
+                    {{ metodoPago.recordado()?.correo_paypal }}. Se cobra cuando vuelva la conexión.
+                  } @else {
+                    Se cobra cuando vuelva la conexión.
+                  }
+                </span>
+              </span>
+            </div>
+          } @else {
+            <div class="metodo metodo--deshabilitado" aria-disabled="true" data-estado="metodo-paypal-no-disponible">
+              <span class="metodo__icono"><fs-icono nombre="tarjeta" [tam]="36" /></span>
+              <span>
+                <span class="metodo__nombre">Pagar con mi PayPal guardado</span>
+                <span class="metodo__texto">Guarda tu PayPal con conexión para pagar sin internet.</span>
+              </span>
+            </div>
+            <a class="enlace-metodo" [routerLink]="tienda.ruta('mi-cuenta', 'metodo-pago')">
+              Ir a Método de pago
+              <fs-icono nombre="flecha-derecha" [tam]="24" />
+            </a>
+          }
+        </section>
+      </div>
+
+      <div class="columnas__lateral">
+        <app-resumen-compra [subtotal]="total()" [envio]="0" [total]="total()">
+          <label class="acepto" [class.acepto--bloqueado]="!metodoPago.tienePaypal()">
+            <input
+              type="checkbox"
+              class="acepto__casilla"
+              data-estado="aceptar-total"
+              [checked]="acepto()"
+              [disabled]="!metodoPago.tienePaypal()"
+              (change)="alternarAceptacion($event)"
+            />
+            <span class="acepto__texto" data-estado="texto-aceptacion">
+              Se cobrará hasta <strong class="fs-num">Bs {{ totalTexto() }}</strong> cuando vuelva la conexión.
+            </span>
+          </label>
+          <button
+            type="button"
+            class="fs-btn fs-btn--primario fs-btn--bloque confirmar"
+            data-estado="confirmar-pedido"
+            [disabled]="!puedeConfirmar()"
+            (click)="confirmar()"
+          >
+            @if (guardando()) {
+              Guardando…
+            } @else {
+              <fs-icono nombre="candado" [tam]="24" />
+              Confirmar pedido
+            }
+          </button>
+          @if (error()) {
+            <p class="fs-error-texto" role="alert" data-estado="error-pedido">
+              <fs-icono nombre="alerta" [tam]="24" />
+              {{ error() }}
+            </p>
+          }
+          <p class="nota">
+            Usamos los precios que tenías guardados. Si cambiaron y el total supera lo que aceptaste, no se cobra y te avisamos.
+          </p>
+        </app-resumen-compra>
+      </div>
+    </div>
+  }
+</div>

@@ -6,6 +6,7 @@ import { IconoComponent } from '../../../shared/icono/icono.component';
 import { CambiosService } from '../data/cambios.service';
 import { PedidosService } from '../data/pedidos.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
+import { MiCuentaPestanasComponent } from './mi-cuenta-pestanas.component';
 
 const ETIQUETAS_ESTADO: Record<EstadoVenta, string> = {
   pendiente_pago: 'Pendiente de pago',
@@ -25,7 +26,7 @@ const CLASES_ESTADO: Record<EstadoVenta, string> = {
 @Component({
   selector: 'app-mis-compras',
   standalone: true,
-  imports: [RouterLink, DatePipe, DecimalPipe, IconoComponent],
+  imports: [RouterLink, DatePipe, DecimalPipe, IconoComponent, MiCuentaPestanasComponent],
   templateUrl: './mis-compras.component.html',
   styleUrl: './mis-compras.component.scss',
 })

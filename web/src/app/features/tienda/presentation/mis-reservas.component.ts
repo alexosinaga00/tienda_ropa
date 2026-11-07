@@ -5,11 +5,12 @@ import { IconoComponent } from '../../../shared/icono/icono.component';
 import { ReservasClienteService } from '../data/reservas.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
 import { CLASES_ESTADO_RESERVA, ETIQUETAS_ESTADO_RESERVA } from './estados-reserva';
+import { MiCuentaPestanasComponent } from './mi-cuenta-pestanas.component';
 
 @Component({
   selector: 'app-mis-reservas',
   standalone: true,
-  imports: [RouterLink, IconoComponent],
+  imports: [RouterLink, IconoComponent, MiCuentaPestanasComponent],
   templateUrl: './mis-reservas.component.html',
   styleUrl: './mis-reservas.component.scss',
 })

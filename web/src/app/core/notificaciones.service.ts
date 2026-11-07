@@ -1,7 +1,8 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { SIN_TOAST_ERROR } from './http-contexts';
 import { Notificacion } from './models/notificaciones.models';
 
 /**
@@ -19,10 +20,18 @@ export class NotificacionesService {
   readonly notificaciones = this.lista.asReadonly();
   readonly noLeidas = computed(() => this.lista().filter((n) => !n.leida).length);
 
-  cargar(): Observable<Notificacion[]> {
+  /** `silencioso`: si la consulta falla (p. ej. el servidor no las entrega a ese usuario) no se abre el aviso de error. */
+  cargar(silencioso = false): Observable<Notificacion[]> {
     return this.http
-      .get<Notificacion[]>(`${environment.apiUrl}/notificaciones`)
+      .get<Notificacion[]>(`${environment.apiUrl}/notificaciones`, {
+        context: silencioso ? new HttpContext().set(SIN_TOAST_ERROR, true) : undefined,
+      })
       .pipe(tap((notificaciones) => this.lista.set(notificaciones)));
+  }
+
+  /** Las del tipo indicado (p. ej. `pedido_diferido` para el cliente). */
+  deTipo(tipo: string): Notificacion[] {
+    return this.lista().filter((n) => n.tipo === tipo);
   }
 
   marcarLeida(notificacionId: number): Observable<Notificacion> {

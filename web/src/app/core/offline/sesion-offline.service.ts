@@ -7,7 +7,7 @@ import type { AlcanceOffline } from './offline.models';
 import type { RepositorioLocal } from './repositorio-local';
 
 /** UUID v4: con `crypto.randomUUID` si existe; si no, con `getRandomValues`, y como último recurso con `Math.random`. */
-function generarUuid(): string {
+export function generarUuid(): string {
   const c = typeof crypto !== 'undefined' ? crypto : undefined;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
   const bytes = new Uint8Array(16);

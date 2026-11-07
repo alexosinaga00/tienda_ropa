@@ -1,0 +1,196 @@
+<div class="cuenta">
+  <div class="encabezado">
+    <div>
+      <span class="fs-eyebrow">Mi cuenta</span>
+      <h1 class="fs-display">Pedidos sin conexión</h1>
+    </div>
+  </div>
+
+  <app-mi-cuenta-pestanas activa="sin-conexion" />
+
+  @switch (cola.estadoCola()) {
+    @case ('sin_conexion') {
+      <p class="fs-aviso fs-aviso--advertencia aviso" role="status" data-estado="cola-sin-conexion">
+        <fs-icono nombre="enlace-roto" [tam]="24" />
+        <span>Sin conexión: tus pedidos salen solos y se cobran de tu PayPal cuando vuelva la conexión.</span>
+      </p>
+    }
+    @case ('esperando_reintento') {
+      <p class="fs-aviso fs-aviso--advertencia aviso" role="status" data-estado="cola-reintentando">
+        <fs-icono nombre="reloj" [tam]="24" />
+        <span>El servidor no respondió. Lo intentaremos otra vez en un momento; tu pedido sigue guardado.</span>
+        <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="reintentar-ahora" (click)="reintentar()">
+          Reintentar ahora
+        </button>
+      </p>
+    }
+    @case ('pausada_sesion') {
+      <p class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="cola-pausada-sesion">
+        <fs-icono nombre="alerta" [tam]="24" />
+        <span>{{ cola.motivoPausa() }}</span>
+      </p>
+    }
+    @case ('pausada') {
+      <p class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="cola-pausada">
+        <fs-icono nombre="alerta" [tam]="24" />
+        <span>{{ cola.motivoPausa() }}</span>
+        <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="reintentar-ahora" (click)="reintentar()">
+          Reintentar
+        </button>
+      </p>
+    }
+    @case ('detenida_por_fallos') {
+      <p class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="cola-detenida">
+        <fs-icono nombre="alerta" [tam]="24" />
+        <span>{{ cola.motivoPausa() }}</span>
+        <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="reintentar-ahora" (click)="reintentar()">
+          Reintentar
+        </button>
+      </p>
+    }
+  }
+
+  @if (cargando()) {
+    <p class="fs-estado-vacio" role="status">Cargando…</p>
+  } @else if (cola.pedidos().length === 0) {
+    <div class="vacio" data-estado="sin-pedidos">
+      <span class="vacio__icono"><fs-icono nombre="reloj" [tam]="40" /></span>
+      <p>No tienes pedidos hechos sin conexión.</p>
+      <p>
+        Si te quedas sin internet, agrega prendas a tu carrito y págalas con tu PayPal guardado: se cobran solas cuando vuelva
+        la conexión.
+      </p>
+      <a class="fs-btn fs-btn--secundario fs-btn--sm" [routerLink]="tienda.ruta('mi-cuenta', 'metodo-pago')">Método de pago</a>
+    </div>
+  } @else {
+    <div class="lista">
+      @for (pedido of cola.pedidos(); track pedido.operacion_id) {
+        <article class="pedido" [attr.data-estado]="'pedido-' + pedido.estado" [attr.data-operacion]="pedido.operacion_id">
+          <header class="pedido__cabecera">
+            <div class="pedido__datos">
+              <div class="pedido__titulo">
+                @if (pedido.codigo_venta) {
+                  <span class="fs-num">{{ pedido.codigo_venta }}</span>
+                } @else {
+                  Pedido del {{ pedido.creado_en | date: 'short' }}
+                }
+              </div>
+              <div class="pedido__sub">
+                {{ cantidadPrendas(pedido) }} {{ cantidadPrendas(pedido) === 1 ? 'prenda' : 'prendas' }} · Retiro en
+                {{ pedido.sucursal_nombre }}
+              </div>
+            </div>
+            <span [class]="'fs-chip ' + clase(pedido.estado)" data-estado="chip-estado">{{ etiqueta(pedido.estado) }}</span>
+            <span class="pedido__total fs-num">
+              @if (pedido.estado === 'cobrado') {
+                Bs {{ dinero(pedido.total) }}
+              } @else {
+                Hasta Bs {{ dinero(pedido.total_maximo) }}
+              }
+            </span>
+          </header>
+
+          <ul class="pedido__lineas">
+            @for (linea of pedido.lineas; track linea.variante_id) {
+              <li>
+                <span>{{ linea.cantidad }} × {{ linea.producto_nombre }}</span>
+                @if (detalleDe(linea.talla, linea.color); as detalle) {
+                  <span class="pedido__detalle">{{ detalle }}</span>
+                }
+              </li>
+            }
+          </ul>
+
+          @if (pedido.estado === 'rechazado') {
+            <p class="fs-aviso fs-aviso--error pedido__mensaje" role="status" data-estado="mensaje-rechazo">
+              <fs-icono nombre="alerta" [tam]="24" />
+              <span>{{ pedido.mensaje || 'No pudimos cobrar este pedido. No se cobró nada.' }}</span>
+            </p>
+          }
+          @if (pedido.estado === 'vencido') {
+            <p class="fs-aviso fs-aviso--error pedido__mensaje" role="status" data-estado="mensaje-vencido">
+              <fs-icono nombre="reloj" [tam]="24" />
+              <span>{{ pedido.mensaje }}. No se cobró nada: puedes descartarlo.</span>
+            </p>
+          }
+          @if (pedido.estado === 'cobrado' && pedido.mensaje) {
+            <p class="pedido__nota">{{ pedido.mensaje }}</p>
+          }
+          @if (pedido.estado === 'pendiente' && pedido.ultimo_error) {
+            <p class="pedido__nota" data-estado="nota-reintento">Todavía no pudimos enviarlo; lo intentaremos de nuevo.</p>
+          }
+
+          <div class="pedido__acciones">
+            @if (pedido.estado === 'cobrado' && pedido.venta_id) {
+              <a
+                class="fs-btn fs-btn--secundario fs-btn--sm"
+                data-estado="ver-compra"
+                [routerLink]="tienda.ruta('mis-compras', '' + pedido.venta_id)"
+              >
+                Ver mi compra
+                <fs-icono nombre="flecha-derecha" [tam]="24" />
+              </a>
+            }
+            @if (pedido.estado === 'pendiente' || pedido.estado === 'vencido') {
+              @if (confirmandoDescarte() === pedido.operacion_id) {
+                <div class="confirmar" role="alertdialog" data-estado="confirmar-descarte">
+                  <p class="confirmar__texto">
+                    ¿Descartar este pedido?
+                    @if (pedido.estado === 'pendiente' && pedido.intentos > 0) {
+                      Ya intentamos enviarlo; si llegó a cobrarse, lo verás en Mis compras.
+                    } @else {
+                      No se cobrará nada.
+                    }
+                  </p>
+                  <div class="confirmar__botones">
+                    <button
+                      type="button"
+                      class="fs-btn fs-btn--primario fs-btn--sm"
+                      data-estado="descartar-si"
+                      [disabled]="descartando()"
+                      (click)="descartar(pedido.operacion_id)"
+                    >
+                      Sí, descartar
+                    </button>
+                    <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="cancelarDescarte()">Cancelar</button>
+                  </div>
+                </div>
+              } @else {
+                <button
+                  type="button"
+                  class="fs-btn fs-btn--secundario fs-btn--sm"
+                  data-estado="descartar-pedido"
+                  (click)="pedirDescarte(pedido.operacion_id)"
+                >
+                  <fs-icono nombre="basura" [tam]="24" />
+                  Descartar
+                </button>
+              }
+            }
+          </div>
+        </article>
+      }
+    </div>
+  }
+
+  @if (avisos().length > 0) {
+    <section class="avisos" aria-label="Avisos de tus pedidos" data-estado="avisos-servidor">
+      <h2 class="avisos__titulo">Avisos</h2>
+      @for (aviso of avisos(); track aviso.id) {
+        <div class="aviso-servidor" [class.aviso-servidor--nuevo]="!aviso.leida">
+          <fs-icono nombre="campana" [tam]="24" />
+          <div class="aviso-servidor__texto">
+            <strong>{{ aviso.titulo }}</strong>
+            @if (aviso.mensaje) {
+              <span>{{ aviso.mensaje }}</span>
+            }
+            <span class="aviso-servidor__fecha">{{ aviso.creado_en | date: 'short' }}</span>
+          </div>
+          @if (!aviso.leida) {
+            <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="marcarLeida(aviso.id)">Marcar leído</button>
+          }
+        </div>
+      }
+    </section>
+  }
+</div>

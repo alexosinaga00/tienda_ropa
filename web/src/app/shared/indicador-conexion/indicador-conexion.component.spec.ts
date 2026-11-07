@@ -110,7 +110,7 @@ describe('IndicadorConexionComponent', () => {
 
     const franja = el.querySelector('.franja') as HTMLElement;
     expect(franja).not.toBeNull();
-    expect(franja.textContent).toContain('Sin conexión. Estás viendo información guardada que puede estar desactualizada.');
+    expect(franja.textContent).toContain('Sin conexión: ves lo que ya tenías cargado. La información puede estar desactualizada.');
     expect(el.querySelector('.fs-chip')).toBeNull();
   });
 
