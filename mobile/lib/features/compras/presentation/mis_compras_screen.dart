@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../cliente_offline/state/cliente_offline_providers.dart';
 import '../models/venta.dart';
 import '../state/compras_providers.dart';
 import '../state/mis_compras_controller.dart';
@@ -19,10 +20,26 @@ class MisComprasScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncCompras = ref.watch(misComprasControllerProvider);
+    // Los pedidos hechos sin conexión que todavía no salieron, más los resultados que no se vieron.
+    final pedidosPorVer = ref.watch(pedidosSinEnviarProvider) + ref.watch(pedidosSinVerProvider);
 
     return Scaffold(
       backgroundColor: AppColors.fondo,
-      appBar: AppBar(title: const Text('Mis compras')),
+      appBar: AppBar(
+        title: const Text('Mis compras'),
+        actions: [
+          IconButton(
+            key: const Key('ir-a-pedidos-sin-conexion'),
+            tooltip: 'Pedidos sin conexión',
+            icon: Badge(
+              label: Text('$pedidosPorVer'),
+              isLabelVisible: pedidosPorVer > 0,
+              child: const Icon(Icons.cloud_off_outlined),
+            ),
+            onPressed: () => context.push('/pedidos-sin-conexion'),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: () => ref.read(misComprasControllerProvider.notifier).cargar(),
         child: asyncCompras.when(

@@ -36,9 +36,13 @@ class ErrorApp implements Exception {
     this.codigo,
     this.detalle,
     this.posiblementeRecibido = false,
+    this.reintentarDespues,
   });
 
   final TipoErrorApp tipo;
+
+  /// Lo que el servidor pidió esperar (cabecera `Retry-After`, p. ej. en un 429), si la mandó y se entendió.
+  final Duration? reintentarDespues;
 
   /// La petición pudo haber LLEGADO al servidor aunque no hubo respuesta (se cortó al enviar o al esperar). Con `false` es
   /// seguro que no llegó. Importa para reenviar: una operación con id único se puede reenviar sin duplicarse, pero hay que
@@ -144,7 +148,22 @@ class ErrorApp implements Exception {
       _ => textoBackend ?? 'Ocurrió un error inesperado. Intenta de nuevo.',
     };
 
-    return ErrorApp(tipo: tipo, estado: estado, codigo: codigo, mensaje: mensaje, detalle: detalleTexto);
+    return ErrorApp(
+      tipo: tipo,
+      estado: estado,
+      codigo: codigo,
+      mensaje: mensaje,
+      detalle: detalleTexto,
+      reintentarDespues: _leerRetryAfter(respuesta.headers.value('retry-after')),
+    );
+  }
+
+  /// `Retry-After` en segundos ("30"). Una fecha HTTP o un valor ilegible se ignoran (el llamador usa su propia espera).
+  /// Se acota a 1 hora para que un valor absurdo no deje un pedido dormido.
+  static Duration? _leerRetryAfter(String? valor) {
+    final segundos = int.tryParse(valor?.trim() ?? '');
+    if (segundos == null || segundos < 0) return null;
+    return Duration(seconds: segundos > 3600 ? 3600 : segundos);
   }
 
   @override

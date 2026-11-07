@@ -1,18 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
+import '../../cliente_offline/state/cliente_offline_providers.dart';
 import '../data/catalogo_repository.dart';
 import '../data/referencia_repository.dart';
 import '../models/catalogo_detalle.dart';
 import '../models/referencia.dart';
 
-final catalogoRepositoryProvider = Provider<CatalogoRepository>((ref) => CatalogoRepository(ref.watch(apiClientProvider)));
+/// Con el cache del cliente: lo que se ve con conexión se recuerda en el teléfono y se muestra cuando no hay red.
+final catalogoRepositoryProvider = Provider<CatalogoRepository>(
+  (ref) => CatalogoRepository(ref.watch(apiClientProvider), cache: ref.watch(cacheCatalogoClienteProvider)),
+);
 
 final detalleProductoProvider = FutureProvider.family<CatalogoDetalle, int>(
   (ref, productoId) => ref.watch(catalogoRepositoryProvider).detalle(productoId),
 );
 
 final referenciaRepositoryProvider = Provider<ReferenciaRepository>(
-  (ref) => ReferenciaRepository(ref.watch(apiClientProvider)),
+  (ref) => ReferenciaRepository(ref.watch(apiClientProvider), cache: ref.watch(cacheCatalogoClienteProvider)),
 );
 
 // Catálogos de referencia: se piden una sola vez y quedan en caché para

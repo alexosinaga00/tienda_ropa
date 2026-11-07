@@ -7,6 +7,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../tienda/presentation/marca_tienda.dart';
 import '../../tienda/state/tienda_controller.dart';
+import '../../cliente_offline/presentation/aviso_sin_conexion_cliente.dart';
+import '../../cliente_offline/state/cliente_offline_providers.dart';
 import '../../compras/state/carrito_controller.dart';
 import '../../notificaciones/presentation/boton_notificaciones.dart';
 import '../../recomendador/presentation/carrusel_recomendaciones.dart';
@@ -27,7 +29,18 @@ const _etiquetasCampoVoz = {
   'precio_max': 'Hasta Bs',
 };
 
-enum _AccionMenu { favoritos, carrito, compras, reservas, cambiarTienda, salir, iniciarSesion, accesoPersonal }
+enum _AccionMenu {
+  favoritos,
+  carrito,
+  compras,
+  reservas,
+  metodoPago,
+  pedidosSinConexion,
+  cambiarTienda,
+  salir,
+  iniciarSesion,
+  accesoPersonal,
+}
 
 class CatalogoScreen extends ConsumerStatefulWidget {
   const CatalogoScreen({super.key});
@@ -85,7 +98,15 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     final autenticado = ref.watch(authControllerProvider.select((s) => s.estaAutenticado));
     // Para un invitado no se debe ni mirar carritoControllerProvider: su
     // constructor dispara un GET /carrito (autenticado) apenas se instancia.
-    final cantidadEnCarrito = autenticado ? ref.watch(carritoControllerProvider).valueOrNull?.detalle.length ?? 0 : 0;
+    final enLinea = estaEnLinea(ref);
+    // Sin conexión el carrito que cuenta es el local (el del servidor no se puede consultar).
+    final cantidadEnCarrito = !autenticado
+        ? 0
+        : enLinea
+        ? ref.watch(carritoControllerProvider).valueOrNull?.detalle.length ?? 0
+        : ref.watch(carritoLocalProvider).length;
+    // Pedidos hechos sin conexión que todavía no salieron, más los resultados que el cliente no vio.
+    final pedidosPorVer = autenticado ? ref.watch(pedidosSinEnviarProvider) + ref.watch(pedidosSinVerProvider) : 0;
 
     return Scaffold(
       backgroundColor: AppColors.fondo,
@@ -106,8 +127,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
           PopupMenuButton<_AccionMenu>(
             tooltip: 'Más opciones',
             icon: Badge(
-              label: Text('$cantidadEnCarrito'),
-              isLabelVisible: cantidadEnCarrito > 0,
+              label: Text('${cantidadEnCarrito + pedidosPorVer}'),
+              isLabelVisible: cantidadEnCarrito + pedidosPorVer > 0,
               child: const Icon(Icons.more_vert),
             ),
             onSelected: (accion) {
@@ -120,6 +141,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                   context.push('/compras');
                 case _AccionMenu.reservas:
                   context.push('/reservas');
+                case _AccionMenu.metodoPago:
+                  context.push('/cuenta/metodo-pago');
+                case _AccionMenu.pedidosSinConexion:
+                  context.push('/pedidos-sin-conexion');
                 case _AccionMenu.cambiarTienda:
                   cambiarDeTiendaConAviso(context, ref);
                 case _AccionMenu.salir:
@@ -167,6 +192,28 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                   title: Text('Mis reservas'),
                 ),
               ),
+              if (autenticado) ...[
+                const PopupMenuItem(
+                  value: _AccionMenu.metodoPago,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.account_balance_wallet_outlined),
+                    title: Text('Método de pago'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _AccionMenu.pedidosSinConexion,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Badge(
+                      label: Text('$pedidosPorVer'),
+                      isLabelVisible: pedidosPorVer > 0,
+                      child: const Icon(Icons.cloud_off_outlined),
+                    ),
+                    title: const Text('Pedidos sin conexión'),
+                  ),
+                ),
+              ],
               const PopupMenuItem(
                 value: _AccionMenu.cambiarTienda,
                 child: ListTile(
@@ -208,6 +255,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
       ),
       body: Column(
         children: [
+          const AvisoSinConexionCliente(),
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, 0),
             child: Row(
@@ -293,7 +341,12 @@ class _Contenido extends ConsumerWidget {
       return RefreshIndicator(
         onRefresh: recargar,
         color: AppColors.acento,
-        child: _MensajeDesplazable(texto: 'No se pudo cargar el catálogo.', onReintentar: recargar),
+        child: _MensajeDesplazable(
+          texto: estaEnLinea(ref)
+              ? 'No se pudo cargar el catálogo.'
+              : 'Sin conexión y todavía no hay prendas guardadas en tu teléfono. Conéctate para ver el catálogo.',
+          onReintentar: recargar,
+        ),
       );
     }
 

@@ -12,6 +12,7 @@ class SesionStorage {
 
   static const _claveTienda = 'fs_tienda';
   static const _clavePerfil = 'fs_perfil';
+  static const _clavePerfilCliente = 'fs_perfil_cliente';
 
   static const _storage = FlutterSecureStorage();
 
@@ -48,4 +49,24 @@ class SesionStorage {
   }
 
   Future<void> borrarPerfil() => _storage.delete(key: _clavePerfil);
+
+  /// El último perfil verificado del CLIENTE. Solo sirve para reabrir la tienda sin conexión con la sesión que ya tenía
+  /// (ver el carrito y los pedidos guardados): el servidor vuelve a validar todo al recuperar la red. Va en una clave
+  /// aparte de la del personal. No guarda contraseñas ni tokens.
+  Future<void> guardarPerfilCliente(Usuario usuario) =>
+      _storage.write(key: _clavePerfilCliente, value: jsonEncode(usuario.toJson()));
+
+  /// El perfil del cliente guardado, o null si no hay o el valor está dañado.
+  Future<Usuario?> leerPerfilCliente() async {
+    final texto = await _storage.read(key: _clavePerfilCliente);
+    if (texto == null) return null;
+    try {
+      return Usuario.fromJson(jsonDecode(texto) as Map<String, dynamic>);
+    } catch (_) {
+      await _storage.delete(key: _clavePerfilCliente);
+      return null;
+    }
+  }
+
+  Future<void> borrarPerfilCliente() => _storage.delete(key: _clavePerfilCliente);
 }

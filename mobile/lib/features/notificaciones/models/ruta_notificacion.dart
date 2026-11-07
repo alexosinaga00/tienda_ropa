@@ -7,6 +7,7 @@ String? rutaDeNotificacion(NotificacionApp notificacion) {
   return switch (notificacion.tipo) {
     'reserva_preparada' => '/reserva/$id',
     'envio' => '/compras/$id', // referencia_id es el id de la compra
+    'pedido_diferido' => '/compras/$id', // un pedido sin conexión cobrado: referencia_id es la venta
     _ => null,
   };
 }

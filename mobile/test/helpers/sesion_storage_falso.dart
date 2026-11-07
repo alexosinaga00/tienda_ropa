@@ -9,6 +9,9 @@ class SesionStorageFalso extends SesionStorage {
 
   Tienda? tienda;
   Usuario? perfil;
+
+  /// El perfil del CLIENTE guardado para reabrir la tienda sin conexión (aparte del del personal).
+  Usuario? perfilCliente;
   int vecesBorrada = 0;
   int vecesPerfilBorrado = 0;
 
@@ -35,4 +38,13 @@ class SesionStorageFalso extends SesionStorage {
     perfil = null;
     vecesPerfilBorrado++;
   }
+
+  @override
+  Future<void> guardarPerfilCliente(Usuario usuario) async => perfilCliente = usuario;
+
+  @override
+  Future<Usuario?> leerPerfilCliente() async => perfilCliente;
+
+  @override
+  Future<void> borrarPerfilCliente() async => perfilCliente = null;
 }

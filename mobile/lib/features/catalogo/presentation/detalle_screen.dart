@@ -2,9 +2,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/network/error_app.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/dinero.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../cliente_offline/presentation/aviso_sin_conexion_cliente.dart';
+import '../../cliente_offline/state/cliente_offline_providers.dart';
 import '../../compras/state/carrito_controller.dart';
 import '../../favoritos/state/favoritos_controller.dart';
 import '../../probador/presentation/boton_probar_prenda.dart';
@@ -54,20 +58,39 @@ class _DetalleScreenState extends ConsumerState<DetalleScreen> {
           ),
         ],
       ),
-      body: asyncDetalle.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
-        error: (error, stack) => const Center(child: Text('No se pudo cargar la prenda.')),
-        data: (detalle) {
-          if (!_trackeado) {
-            _trackeado = true;
-            // Se registra una sola vez por entrada a la pantalla, después
-            // del primer build (no bloquea la UI: es fire-and-forget).
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(trackingServiceProvider).track(tipo: TipoEvento.vista, productoId: detalle.id);
-            });
-          }
-          return _Contenido(detalle: detalle, tallaId: _tallaId, colorId: _colorId, onSeleccion: _seleccionar);
-        },
+      body: Column(
+        children: [
+          const AvisoSinConexionCliente(),
+          Expanded(
+            child: asyncDetalle.when(
+              loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
+              error: (error, stack) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  child: Text(
+                    // Sin red y sin la prenda guardada, el mensaje dice por qué.
+                    error is ErrorApp && error.tipo == TipoErrorApp.sinConexion
+                        ? error.mensaje
+                        : 'No se pudo cargar la prenda.',
+                    key: const Key('error-detalle'),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              data: (detalle) {
+                if (!_trackeado) {
+                  _trackeado = true;
+                  // Se registra una sola vez por entrada a la pantalla, después
+                  // del primer build (no bloquea la UI: es fire-and-forget).
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    ref.read(trackingServiceProvider).track(tipo: TipoEvento.vista, productoId: detalle.id);
+                  });
+                }
+                return _Contenido(detalle: detalle, tallaId: _tallaId, colorId: _colorId, onSeleccion: _seleccionar);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -133,7 +156,7 @@ class _Contenido extends ConsumerWidget {
               ],
               const SizedBox(height: AppSpacing.md),
               if (variante != null && autenticado) ...[
-                _BotonAgregarCarrito(varianteId: variante.id),
+                _BotonAgregarCarrito(detalle: detalle, variante: variante),
                 const SizedBox(height: AppSpacing.sm),
                 _BotonAgregarReserva(detalle: detalle, variante: variante, tallaId: tallaId!, colorId: colorId!),
                 if (detalle.admiteProbador) ...[
@@ -365,7 +388,13 @@ class _DisponibilidadPorSucursal extends ConsumerWidget {
       error: (e, s) => const Text('No se pudo cargar la lista de sucursales.'),
       data: (sucursales) => asyncDisponibilidad.when(
         loading: () => const LinearProgressIndicator(),
-        error: (e, s) => const Text('No se pudo cargar la disponibilidad.'),
+        error: (e, s) => Text(
+          // El stock exacto no se guarda en el teléfono: sin red se confirma al comprar.
+          estaEnLinea(ref)
+              ? 'No se pudo cargar la disponibilidad.'
+              : 'Sin conexión: la disponibilidad se confirma al comprar.',
+          key: const Key('disponibilidad-sin-datos'),
+        ),
         data: (disponibilidad) {
           final porSucursal = {for (final d in disponibilidad) d.sucursalId: d.cantidadDisponible};
           return Column(
@@ -465,9 +494,12 @@ class _BotonAgregarReserva extends ConsumerWidget {
 }
 
 class _BotonAgregarCarrito extends ConsumerStatefulWidget {
-  const _BotonAgregarCarrito({required this.varianteId});
+  const _BotonAgregarCarrito({required this.detalle, required this.variante});
 
-  final int varianteId;
+  final CatalogoDetalle detalle;
+  final VarianteCatalogo variante;
+
+  int get varianteId => variante.id;
 
   @override
   ConsumerState<_BotonAgregarCarrito> createState() => _BotonAgregarCarritoState();
@@ -476,9 +508,52 @@ class _BotonAgregarCarrito extends ConsumerStatefulWidget {
 class _BotonAgregarCarritoState extends ConsumerState<_BotonAgregarCarrito> {
   bool _agregando = false;
 
+  /// Sin conexión la prenda va al carrito LOCAL, con lo necesario para mostrarla sin red (nombre, talla, color, precio y
+  /// foto). Al volver la red la persona decide si pasarla a su carrito de siempre.
+  Future<bool> _agregarLocal() async {
+    final detalle = widget.detalle;
+    final variante = widget.variante;
+    final talla = ref.read(tallasRefProvider).valueOrNull?.where((t) => t.id == variante.tallaId).firstOrNull;
+    final color = ref.read(coloresRefProvider).valueOrNull?.where((c) => c.id == variante.colorId).firstOrNull;
+    // La foto del color elegido si la hay; si no, la principal.
+    final imagenes = detalle.imagenes;
+    final delColor = imagenes.where((i) => i.colorId == variante.colorId).firstOrNull;
+    final imagen = (delColor ?? imagenes.where((i) => i.esPrincipal).firstOrNull ?? imagenes.firstOrNull)?.url;
+    final guardada = await ref
+        .read(carritoLocalProvider.notifier)
+        .agregar(
+          varianteId: variante.id,
+          productoId: detalle.id,
+          productoNombre: detalle.nombre,
+          precioUnitarioCentavos: aCentavos(variante.precioEfectivo),
+          talla: talla?.codigo,
+          color: color?.nombre,
+          imagen: imagen,
+        );
+    if (!mounted) return guardada;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            guardada
+                ? 'Guardado en tu carrito sin conexión. Lo verás en tu carrito.'
+                : 'No pudimos guardar la prenda en tu teléfono. Intenta de nuevo.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          action: guardada ? SnackBarAction(label: 'Ver carrito', onPressed: () => context.push('/carrito')) : null,
+        ),
+      );
+    return guardada;
+  }
+
   Future<void> _agregar() async {
     setState(() => _agregando = true);
     try {
+      if (!enLineaAhora(ref)) {
+        await _agregarLocal();
+        return;
+      }
       await ref.read(carritoControllerProvider.notifier).agregar(varianteId: widget.varianteId, cantidad: 1);
       ref.read(trackingServiceProvider).track(tipo: TipoEvento.carrito, varianteId: widget.varianteId);
       if (!mounted) return;
@@ -497,6 +572,11 @@ class _BotonAgregarCarritoState extends ConsumerState<_BotonAgregarCarrito> {
         );
     } catch (e) {
       if (!mounted) return;
+      // Se cortó la red justo ahora: la prenda no se pierde, va al carrito local.
+      if (esSinConexion(e)) {
+        await _agregarLocal();
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(mensajeDeError(e, 'No se pudo agregar al carrito. Probá de nuevo.'))));

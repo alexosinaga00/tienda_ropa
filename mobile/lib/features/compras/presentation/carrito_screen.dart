@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/fila_monto.dart';
+import '../../cliente_offline/presentation/aviso_sin_conexion_cliente.dart';
+import '../../cliente_offline/presentation/carrito_local_vista.dart';
 import '../../probador/presentation/boton_probar_prenda.dart';
 import '../../reservas/state/reservas_providers.dart' show disponibilidadPorVarianteProvider, disponibleTotalProvider;
 import '../models/carrito.dart';
@@ -17,65 +19,96 @@ class CarritoScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Sin conexión se muestra el carrito LOCAL (el del servidor no se puede consultar).
+    if (!estaEnLinea(ref)) {
+      return Scaffold(
+        backgroundColor: AppColors.fondo,
+        appBar: AppBar(title: const Text('Tu carrito')),
+        body: const Column(
+          children: [
+            AvisoSinConexionCliente(),
+            Expanded(child: CarritoLocalVista()),
+          ],
+        ),
+      );
+    }
+
     final asyncCarrito = ref.watch(carritoControllerProvider);
 
     return Scaffold(
       backgroundColor: AppColors.fondo,
       appBar: AppBar(title: const Text('Tu carrito')),
-      body: RefreshIndicator(
-        onRefresh: () {
-          ref.invalidate(disponibilidadPorVarianteProvider);
-          return ref.read(carritoControllerProvider.notifier).cargar();
-        },
-        child: asyncCarrito.when(
-          loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
-          error: (error, stack) => ListView(
-            children: const [
-              Padding(
-                padding: EdgeInsets.all(AppSpacing.xl),
-                child: Text('No se pudo cargar tu carrito.', textAlign: TextAlign.center),
-              ),
-            ],
-          ),
-          data: (carrito) {
-            if (carrito.vacio) {
-              return ListView(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Todavía no agregaste ninguna prenda.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.textoTenue),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        OutlinedButton(onPressed: () => context.go('/home'), child: const Text('Ver catálogo')),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
+      body: Column(
+        children: [
+          // Lo que se guardó sin conexión no se mezcla solo con este carrito: la persona decide.
+          const AvisoCarritoLocalEnLinea(),
+          Expanded(child: _CarritoDelServidor(asyncCarrito: asyncCarrito)),
+        ],
+      ),
+    );
+  }
+}
+
+class _CarritoDelServidor extends ConsumerWidget {
+  const _CarritoDelServidor({required this.asyncCarrito});
+
+  final AsyncValue<Carrito> asyncCarrito;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return RefreshIndicator(
+      onRefresh: () {
+        ref.invalidate(disponibilidadPorVarianteProvider);
+        return ref.read(carritoControllerProvider.notifier).cargar();
+      },
+      child: asyncCarrito.when(
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.acento)),
+        error: (error, stack) => ListView(
+          children: const [
+            Padding(
+              padding: EdgeInsets.all(AppSpacing.xl),
+              child: Text('No se pudo cargar tu carrito.', textAlign: TextAlign.center),
+            ),
+          ],
+        ),
+        data: (carrito) {
+          if (carrito.vacio) {
             return ListView(
-              padding: const EdgeInsets.all(AppSpacing.md),
               children: [
-                for (final linea in carrito.detalle) _TarjetaLinea(linea: linea),
-                const SizedBox(height: AppSpacing.md),
-                const _ResumenCarrito(),
-                const SizedBox(height: AppSpacing.lg),
-                ElevatedButton(
-                  onPressed: () {
-                    ref.read(checkoutControllerProvider.notifier).reiniciar();
-                    context.push('/checkout/entrega');
-                  },
-                  child: const Text('Continuar'),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Todavía no agregaste ninguna prenda.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textoTenue),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      OutlinedButton(onPressed: () => context.go('/home'), child: const Text('Ver catálogo')),
+                    ],
+                  ),
                 ),
               ],
             );
-          },
-        ),
+          }
+          return ListView(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: [
+              for (final linea in carrito.detalle) _TarjetaLinea(linea: linea),
+              const SizedBox(height: AppSpacing.md),
+              const _ResumenCarrito(),
+              const SizedBox(height: AppSpacing.lg),
+              ElevatedButton(
+                onPressed: () {
+                  ref.read(checkoutControllerProvider.notifier).reiniciar();
+                  context.push('/checkout/entrega');
+                },
+                child: const Text('Continuar'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

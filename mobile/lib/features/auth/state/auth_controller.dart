@@ -3,6 +3,8 @@ import '../../../core/network/error_app.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/network/providers.dart';
 import '../../tienda/models/tienda.dart';
+import '../../cliente_offline/models/linea_carrito_local.dart';
+import '../../cliente_offline/state/base_cliente.dart';
 import '../../tienda/state/tienda_controller.dart';
 import '../../vendedor/state/pendientes_providers.dart';
 import '../data/auth_repository.dart';
@@ -88,6 +90,7 @@ class AuthController extends StateNotifier<AuthState> {
         return;
       }
       if (usuario.modo == ModoApp.vendedor) await sesionStorage.guardarPerfil(usuario);
+      if (usuario.modo == ModoApp.cliente) await _guardarPerfilCliente(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
     } catch (e) {
       if (esSinConexion(e) || esErrorDeServidor(e)) {
@@ -99,7 +102,16 @@ class AuthController extends StateNotifier<AuthState> {
           state = AuthState(estado: EstadoSesion.autenticado, usuario: perfil, verificada: false);
           return;
         }
-        // Un cliente sin red queda como invitado (catálogo público) sin cerrar la sesión guardada.
+        // Un cliente que ya había entrado a ESTA tienda también: sigue adentro con su último perfil para ver su carrito
+        // y sus pedidos guardados. El servidor vuelve a validar la sesión en cuanto hay red (`verificarSesion`).
+        final perfilCliente = await sesionStorage.leerPerfilCliente();
+        if (perfilCliente != null &&
+            perfilCliente.modo == ModoApp.cliente &&
+            perfilCliente.empresaCodigo == tienda.codigo) {
+          state = AuthState(estado: EstadoSesion.autenticado, usuario: perfilCliente, verificada: false);
+          return;
+        }
+        // Sin perfil guardado queda como invitado (catálogo público) sin cerrar la sesión guardada.
         state = const AuthState(estado: EstadoSesion.noAutenticado);
         return;
       }
@@ -107,9 +119,19 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  /// Guarda el perfil del cliente para reabrir la tienda sin red. Es un extra: si falla, entrar o restaurar sigue valiendo.
+  Future<void> _guardarPerfilCliente(Usuario usuario) async {
+    try {
+      await _ref.read(sesionStorageProvider).guardarPerfilCliente(usuario);
+    } catch (_) {
+      // Sin perfil guardado, un cliente sin red queda como invitado, igual que antes.
+    }
+  }
+
   Future<void> _descartarSesionGuardada() async {
     await _ref.read(tokenStorageProvider).limpiar();
     await _ref.read(sesionStorageProvider).borrarPerfil();
+    await _ref.read(sesionStorageProvider).borrarPerfilCliente();
     state = const AuthState(estado: EstadoSesion.noAutenticado);
   }
 
@@ -120,6 +142,7 @@ class AuthController extends StateNotifier<AuthState> {
       await _repository.login(email: email, password: password);
       final usuario = await _repository.obtenerUsuarioActual();
       if (!usuario.esCliente) throw const AccesoSoloClientesException();
+      await _guardarPerfilCliente(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
     } on AccesoSoloClientesException {
       // Las credenciales eran correctas: se cierra la sesión que el login acaba de guardar y se explica por qué.
@@ -187,12 +210,18 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       final usuario = await _repository.obtenerUsuarioActual();
       if (!mounted) return;
-      // Solo el personal tiene sesiones sin verificar: si el servidor ya no lo reconoce como vendedor, la sesión no sirve.
-      if (usuario.modo != ModoApp.vendedor) {
+      // Las sesiones sin verificar son del personal o de un cliente que reabrió la tienda sin red. Si el servidor ya no lo
+      // reconoce con el mismo modo, la sesión no sirve.
+      final modoGuardado = actual.usuario?.modo;
+      if (usuario.modo != modoGuardado || (usuario.modo != ModoApp.vendedor && usuario.modo != ModoApp.cliente)) {
         await logout(motivo: MotivoCierre.vencida);
         return;
       }
-      await _ref.read(sesionStorageProvider).guardarPerfil(usuario);
+      if (usuario.modo == ModoApp.vendedor) {
+        await _ref.read(sesionStorageProvider).guardarPerfil(usuario);
+      } else {
+        await _guardarPerfilCliente(usuario);
+      }
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
     } catch (e) {
       final estado = ErrorApp.desde(e).estado;
@@ -248,14 +277,36 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  /// Limpia la base local del cliente que se va: el carrito local, lo recordado y los pedidos ya resueltos. Los pedidos
+  /// SIN ENVIAR se conservan (salen cuando la misma cuenta vuelva a entrar); borrarlos es una decisión de la persona que
+  /// toma ANTES, en el aviso de cerrar sesión. Igual que la del personal, nunca falla ni espera más de unos segundos.
+  Future<void> _limpiarBaseCliente(Usuario usuario) async {
+    final empresaId = usuario.empresaId;
+    if (empresaId == null) return;
+    try {
+      await _ref
+          .read(limpiezaClienteProvider)
+          .alCerrarSesion(AlcanceCliente(empresaId: empresaId, usuarioId: usuario.id))
+          .timeout(tiempoMaximoLimpiezaAlCerrar);
+    } catch (_) {
+      // La limpieza es de mejor esfuerzo: la próxima vez se vuelve a intentar.
+    }
+  }
+
   /// Cierra la sesión: borra los tokens y el perfil guardado, pero NO la tienda. Deja el motivo y el modo que tenía para
   /// que el router mande al personal cuya sesión venció a "Acceso del personal".
   Future<void> logout({MotivoCierre motivo = MotivoCierre.voluntario}) async {
     final usuarioPrevio = state.usuario;
     final modoPrevio = usuarioPrevio?.modo;
     if (modoPrevio == ModoApp.vendedor) await _limpiarBaseLocal(usuarioPrevio!);
+    if (modoPrevio == ModoApp.cliente) await _limpiarBaseCliente(usuarioPrevio!);
     await _repository.logout();
     await _ref.read(sesionStorageProvider).borrarPerfil();
+    try {
+      await _ref.read(sesionStorageProvider).borrarPerfilCliente();
+    } catch (_) {
+      // Nada que borrar o no se pudo: el perfil del cliente solo sirve con tokens guardados.
+    }
     if (!mounted) return;
     state = AuthState(estado: EstadoSesion.noAutenticado, motivoCierre: motivo, modoPrevio: modoPrevio);
   }

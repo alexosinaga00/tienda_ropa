@@ -11,6 +11,9 @@ import '../../features/auth/state/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
 import '../../features/catalogo/presentation/catalogo_screen.dart';
 import '../../features/catalogo/presentation/detalle_screen.dart';
+import '../../features/cliente_offline/presentation/checkout_sin_conexion_screen.dart';
+import '../../features/cliente_offline/presentation/metodo_pago_screen.dart';
+import '../../features/cliente_offline/presentation/pedidos_sin_conexion_screen.dart';
 import '../../features/compras/presentation/carrito_screen.dart';
 import '../../features/compras/presentation/compra_detalle_screen.dart';
 import '../../features/compras/presentation/direccion_form_screen.dart';
@@ -229,6 +232,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/carrito', builder: (context, state) => const CarritoScreen()),
+      GoRoute(path: '/cuenta/metodo-pago', builder: (context, state) => const MetodoPagoScreen()),
+      GoRoute(path: '/checkout/sin-conexion', builder: (context, state) => const CheckoutSinConexionScreen()),
+      GoRoute(path: '/pedidos-sin-conexion', builder: (context, state) => const PedidosSinConexionScreen()),
       GoRoute(path: '/checkout/entrega', builder: (context, state) => const EntregaScreen()),
       GoRoute(path: '/checkout/direccion/nueva', builder: (context, state) => const DireccionFormScreen()),
       GoRoute(path: '/checkout/pago', builder: (context, state) => const PagoScreen()),

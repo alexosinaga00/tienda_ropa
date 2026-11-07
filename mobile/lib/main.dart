@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/sync/disparador_sincronizacion.dart';
 import 'core/theme/tema_empresa.dart';
+import 'features/cliente_offline/presentation/disparador_cola_pedidos.dart';
 
 void main() {
   runApp(const ProviderScope(child: FashionStoreApp()));
@@ -28,8 +29,10 @@ class FashionStoreApp extends ConsumerWidget {
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       // Para avisar el resultado de una sincronización automática desde cualquier pantalla.
       scaffoldMessengerKey: mensajeroGlobal,
-      // Dispara la sincronización sola (solo actúa con una sesión del personal).
-      builder: (context, child) => DisparadorSincronizacion(child: child ?? const SizedBox.shrink()),
+      // Dispara la sincronización sola (solo actúa con una sesión del personal) y la cola de pedidos sin conexión (solo
+      // actúa con una sesión de cliente).
+      builder: (context, child) =>
+          DisparadorSincronizacion(child: DisparadorColaPedidos(child: child ?? const SizedBox.shrink())),
       routeInformationProvider: router.routeInformationProvider,
       routeInformationParser: router.routeInformationParser,
       routerDelegate: router.routerDelegate,
