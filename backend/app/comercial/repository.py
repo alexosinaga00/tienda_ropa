@@ -395,18 +395,35 @@ class DevolucionRepository:
         db.flush()
         return devolucion
 
+    def devuelto_por_venta_y_linea(
+        self, db: Session, venta_ids: list[int]
+    ) -> tuple[dict[int, int], dict[int, int]]:
+        """Lo ya devuelto (devoluciones APROBADAS) de las ventas dadas, en UNA consulta para todas las líneas:
+        (`venta_id` -> unidades, `venta_detalle_id` -> unidades). Lo que no se devolvió no aparece. La misma regla de
+        `cantidad_devuelta`: una solicitud pendiente, rechazada, cancelada o vencida no cuenta."""
+        if not venta_ids:
+            return {}, {}
+        filas = db.execute(
+            select(
+                Devolucion.venta_id,
+                DevolucionDetalle.venta_detalle_id,
+                func.coalesce(func.sum(DevolucionDetalle.cantidad), 0),
+            )
+            .join(DevolucionDetalle, DevolucionDetalle.devolucion_id == Devolucion.id)
+            .where(Devolucion.venta_id.in_(venta_ids), Devolucion.estado == "aprobada")
+            .group_by(Devolucion.venta_id, DevolucionDetalle.venta_detalle_id)
+        ).all()
+        por_venta: dict[int, int] = {}
+        por_linea: dict[int, int] = {}
+        for venta_id, linea_id, total in filas:
+            por_venta[int(venta_id)] = por_venta.get(int(venta_id), 0) + int(total)
+            por_linea[int(linea_id)] = int(total)
+        return por_venta, por_linea
+
     def unidades_devueltas_por_venta(self, db: Session, venta_ids: list[int]) -> dict[int, int]:
         """Unidades ya devueltas (devoluciones aprobadas) de cada venta, en UNA consulta: `venta_id` -> unidades.
         Las ventas sin devoluciones no aparecen. Para mostrar "con devolución" en las listas sin tocar el estado."""
-        if not venta_ids:
-            return {}
-        filas = db.execute(
-            select(Devolucion.venta_id, func.coalesce(func.sum(DevolucionDetalle.cantidad), 0))
-            .join(DevolucionDetalle, DevolucionDetalle.devolucion_id == Devolucion.id)
-            .where(Devolucion.venta_id.in_(venta_ids), Devolucion.estado == "aprobada")
-            .group_by(Devolucion.venta_id)
-        ).all()
-        return {int(venta_id): int(total) for venta_id, total in filas}
+        return self.devuelto_por_venta_y_linea(db, venta_ids)[0]
 
     def cantidad_devuelta(self, db: Session, venta_detalle_id: int) -> int:
         """Suma de todo lo ya devuelto de esa línea, en TODAS las

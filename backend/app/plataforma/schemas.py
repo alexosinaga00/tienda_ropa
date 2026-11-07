@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from app.core.tipos import FechaUTC
+
 # El correo se guarda y se busca en minusculas (el correo de un usuario es unico
 # por empresa sin distinguir mayusculas).
 CorreoNormalizado = Annotated[EmailStr, AfterValidator(lambda correo: correo.lower())]
@@ -205,7 +207,7 @@ class NotificacionRespuesta(BaseModel):
     tipo: str | None
     referencia_id: int | None
     leida: bool
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
 
 # ---- Dispositivos de notificaciones push ----
@@ -288,7 +290,7 @@ class SucursalRespuesta(BaseModel):
     longitud: Decimal | None = None
     es_deposito: bool
     activo: bool
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
 
 # ---- Horarios de sucursal --------------------------------------------------
@@ -523,7 +525,7 @@ class PedidoCreadoRespuesta(BaseModel):
     monto_bs: Decimal
     monto_usd: Decimal
     tipo_cambio: Decimal
-    expira_en: dt.datetime
+    expira_en: FechaUTC
 
 
 class PedidoEstadoRespuesta(BaseModel):
@@ -536,7 +538,7 @@ class PedidoEstadoRespuesta(BaseModel):
     monto_bs: Decimal
     monto_usd: Decimal
     tipo_cambio: Decimal
-    expira_en: dt.datetime | None = None
+    expira_en: FechaUTC | None = None
     empresa_codigo: str | None = None
 
 
@@ -614,7 +616,7 @@ class SuscripcionRespuesta(BaseModel):
     fecha_inicio: dt.date
     fecha_vencimiento: dt.date
     es_prueba: bool = False
-    creado_en: dt.datetime | None = None
+    creado_en: FechaUTC | None = None
 
 
 class MiEmpresaRespuesta(BaseModel):
@@ -689,7 +691,7 @@ class BitacoraRespuesta(BaseModel):
     accion: str
     datos: dict | None = None
     ip: str | None = None
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
 
 class BitacoraPagina(BaseModel):
@@ -716,8 +718,8 @@ class CopiaRespuesta(BaseModel):
     version_esquema: str | None = None
     checksum: str | None = None
     motivo_fallo: str | None = None
-    creado_en: dt.datetime
-    terminado_en: dt.datetime | None = None
+    creado_en: FechaUTC
+    terminado_en: FechaUTC | None = None
 
 
 class CopiaPagina(BaseModel):

@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.tipos import FechaUTC
+
 
 # ---- Catálogo ----
 
@@ -216,7 +218,7 @@ class ProductoRespuesta(BaseModel):
     precio_base: Decimal
     admite_probador: bool
     activo: bool
-    creado_en: dt.datetime
+    creado_en: FechaUTC
     creado_por: int | None = None
 
 
@@ -457,7 +459,7 @@ class FavoritoRespuesta(BaseModel):
     producto_id: int
     nombre_producto: str
     sku: str
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
     @classmethod
     def from_modelo(cls, favorito) -> "FavoritoRespuesta":
@@ -501,7 +503,7 @@ class MovimientoRespuesta(BaseModel):
     referencia_id: int | None
     usuario_id: int | None
     observacion: str | None
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
     @classmethod
     def from_modelo(cls, movimiento, tipo_codigo: str) -> "MovimientoRespuesta":
@@ -535,7 +537,7 @@ class StockRespuesta(BaseModel):
     stock_minimo: int
     stock_maximo: int | None
     costo_promedio: Decimal
-    actualizado_en: dt.datetime
+    actualizado_en: FechaUTC
 
 
 class TipoMovimientoRespuesta(BaseModel):
@@ -636,8 +638,8 @@ class TransferenciaRespuesta(BaseModel):
     sucursal_origen_id: int
     sucursal_destino_id: int
     estado: str
-    fecha_envio: dt.datetime | None
-    fecha_recepcion: dt.datetime | None
+    fecha_envio: FechaUTC | None
+    fecha_recepcion: FechaUTC | None
     usuario_id: int | None
     detalle: list[TransferenciaDetalleRespuesta]
 
@@ -683,7 +685,7 @@ class ProveedorRespuesta(BaseModel):
     direccion: str | None
     usuario_id: int | None
     activo: bool
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
 
 # ---- Producto-proveedor ---------------------------------------------------------
@@ -752,7 +754,7 @@ class OrdenCompraRespuesta(BaseModel):
     estado: EstadoOrdenCompra
     total: Decimal
     creado_por: int | None
-    creado_en: dt.datetime
+    creado_en: FechaUTC
     detalle: list[OrdenCompraDetalleRespuesta]
 
 
@@ -793,7 +795,7 @@ class RecepcionRespuesta(BaseModel):
     proveedor_id: int
     sucursal_id: int
     empleado_id: int | None
-    fecha: dt.datetime
+    fecha: FechaUTC
     observacion: str | None
     detalle: list[RecepcionDetalleRespuesta]
 
@@ -816,7 +818,7 @@ class ActivoRespuesta(BaseModel):
     ancho_px: int | None = None
     alto_px: int | None = None
     estado: str
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
     @classmethod
     def from_modelo(cls, activo, url: str) -> "ActivoRespuesta":

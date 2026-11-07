@@ -24,7 +24,6 @@ reimplementan el cálculo de saldo o de costo promedio: ambos delegan en
 catalogo.politicas.actualizar_stock_operacion.
 """
 
-import datetime as dt
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -41,6 +40,7 @@ from app.catalogo.repository import (
 from app.catalogo.schemas import MovimientoCrear, TransferenciaCrear
 from app.core.auditoria import ACCION_AJUSTE, ENTIDAD_MOVIMIENTO_INVENTARIO, ContextoAuditoria
 from app.core.exceptions import DomainError, ConflictoError, PermisoDenegadoError
+from app.core.tiempo import ahora_utc_naive
 from app.plataforma import politicas as plataforma_politicas
 
 
@@ -291,7 +291,7 @@ class RegistrarMovimientoInventario:
             )
 
         transferencia.estado = "en_transito"
-        transferencia.fecha_envio = dt.datetime.now(dt.timezone.utc)
+        transferencia.fecha_envio = ahora_utc_naive()
         db.commit()
         db.refresh(transferencia)
         return transferencia
@@ -329,7 +329,7 @@ class RegistrarMovimientoInventario:
             )
 
         transferencia.estado = "recibida"
-        transferencia.fecha_recepcion = dt.datetime.now(dt.timezone.utc)
+        transferencia.fecha_recepcion = ahora_utc_naive()
         db.commit()
         db.refresh(transferencia)
         return transferencia

@@ -214,7 +214,7 @@ class IniciarSesion:
         # plataforma, si es superadministrador).
         fijar_empresa_de_usuario(db, usuario)
         tokens = self._emitir_tokens(db, usuario)
-        usuario.ultimo_acceso = dt.datetime.now(dt.timezone.utc)
+        usuario.ultimo_acceso = ahora_utc_naive()
         if contexto is not None:
             registrar_bitacora(db, usuario.id, ENTIDAD_SESION, usuario.id, ACCION_LOGIN_EXITOSO, {}, contexto.ip)
         db.commit()

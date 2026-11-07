@@ -292,6 +292,21 @@ funciona hasta que se adapten (E15, E16, E18).
   `disponible`: falso si la suscripción de la empresa no está activa; la web
   decide con eso entre mostrar la tienda y "Tienda no disponible".
 
+### Fechas: todo instante que sale del API es UTC con Z
+- La base guarda los instantes en UTC (TIMESTAMP sin zona, `server_default=func.now()`; el motor fija la zona de la sesión en
+  UTC para que `now()` no dependa de la zona del servidor). En Python se escriben SIEMPRE con `core.tiempo.ahora_utc_naive()`,
+  nunca con `dt.datetime.now()` ni con un `datetime` con zona asignado a una columna.
+- Todo `datetime` de un schema de RESPUESTA que sea un instante (`creado_en`, `actualizado_en`, `fecha` de una venta o un pago,
+  `fecha_envio`, `expira_en`, bitácora, notificaciones...) se declara `FechaUTC` (`core/tipos.py`): sale como
+  `2026-11-07T03:12:00Z`. Sin la Z, Angular y Dart lo leen como hora local (una venta de las 23:12 en Bolivia se vería a las
+  03:12 del día siguiente). Los schemas de ENTRADA no cambian.
+- NO son instantes y no llevan Z: `dt.date` (`fecha_visita`, vencimientos de suscripción), `dt.time` (horarios), los rangos que
+  elige el usuario y `Reserva.fecha_expiracion` ("fin de la visita + 24 h" en hora de pared de la sucursal).
+- Los reportes agrupan por día UTC (`hoy_utc`, `periodo_reportes`); las exportaciones rotulan en hora de Bolivia.
+- Cada línea de una venta (`VentaRespuesta.detalle[].cantidad_devuelta`) dice cuánto se devolvió (solo devoluciones APROBADAS;
+  una consulta para todas las líneas, `DevolucionRepository.devuelto_por_venta_y_linea`). Pruebas:
+  `tests/comercial/test_cantidad_devuelta_y_fechas_utc.py`.
+
 ### Login y token (E03)
 - `POST /auth/login` recibe `{empresa, email, password}`. `empresa` es el nombre
   o el código de la empresa: se normaliza (`normalizar_nombre_empresa`: sin

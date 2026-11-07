@@ -24,7 +24,6 @@ tarifa `_calcular_costo` es interna de este archivo) y actualizar el estado
 del envío, con las consultas que el personal y el cliente necesitan para
 encontrarlo y seguirlo."""
 
-import datetime as dt
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -46,6 +45,7 @@ from app.comercial.schemas import (
 from app.core.config import get_settings
 from app.core.deps import ParametrosPaginacion
 from app.core.exceptions import ConflictoError, DomainError, NoEncontradoError
+from app.core.tiempo import ahora_utc_naive
 from app.plataforma import politicas as plataforma_politicas
 from app.plataforma.politicas import obtener_perfil_cliente
 
@@ -237,9 +237,9 @@ class ActualizarEstadoEnvio:
         if datos.repartidor is not None:
             envio.repartidor = datos.repartidor
         if datos.estado == "en_ruta" and envio.fecha_programada is None:
-            envio.fecha_programada = dt.datetime.now(dt.timezone.utc)
+            envio.fecha_programada = ahora_utc_naive()
         elif datos.estado == "entregado":
-            envio.fecha_entrega = dt.datetime.now(dt.timezone.utc)
+            envio.fecha_entrega = ahora_utc_naive()
             # Sin commit propio: envío y venta cambian en una sola transacción.
             comercial_politicas.marcar_venta_entregada(db, envio.venta_id, commit=False)
 

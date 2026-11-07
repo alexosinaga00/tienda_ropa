@@ -159,7 +159,7 @@ class FilaVentasDetalle(BaseModel):
     venta_id: int
     codigo: str
     canal: str
-    fecha: dt.datetime
+    fecha: FechaUTC
     sucursal_id: int
     sucursal: str
     producto_id: int

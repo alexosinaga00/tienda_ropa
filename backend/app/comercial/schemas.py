@@ -62,7 +62,7 @@ class ReservaHistorialRespuesta(BaseModel):
     estado: str
     usuario_id: int | None
     comentario: str | None
-    creado_en: dt.datetime
+    creado_en: FechaUTC
 
 
 class ReservaRespuesta(BaseModel):
@@ -74,9 +74,11 @@ class ReservaRespuesta(BaseModel):
     fecha_visita: dt.date
     hora_visita_desde: dt.time
     hora_visita_hasta: dt.time
+    # NO es FechaUTC a propósito: es "hora de fin de la visita + 24 h" calculada con la hora de pared de la sucursal
+    # (ver `crear_reserva`), no un instante real; sale tal cual se guarda para no correrla 4 h en los clientes.
     fecha_expiracion: dt.datetime
     observacion: str | None
-    creado_en: dt.datetime
+    creado_en: FechaUTC
     detalle: list[ReservaDetalleRespuesta]
     historial: list[ReservaHistorialRespuesta]
 
@@ -145,7 +147,7 @@ class CarritoRespuesta(BaseModel):
     id: int
     cliente_id: int
     sucursal_id: int | None
-    actualizado_en: dt.datetime
+    actualizado_en: FechaUTC
     detalle: list[CarritoDetalleRespuesta]
     subtotal: Decimal
 
@@ -273,6 +275,9 @@ class VentaDetalleRespuesta(BaseModel):
     descuento_unitario: Decimal
     costo_unitario: Decimal | None
     subtotal: Decimal
+    # Unidades de ESTA línea ya devueltas (solo devoluciones aprobadas; una solicitud pendiente no cuenta). Lo vendido
+    # menos esto es lo que todavía se puede devolver o cambiar. Lo llena `VentaRespuesta.from_modelo`.
+    cantidad_devuelta: int = Field(default=0, ge=0)
 
 
 class VentaRespuesta(BaseModel):
@@ -284,7 +289,7 @@ class VentaRespuesta(BaseModel):
     cajero_id: int | None
     reserva_id: int | None
     estado: EstadoVentaCodigo
-    fecha: dt.datetime
+    fecha: FechaUTC
     subtotal: Decimal
     descuento: Decimal
     costo_envio: Decimal
@@ -295,7 +300,14 @@ class VentaRespuesta(BaseModel):
     unidades_devueltas: int = 0
 
     @classmethod
-    def from_modelo(cls, venta, estados_por_id: dict[int, str], unidades_devueltas: int = 0) -> "VentaRespuesta":
+    def from_modelo(
+        cls,
+        venta,
+        estados_por_id: dict[int, str],
+        unidades_devueltas: int = 0,
+        devuelto_por_linea: dict[int, int] | None = None,
+    ) -> "VentaRespuesta":
+        por_linea = devuelto_por_linea or {}
         return cls(
             unidades_devueltas=unidades_devueltas,
             id=venta.id,
@@ -311,7 +323,10 @@ class VentaRespuesta(BaseModel):
             descuento=venta.descuento,
             costo_envio=venta.costo_envio,
             total=venta.total,
-            detalle=[VentaDetalleRespuesta.model_validate(d) for d in venta.detalle],
+            detalle=[
+                VentaDetalleRespuesta.model_validate(d).model_copy(update={"cantidad_devuelta": por_linea.get(d.id, 0)})
+                for d in venta.detalle
+            ],
         )
 
 
@@ -357,7 +372,7 @@ class DevolucionRespuesta(BaseModel):
     id: int
     codigo: str
     venta_id: int
-    fecha: dt.datetime
+    fecha: FechaUTC
     motivo: str | None
     estado: Literal["pendiente", "aprobada", "rechazada", "cancelada", "vencida"]
     usuario_id: int | None
@@ -451,7 +466,7 @@ class PagoRespuesta(BaseModel):
     venta_id: int
     monto: Decimal
     referencia_externa: str | None
-    fecha: dt.datetime
+    fecha: FechaUTC
     metodo_pago: str
     estado: EstadoPagoCodigo
 
@@ -671,8 +686,8 @@ class EnvioRespuesta(BaseModel):
     costo: Decimal
     peso_kg: Decimal | None = None
     estado: EstadoEnvio
-    fecha_programada: dt.datetime | None = None
-    fecha_entrega: dt.datetime | None = None
+    fecha_programada: FechaUTC | None = None
+    fecha_entrega: FechaUTC | None = None
     repartidor: str | None = None
 
 

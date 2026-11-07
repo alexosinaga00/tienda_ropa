@@ -288,7 +288,7 @@ def expirar_reservas_vencidas(db: Session) -> int:
     frena a las demás. No es un caso de uso del catálogo (no tiene actor
     humano): se expone por un endpoint protegido con token de servicio,
     pensado para ser llamado por un cron."""
-    ahora = dt.datetime.now(dt.timezone.utc)
+    ahora = ahora_utc_naive()
     estados_activos_ids = [
         estado_reserva_repo.obtener_por_codigo(db, codigo).id for codigo in ("pendiente", "preparada")
     ]
@@ -881,6 +881,13 @@ def unidades_devueltas_por_venta(db: Session, ventas: Iterable[Venta]) -> dict[i
     devoluciones no aparece). La devolución NO cambia el estado de la venta (puede ser parcial y los reportes cuentan
     solo `pagada` y `entregada`): este dato se calcula aparte para que las pantallas lo muestren."""
     return devolucion_repo.unidades_devueltas_por_venta(db, [v.id for v in ventas])
+
+
+def devuelto_por_venta_y_linea(db: Session, ventas: Iterable[Venta]) -> tuple[dict[int, int], dict[int, int]]:
+    """Lo devuelto de las ventas de una respuesta, en UNA consulta: (`venta_id` -> unidades, `venta_detalle_id` ->
+    unidades). Lo segundo permite que cada línea diga `cantidad_devuelta` y que las pantallas no ofrezcan cambiar lo
+    que ya se devolvió."""
+    return devolucion_repo.devuelto_por_venta_y_linea(db, [v.id for v in ventas])
 
 
 def validar_cambio_de_variante(original, nueva) -> None:

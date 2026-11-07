@@ -43,7 +43,7 @@ from app.comercial.politicas import (
     expirar_ventas_de_todas_las_empresas,
     mapa_codigos_estado_reserva,
     mapa_codigos_estado_venta,
-    unidades_devueltas_por_venta,
+    devuelto_por_venta_y_linea,
 )
 from app.comercial.schemas import (
     CarritoDetalleActualizar,
@@ -237,15 +237,14 @@ cu_pedido_diferido = RealizarPedidoDiferido()
 
 
 def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
-    devueltas = unidades_devueltas_por_venta(db, [venta])
-    return VentaRespuesta.from_modelo(venta, mapa_codigos_estado_venta(db), devueltas.get(venta.id, 0))
+    return _ventas_respuesta(db, [venta])[0]
 
 
 def _ventas_respuesta(db: Session, ventas: list) -> list[VentaRespuesta]:
-    """Una lista de ventas con su estado y lo devuelto de cada una (una sola consulta para todas)."""
+    """Una lista de ventas con su estado y lo devuelto de cada una y de cada línea (una sola consulta para todas)."""
     estados = mapa_codigos_estado_venta(db)
-    devueltas = unidades_devueltas_por_venta(db, ventas)
-    return [VentaRespuesta.from_modelo(v, estados, devueltas.get(v.id, 0)) for v in ventas]
+    por_venta, por_linea = devuelto_por_venta_y_linea(db, ventas)
+    return [VentaRespuesta.from_modelo(v, estados, por_venta.get(v.id, 0), por_linea) for v in ventas]
 
 
 # ---- /api/v1/carrito ---------------------------------------------------------------
