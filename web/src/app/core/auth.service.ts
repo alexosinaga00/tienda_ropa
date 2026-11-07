@@ -4,10 +4,12 @@ import { Router } from '@angular/router';
 import { Observable, Subscription, catchError, finalize, from, of, shareReplay, switchMap, tap, throwError } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { TiendaActualService } from '../features/tienda/state/tienda-actual.service';
+import { AvisosMostradosService } from './avisos-mostrados.service';
 import { ConectividadService } from './conectividad.service';
 import { RecuperarRespuesta, RegistroRequest, TokenRespuesta, Usuario, UsuarioYo } from './models/seguridad.models';
 import { SesionOfflineService } from './offline/sesion-offline.service';
 import type { ClienteOfflineService as ClienteOfflineServicio } from './offline-cliente/cliente-offline.service';
+import { leerTokenPushGuardado, pedirBajaDelToken } from './push/push-comun';
 
 const CLAVE_ACCESS_TOKEN = 'fs_access_token';
 const CLAVE_REFRESH_TOKEN = 'fs_refresh_token';
@@ -230,17 +232,39 @@ export class AuthService {
     this.borrarAlcanceGuardado();
     this.usuarioActual.set(null);
     this.sinVerificar.set(false);
+    // Lo que ya se le avisó a la persona anterior no cuenta para quien entre después.
+    this.injector.get(AvisosMostradosService).limpiar();
   }
 
   logout(): void {
     // Antes de limpiar el usuario: el alcance (empresa y usuario) sale de la sesión. Sin esperar: salir no depende de IndexedDB.
     this.limpiarLocalSinBloquear();
+    // Con la sesión todavía puesta (la baja del aviso push va con su token). Mejor esfuerzo: no retrasa ni impide salir.
+    this.darDeBajaAvisosPush();
     this.limpiarSesion();
     // Dentro de una tienda se vuelve a su login; fuera, al login del personal.
     if (this.tienda.codigo()) {
       this.router.navigate(this.tienda.ruta('login'));
     } else {
       this.router.navigate([RUTA_LOGIN_PERSONAL]);
+    }
+  }
+
+  /**
+   * Da de baja los avisos push de este navegador (si estaban activados). Nunca lanza ni espera. La baja al servidor sale
+   * AHORA, con el token de la sesión que todavía vale; el resto (olvidar el dispositivo en Firebase) carga el servicio de
+   * avisos bajo demanda: el arranque de la app no lo paga.
+   */
+  private darDeBajaAvisosPush(): void {
+    try {
+      const token = leerTokenPushGuardado();
+      if (token === null) return;
+      pedirBajaDelToken(this.http, token).catch(() => undefined);
+      void import('./push/push-web.service')
+        .then(({ PushWebService }) => this.injector.get(PushWebService).olvidarDispositivo())
+        .catch((error: unknown) => console.warn('No se pudo olvidar el aviso push al salir.', error));
+    } catch (error) {
+      console.warn('No se pudo dar de baja el aviso push al salir.', error);
     }
   }
 

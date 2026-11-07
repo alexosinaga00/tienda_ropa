@@ -1,0 +1,182 @@
+:host {
+  display: block;
+}
+
+.comprobante {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.comprobante__encabezado {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  color: var(--fs-texto);
+}
+
+.comprobante__titulo {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.comprobante__texto {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.comprobante__cuerpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px 24px;
+}
+
+.datos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.datos__fila {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+
+  dt {
+    min-width: 72px;
+    color: var(--fs-texto-tenue);
+  }
+
+  dd {
+    margin: 0;
+    font-weight: 600;
+  }
+}
+
+.prendas {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--fs-borde);
+}
+
+.prendas__fila {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 14px;
+  border-bottom: 1px solid var(--fs-borde);
+}
+
+.prendas__detalle {
+  display: block;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.prendas__precio {
+  min-width: 84px;
+  text-align: right;
+}
+
+.total {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  font-size: 16px;
+}
+
+.qr {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 176px;
+}
+
+.qr__dibujo {
+  width: 160px;
+  height: 160px;
+  background: #ffffff;
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-sm, 2px);
+}
+
+.qr__texto {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--fs-texto-tenue);
+}
+
+.comprobante__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .comprobante__cuerpo {
+    grid-template-columns: 1fr;
+  }
+
+  .qr {
+    grid-column: 1;
+    grid-row: auto;
+    max-width: none;
+  }
+}
+
+// Al imprimir solo se ve esta tarjeta (la regla de #area-imprimible está en styles.scss): sin borde ni fondo, en
+// negro sobre blanco, sin el botón, con el QR grande y sin cortes a mitad de la tarjeta.
+@media print {
+  .comprobante {
+    gap: 16px;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 12mm;
+    color: #000000;
+    background: #ffffff;
+    border: 0;
+    border-radius: 0;
+    break-inside: avoid;
+  }
+
+  .comprobante__texto,
+  .datos__fila dt,
+  .prendas__detalle,
+  .qr__texto {
+    color: #333333;
+  }
+
+  .comprobante__cuerpo {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .qr {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: 220px;
+  }
+
+  .qr__dibujo {
+    width: 200px;
+    height: 200px;
+    border: 0;
+  }
+
+  .comprobante__acciones {
+    display: none;
+  }
+}

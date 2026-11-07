@@ -1,3 +1,21 @@
 <p-toast />
+<!-- Avisos push recibidos con la pestaña abierta (PushWebService): llevan un botón "Ver" a la pantalla del aviso. -->
+<p-toast [key]="claveToastAviso">
+  <ng-template #message let-message>
+    <div class="aviso-push" data-estado="aviso-push">
+      <div class="aviso-push__texto">
+        <div class="aviso-push__titulo">{{ message.summary }}</div>
+        @if (message.detail) {
+          <div class="aviso-push__detalle">{{ message.detail }}</div>
+        }
+      </div>
+      @if (message.data?.ruta) {
+        <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="aviso-push-ver" (click)="verAviso(message)">
+          Ver
+        </button>
+      }
+    </div>
+  </ng-template>
+</p-toast>
 <router-outlet />
 <app-aviso-pwa />

@@ -1,0 +1,21 @@
+// Aviso push con la pestaña abierta (el toast con botón "Ver" de app.html).
+.aviso-push {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aviso-push__texto {
+  min-width: 0;
+}
+
+.aviso-push__titulo {
+  font-weight: 600;
+}
+
+.aviso-push__detalle {
+  margin-top: 2px;
+  font-size: 14px;
+}

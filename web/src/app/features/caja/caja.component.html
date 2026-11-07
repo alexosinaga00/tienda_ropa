@@ -607,6 +607,15 @@
       (ngModelChange)="busquedaHistorial.set($event)"
     />
   </label>
+  @if (ventaDelQrFueraDeRango()) {
+    <p class="fs-aviso fs-aviso--advertencia aviso-cambio" role="status" data-estado="venta-qr-fuera-de-rango">
+      <fs-icono nombre="alerta" [tam]="24" />
+      <span>
+        La venta {{ codigoDeQr() }} no está en las ventas de los últimos 3 días. Puede ser más antigua: el cambio o la
+        devolución solo se registran dentro del plazo de la tienda.
+      </span>
+    </p>
+  }
   <div class="panel__scroll">
     <p-table
       [value]="ventasFiltradas()"

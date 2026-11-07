@@ -25,6 +25,7 @@ import { PagosService } from '../data/pagos.service';
 import { PedidosService } from '../data/pedidos.service';
 import { CheckoutService } from '../state/checkout.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
+import { ComprobanteCompraComponent, LineaDeComprobante } from './comprobante-compra.component';
 import { ResumenCompraComponent } from './resumen-compra.component';
 import { LineaParaCambio, SolicitarCambioComponent } from './solicitar-cambio.component';
 
@@ -57,7 +58,15 @@ interface LineaComprobante extends VentaDetalle {
 @Component({
   selector: 'app-compra-detalle',
   standalone: true,
-  imports: [RouterLink, DatePipe, DecimalPipe, IconoComponent, ResumenCompraComponent, SolicitarCambioComponent],
+  imports: [
+    RouterLink,
+    DatePipe,
+    DecimalPipe,
+    IconoComponent,
+    ComprobanteCompraComponent,
+    ResumenCompraComponent,
+    SolicitarCambioComponent,
+  ],
   templateUrl: './compra-detalle.component.html',
   styleUrl: './compra-detalle.component.scss',
 })
@@ -108,6 +117,16 @@ export class CompraDetalleComponent implements OnInit {
         nombre: linea.productoNombre ?? 'Prenda',
         detalle: [linea.tallaCodigo, linea.colorNombre].filter(Boolean).join(' · '),
       })),
+  );
+  /** Las prendas tal como van en el comprobante (nombre, talla y color ya resueltos). */
+  protected readonly lineasComprobante = computed<LineaDeComprobante[]>(() =>
+    this.lineas().map((linea) => ({
+      id: linea.id,
+      nombre: linea.productoNombre ?? 'Prenda',
+      detalle: [linea.tallaCodigo, linea.colorNombre].filter(Boolean).join(' · '),
+      cantidad: linea.cantidad,
+      subtotal: linea.subtotal,
+    })),
   );
   /** Unidades de la compra que aún se pueden cambiar (se calcula con la venta, antes de cargar los nombres). */
   protected readonly unidadesCambiables = computed(() => {

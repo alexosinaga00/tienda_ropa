@@ -1,10 +1,11 @@
-import { HttpClient, HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { environment } from '../../environments/environment';
 import { authInterceptor } from './auth.interceptor';
 import { AuthService } from './auth.service';
+import { SIN_RENOVAR_SESION } from './http-contexts';
 
 describe('authInterceptor', () => {
   let http: HttpClient;
@@ -82,6 +83,20 @@ describe('authInterceptor', () => {
 
       expect(logout).toHaveBeenCalledTimes(1);
       expect((resultado().error as HttpErrorResponse).status).toBe(401);
+    });
+
+    it('una petición marcada SIN_RENOVAR_SESION que recibe 401 propaga el error sin intentar renovar ni cerrar la sesión', () => {
+      let error: unknown;
+      http
+        .post(`${environment.apiUrl}/dispositivos-push/baja`, { token: 't' }, { context: new HttpContext().set(SIN_RENOVAR_SESION, true) })
+        .subscribe({ error: (e) => (error = e) });
+      controller
+        .expectOne(`${environment.apiUrl}/dispositivos-push/baja`)
+        .flush({}, { status: 401, statusText: 'Unauthorized' });
+
+      controller.expectNone(URL_REFRESH);
+      expect(logout).not.toHaveBeenCalled();
+      expect((error as HttpErrorResponse).status).toBe(401);
     });
 
     it('si el refresh responde 403 también cierra la sesión', () => {

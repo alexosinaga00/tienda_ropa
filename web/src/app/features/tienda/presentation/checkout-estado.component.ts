@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { AvisosMostradosService, claveDeVenta } from '../../../core/avisos-mostrados.service';
 import { MetodoPagoPasarela, Pago } from '../../../core/models/pagos.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { PagosService } from '../data/pagos.service';
@@ -28,6 +29,7 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
   protected readonly tienda = inject(TiendaActualService);
   private readonly pagosService = inject(PagosService);
   protected readonly checkoutService = inject(CheckoutService);
+  private readonly avisos = inject(AvisosMostradosService);
 
   protected readonly pagoId = signal(Number(this.route.snapshot.paramMap.get('pagoId')));
   protected readonly pago = signal<Pago | null>(null);
@@ -108,6 +110,8 @@ export class CheckoutEstadoComponent implements OnInit, OnDestroy {
         this.intentosError = 0;
         this.errorConsulta.set(false);
         this.pago.set(pago);
+        // El panel "¡Pago aprobado!" ya es el aviso de esta compra: el aviso push en primer plano no la repite con un toast.
+        if (pago.estado === 'aprobado' && pago.venta_id) this.avisos.registrar(claveDeVenta(pago.venta_id));
         if (pago.estado === 'aprobado' || pago.estado === 'rechazado') {
           this.detener();
           return;

@@ -3,6 +3,7 @@ import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } f
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MessageService } from 'primeng/api';
 import { firstValueFrom, timeout } from 'rxjs';
+import { AvisosMostradosService, claveDeVenta } from '../../../core/avisos-mostrados.service';
 import { ConectividadService } from '../../../core/conectividad.service';
 import { codigoFuncional } from '../../../core/errores-funcionales';
 import { PedidoDiferidoCrear, PedidoDiferidoRespuesta } from '../../../core/models/metodo-pago.models';
@@ -88,6 +89,7 @@ export class PedidosSinConexionService {
   private readonly mensajes = inject(MessageService, { optional: true });
   private readonly carritoLocal = inject(CarritoLocalService);
   private readonly metodoPagoLocal = inject(MetodoPagoLocalService);
+  private readonly avisos = inject(AvisosMostradosService);
 
   private readonly pedidosState = signal<PedidoSinConexion[]>([]);
   /** Mis pedidos sin conexión, del más nuevo al más viejo. */
@@ -664,6 +666,8 @@ export class PedidosSinConexionService {
   /** Un toast cuando un pedido pasa a cobrado o rechazado. Si no tenía PayPal guardado, se recuerda para decidir sin red. */
   private async avisarResultado(respuesta: PedidoDiferidoRespuesta): Promise<void> {
     if (respuesta.estado === 'cobrado') {
+      // Si el aviso push (o el panel de pago aprobado) ya le contó a la persona de esta misma compra, no se repite.
+      if (respuesta.venta_id != null && !this.avisos.registrar(claveDeVenta(respuesta.venta_id))) return;
       const total = respuesta.total ? ` por Bs ${textoDinero(aCentavos(respuesta.total))}` : '';
       this.mensajes?.add({
         severity: 'success',

@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Provider, WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
@@ -2269,6 +2270,153 @@ describe('CajaComponent', () => {
       (fixture.componentInstance as unknown as { abrirSolicitudes(): void }).abrirSolicitudes();
       fixture.detectChanges();
       expect(document.body.querySelector('app-solicitudes-cambio')).toBeNull();
+    });
+  });
+
+  describe('enlace del QR del comprobante (/caja?venta=VTA-XXXX)', () => {
+    const limpioTxt = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const venta = (id: number, haceDias: number) => ({
+      ...VENTA,
+      id,
+      codigo: `VTA-${String(id).padStart(4, '0')}`,
+      estado: 'pagada',
+      fecha: fechaDeHoy(haceDias),
+    });
+    const filas = () => Array.from(document.body.querySelectorAll('.p-dialog tbody tr td.fuerte')).map((c) => limpioTxt(c).split(' ')[0]);
+    const campo = () => document.body.querySelector('input[data-estado="buscar-venta"]') as HTMLInputElement | null;
+    const aviso = () => document.body.querySelector('[data-estado="venta-qr-fuera-de-rango"]');
+    const navegar = vi.fn();
+
+    // El administrador recuerda su sucursal en localStorage: que no le quede nada a las pruebas de otros archivos.
+    beforeEach(() => localStorage.clear());
+    afterEach(() => localStorage.clear());
+
+    /** La Caja abierta por el enlace del QR: `?venta=` en la dirección y un enrutador de mentira que anota la limpieza. */
+    function conQr(codigo: string | null, extra: Provider[] = [], roles: string[] = ['cajero']): void {
+      navegar.mockReset();
+      navegar.mockResolvedValue(true);
+      configurar(roles, 'Boutique Andina', [
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap(codigo === null ? {} : { venta: codigo }) } },
+        },
+        { provide: Router, useValue: { navigate: navegar } },
+        ...extra,
+      ]);
+    }
+
+    const sinPlazos = () => http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.error(new ProgressEvent('error')));
+
+    it('con la sucursal conocida abre las ventas recientes ya filtradas por ese código y limpia el parámetro', async () => {
+      conQr('VTA-0005');
+      const pantalla = abrir(1);
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([venta(6, 0), venta(5, 0), venta(4, 1)]);
+      sinPlazos();
+      pantalla.fixture.detectChanges();
+      await pantalla.fixture.whenStable(); // ngModel escribe el valor del campo en el turno siguiente
+      pantalla.fixture.detectChanges();
+
+      expect(limpioTxt(document.body.querySelector('.p-dialog-title'))).toContain('Ventas recientes');
+      expect(campo()?.value).toBe('VTA-0005');
+      // El filtro NO se borró al terminar de cargar: solo queda esa venta.
+      expect(filas()).toEqual(['VTA-0005']);
+      expect(aviso()).toBeNull();
+      expect(navegar).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { venta: null }, replaceUrl: true }));
+    });
+
+    it('si la venta no está en los últimos 3 días lo avisa en vez de mostrar una lista vacía sin explicación', () => {
+      conQr('VTA-0002');
+      const pantalla = abrir(1);
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([venta(6, 0), venta(2, 9)]);
+      sinPlazos();
+      pantalla.fixture.detectChanges();
+
+      expect(filas()).toEqual([]);
+      expect(limpioTxt(aviso())).toContain('VTA-0002');
+      expect(limpioTxt(aviso())).toContain('no está en las ventas de los últimos 3 días');
+    });
+
+    it('mientras carga no avisa de "fuera de rango"', () => {
+      conQr('VTA-0005');
+      const pantalla = abrir(1);
+      pantalla.fixture.detectChanges();
+
+      expect(aviso()).toBeNull();
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([]);
+    });
+
+    it('si el cajero cambia la búsqueda, el aviso del QR se va', () => {
+      conQr('VTA-0002');
+      const pantalla = abrir(1);
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([venta(6, 0)]);
+      pantalla.fixture.detectChanges();
+      expect(aviso()).not.toBeNull();
+
+      campo()!.value = 'VTA';
+      campo()!.dispatchEvent(new Event('input'));
+      pantalla.fixture.detectChanges();
+
+      expect(aviso()).toBeNull();
+      expect(filas()).toEqual(['VTA-0006']);
+    });
+
+    it('sin ?venta= la Caja no abre el historial ni toca la dirección', () => {
+      conQr(null);
+      const pantalla = abrir(1);
+      http.expectNone(`${API}/ventas/sucursal/1`);
+
+      expect(pantalla.fixture.componentInstance).toBeTruthy();
+      expect(navegar).not.toHaveBeenCalled();
+    });
+
+    it('un administrador sin sucursal propia: el historial se abre cuando elige la sucursal', async () => {
+      conQr('VTA-0005', [], ['administrador']);
+      const fixture = TestBed.createComponent(CajaComponent);
+      fixture.detectChanges();
+      http.expectOne(`${API}/empleados/yo`).flush({ id: 1, sucursal_id: null });
+      http.expectOne((r) => r.url === `${API}/reportes/ventas`).flush({ resumen: {}, top_productos: [], por_canal: [], por_sucursal: [], detalle: [] });
+      http.expectOne((r) => r.url === `${API}/sucursales`).flush(SUCURSALES);
+      fixture.detectChanges();
+      // Sin sucursal todavía no hay de dónde leer las ventas: el código espera.
+      http.expectNone(`${API}/ventas/sucursal/1`);
+
+      const pantalla = { fixture, el: fixture.nativeElement as HTMLElement };
+      elegirSucursal(pantalla, 1);
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([venta(5, 0)]);
+      sinPlazos();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(campo()?.value).toBe('VTA-0005');
+      expect(filas()).toEqual(['VTA-0005']);
+    });
+
+    it('sin conexión espera: no consulta hasta que vuelve la red y entonces abre el historial una sola vez', () => {
+      const estado = signal<EstadoConexion>('sin_conexion');
+      conQr('VTA-0005', [
+        { provide: ConectividadService, useValue: { estado } },
+        {
+          provide: SesionOfflineService,
+          useValue: { guardarSucursalDeCaja: () => Promise.resolve(), sucursalDeCajaGuardada: async () => null },
+        },
+      ]);
+      const pantalla = abrir(1);
+      http.expectNone(`${API}/ventas/sucursal/1`);
+
+      estado.set('en_linea');
+      pantalla.fixture.detectChanges();
+      http.expectOne(`${API}/ventas/sucursal/1`).flush([venta(5, 0)]);
+      sinPlazos();
+      pantalla.fixture.detectChanges();
+
+      expect(filas()).toEqual(['VTA-0005']);
+      // Ya se atendió: volver a perder y recuperar la red no lo abre otra vez.
+      estado.set('sin_conexion');
+      pantalla.fixture.detectChanges();
+      estado.set('en_linea');
+      pantalla.fixture.detectChanges();
+      http.expectNone(`${API}/ventas/sucursal/1`);
     });
   });
 });

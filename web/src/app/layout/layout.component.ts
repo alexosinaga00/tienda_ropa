@@ -26,8 +26,10 @@ import { ColaSincronizacionService } from '../core/offline/cola-sincronizacion.s
 import { PaqueteOfflineService } from '../core/offline/paquete-offline.service';
 import { SesionOfflineService } from '../core/offline/sesion-offline.service';
 import { PlanService } from '../core/plan.service';
+import { PushWebService } from '../core/push/push-web.service';
 import { MiEmpresaService } from '../features/mi-empresa/data/mi-empresa.service';
 import { AvisoSuscripcionComponent } from '../shared/aviso-suscripcion/aviso-suscripcion.component';
+import { AvisosNavegadorComponent } from '../shared/avisos-navegador/avisos-navegador.component';
 import { IconoComponent } from '../shared/icono/icono.component';
 import { NombreIcono } from '../shared/icono/iconos';
 import { IndicadorConexionComponent } from '../shared/indicador-conexion/indicador-conexion.component';
@@ -263,6 +265,7 @@ const SECCION_POR_DEFECTO = 'organizacion';
     PopoverModule,
     ConfirmDialogModule,
     AvisoSuscripcionComponent,
+    AvisosNavegadorComponent,
     IconoComponent,
     IndicadorConexionComponent,
     MarcaComponent,
@@ -279,6 +282,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private readonly miEmpresaService = inject(MiEmpresaService);
   private readonly injector = inject(Injector);
   protected readonly notificacionesService = inject(NotificacionesService);
+  private readonly push = inject(PushWebService);
   private readonly conectividad = inject(ConectividadService);
   private readonly paqueteOffline = inject(PaqueteOfflineService);
   /** Cola de envío de lo hecho sin conexión: su conteo va en el indicador de la barra. */
@@ -385,6 +389,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       this.planService.cargar();
       this.cargarLogo();
       this.notificacionesService.cargar().subscribe();
+      // Si los avisos del navegador ya estaban activados, quedan al día y escuchando (jamás pide permiso).
+      void this.push.sincronizarSiActivo();
       // Datos para operar sin conexión: se leen de IndexedDB y se bajan si faltan o están viejos (con red y plan).
       void this.paqueteOffline.cargarEstado().then(() => this.paqueteOffline.descargarSiHaceFalta());
       void this.cola.refrescarConteos();

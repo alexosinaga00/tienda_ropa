@@ -13,7 +13,8 @@
           "/index.html",
           "/manifest.webmanifest",
           "/*.css",
-          "/*.js"
+          "/*.js",
+          "!/firebase-messaging-sw.js"
         ]
       }
     },

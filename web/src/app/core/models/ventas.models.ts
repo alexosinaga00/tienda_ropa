@@ -59,6 +59,11 @@ export interface Venta {
   detalle: VentaDetalle[];
   /** Unidades devueltas de esta venta (0 o ausente = ninguna). La devolución no cambia el estado de la venta. */
   unidades_devueltas?: number;
+  /**
+   * Solo en `GET /ventas/{id}/comprobante`: la dirección de la Caja que lleva el código QR del comprobante
+   * (`https://<web>/caja?venta=VTA-XXXX`). Web y app dibujan ESE texto tal cual.
+   */
+  enlace_verificacion?: string | null;
 }
 
 /** Texto de la etiqueta "con devolución" de una venta, o null si no se devolvió nada. */

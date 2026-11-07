@@ -3,6 +3,7 @@ import { inject } from '@angular/core';
 import { catchError, switchMap, throwError } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+import { SIN_RENOVAR_SESION } from './http-contexts';
 
 // '/catalogo' cubre /api/v1/catalogo, /catalogo/buscar y /catalogo/{id} --
 // el resto del router de catálogo público. Sin esto, un 401 accidental ahí
@@ -55,7 +56,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   return next(requestConToken).pipe(
     catchError((error: unknown) => {
       const esNoAutorizado = error instanceof HttpErrorResponse && error.status === 401;
-      if (!esNoAutorizado || rutaPublica) {
+      if (!esNoAutorizado || rutaPublica || req.context.get(SIN_RENOVAR_SESION)) {
         return throwError(() => error);
       }
 

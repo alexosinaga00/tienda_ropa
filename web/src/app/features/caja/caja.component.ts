@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -153,6 +154,9 @@ export class CajaComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly conectividad = inject(ConectividadService);
   private readonly injector = inject(Injector);
+  // Opcionales: la Caja también se monta sin enrutador (en pruebas); sin ellos solo no lee el `?venta=` del QR.
+  private readonly route = inject(ActivatedRoute, { optional: true });
+  private readonly router = inject(Router, { optional: true });
 
   @ViewChild('inputBusqueda') private inputBusqueda?: ElementRef<HTMLInputElement>;
   @ViewChild('inputMontoRecibido') private inputMontoRecibido?: ElementRef<HTMLInputElement>;
@@ -311,6 +315,22 @@ export class CajaComponent implements OnInit, OnDestroy {
   });
   protected readonly etiquetaDevolucion = etiquetaDevolucion;
 
+  // ---- Venta que trae el QR del comprobante (/caja?venta=VTA-XXXX) ----------------------------
+  // El QR lleva al cajero (o al administrador) aquí con el código de la venta: cuando se conoce la sucursal se abre
+  // "Ventas recientes" ya filtrado por ese código. Si la venta es más vieja que esos 3 días, se avisa.
+
+  /** El código que trajo el QR, mientras esté en la búsqueda del historial; null = el historial se abrió a mano. */
+  protected readonly codigoDeQr = signal<string | null>(null);
+  /** La venta del QR no aparece en las ventas recientes: no se carga el historial completo, solo los últimos días. */
+  protected readonly ventaDelQrFueraDeRango = computed(() => {
+    const codigo = this.codigoDeQr();
+    if (codigo === null || this.cargandoHistorial() || this.busquedaHistorial().trim() !== codigo) return false;
+    const buscado = codigo.toLowerCase();
+    return !this.ventasRecientes().some((v) => v.codigo.toLowerCase() === buscado);
+  });
+  /** El `?venta=` pendiente de abrir (se atiende una sola vez, en cuanto hay sucursal y conexión). */
+  private ventaPorAbrir: string | null = null;
+
   // ---- Solicitudes de cambio del cliente (CU-17, Etapa 2) -----------------------------
   // El cliente pide el cambio de talla o color desde su compra; aquí se ve cuántas esperan y se abre la bandeja.
 
@@ -349,6 +369,28 @@ export class CajaComponent implements OnInit, OnDestroy {
   private readonly vencimientoConfirmado = new Set<number>();
 
   constructor() {
+    // El QR del comprobante trae `?venta=<código>`: se guarda y se limpia de la barra de direcciones.
+    const codigoDelQr = this.route?.snapshot.queryParamMap.get('venta')?.trim();
+    if (codigoDelQr) {
+      this.ventaPorAbrir = codigoDelQr.slice(0, 60);
+      void this.router?.navigate([], {
+        relativeTo: this.route,
+        queryParams: { venta: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    }
+    // Con la sucursal conocida y con conexión, abre las ventas recientes filtradas por ese código (una sola vez).
+    effect(() => {
+      const sucursal = this.sucursalId();
+      const sinRed = this.sinConexion();
+      untracked(() => {
+        if (this.ventaPorAbrir === null || sucursal === null || sinRed) return;
+        const codigo = this.ventaPorAbrir;
+        this.ventaPorAbrir = null;
+        this.abrirHistorial(codigo);
+      });
+    });
     // El reloj de la cuenta regresiva corre solo mientras se ve el historial o el diálogo de devolución.
     effect(() => {
       const historial = this.historialVisible();
@@ -1060,9 +1102,16 @@ export class CajaComponent implements OnInit, OnDestroy {
 
   // ---- Historial de ventas de hoy -----------------------------------------------
 
-  abrirHistorial(): void {
+  /**
+   * Abre "Ventas recientes". Con `filtro` (el código que trae el QR del comprobante) las deja ya filtradas por él y NO borra
+   * ese filtro al terminar de cargar; sin `filtro` empieza sin búsqueda, como siempre.
+   */
+  abrirHistorial(filtro?: string): void {
     const sucursalId = this.sucursalId();
     if (sucursalId === null || this.sinConexion()) return;
+    const codigoBuscado = filtro?.trim() || null;
+    this.codigoDeQr.set(codigoBuscado);
+    this.busquedaHistorial.set(codigoBuscado ?? '');
     this.historialVisible.set(true);
     this.cargandoHistorial.set(true);
     this.plazos.set({});
@@ -1075,7 +1124,7 @@ export class CajaComponent implements OnInit, OnDestroy {
         const desde = fechaLocalIso(new Date(Date.now() - DIAS_VENTAS_RECIENTES * 24 * 3_600_000));
         const recientes = ventas.filter((v) => diaLocalDe(v.fecha) >= desde).sort((a, b) => b.id - a.id);
         this.ventasRecientes.set(recientes);
-        this.busquedaHistorial.set('');
+        // El filtro que ya se puso (el código del QR, o lo que se escribió mientras cargaba) se conserva.
         this.cargandoHistorial.set(false);
         // Solo las ventas que ofrecen devolución necesitan su plazo; las más recientes primero.
         recientes

@@ -192,6 +192,81 @@ describe('ngsw-config.json: seguridad de la caché', () => {
   });
 });
 
+/**
+ * Avisos push web (FCM): el Service Worker de Firebase convive con el de Angular. Va con su propio alcance, fuera del
+ * precaché de ngsw, y no puede abrir ninguna vía para guardar respuestas (nada autenticado en caché).
+ */
+describe('Service Worker de Firebase (avisos push) junto al de Angular', () => {
+  let config: ConfigNgsw;
+  let sw: string;
+  let entorno: string;
+
+  beforeAll(() => {
+    config = leerJson<ConfigNgsw>('ngsw-config.json');
+    sw = new TextDecoder('utf-8').decode(leer('public/firebase-messaging-sw.js'));
+    entorno = new TextDecoder('utf-8').decode(leer('src/environments/environment.ts'));
+  });
+
+  const archivosDelGrupoApp = (): string[] => config.assetGroups?.find((g) => g.name === 'app')?.resources.files ?? [];
+
+  it('el archivo existe en public/ (se publica en la raíz del sitio)', () => {
+    expect(existe('public/firebase-messaging-sw.js')).toBe(true);
+  });
+
+  it('queda FUERA del precaché de ngsw: el grupo "app" lo excluye después de "/*.js"', () => {
+    const archivos = archivosDelGrupoApp();
+    const incluye = archivos.indexOf('/*.js');
+    const excluye = archivos.indexOf('!/firebase-messaging-sw.js');
+    expect(incluye).toBeGreaterThanOrEqual(0);
+    expect(excluye).toBeGreaterThan(incluye);
+  });
+
+  it('ningún otro grupo de ngsw (assets ni datos) menciona Firebase ni el Service Worker de avisos', () => {
+    const todo = [
+      ...(config.dataGroups ?? []).flatMap((g) => g.urls),
+      ...(config.assetGroups ?? []).filter((g) => g.name !== 'app').flatMap((g) => [...(g.resources.files ?? []), ...(g.resources.urls ?? [])]),
+    ];
+    expect(todo.filter((url) => /firebase|fcm|dispositivos-push|messaging/i.test(url))).toEqual([]);
+  });
+
+  it('no guarda nada en caché: sin la API de caches, sin interceptar peticiones (fetch)', () => {
+    expect(sw).not.toMatch(/\bcaches\b/);
+    expect(sw).not.toMatch(/addEventListener\(\s*['"]fetch['"]/);
+    expect(sw).not.toMatch(/cache\.(put|add|addAll)\(/);
+  });
+
+  it('el clic en el aviso se registra antes de cargar el SDK y corta su propio manejador', () => {
+    const clic = sw.indexOf("addEventListener('notificationclick'");
+    const sdk = sw.indexOf('importScripts(');
+    expect(clic).toBeGreaterThanOrEqual(0);
+    expect(clic).toBeLessThan(sdk);
+    expect(sw).toContain('stopImmediatePropagation');
+  });
+
+  it('usa el SDK de la MISMA versión que el paquete "firebase" de package.json', () => {
+    const paquete = leerJson<{ dependencies: Record<string, string> }>('package.json').dependencies['firebase'];
+    expect(paquete).toMatch(/^\d+\.\d+\.\d+$/); // versión exacta, sin ^ ni ~
+    const versiones = [...sw.matchAll(/firebasejs\/(\d+\.\d+\.\d+)\//g)].map((m) => m[1]);
+    expect(versiones.length).toBeGreaterThan(0);
+    expect(new Set(versiones)).toEqual(new Set([paquete]));
+  });
+
+  it('lleva la misma configuración pública de Firebase que environment.ts', () => {
+    for (const clave of ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId']) {
+      const enEntorno = new RegExp(`${clave}:\\s*'([^']+)'`).exec(entorno)?.[1];
+      const enSw = new RegExp(`${clave}:\\s*'([^']+)'`).exec(sw)?.[1];
+      expect(enEntorno, `falta ${clave} en environment.ts`).toBeDefined();
+      expect(enSw, clave).toBe(enEntorno);
+    }
+  });
+
+  it('el SDK se descarga solo desde gstatic (un script externo más no se cuela)', () => {
+    const origenes = [...sw.matchAll(/importScripts\(\s*'(https?:\/\/[^/']+)/g)].map((m) => m[1]);
+    expect(origenes.length).toBeGreaterThan(0);
+    expect(new Set(origenes)).toEqual(new Set(['https://www.gstatic.com']));
+  });
+});
+
 describe('manifest.webmanifest', () => {
   let manifest: Manifest;
 

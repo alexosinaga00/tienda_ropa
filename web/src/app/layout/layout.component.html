@@ -115,6 +115,7 @@
 
     <p-popover #popoverNotificaciones>
       <div class="layout__notificaciones">
+        <app-avisos-navegador contexto="personal" />
         @if (notificacionesService.notificaciones().length === 0) {
           <p class="fs-caption">No tienes notificaciones.</p>
         } @else {

@@ -101,6 +101,59 @@ describe('CompraDetalleComponent: plazo para cambiar la prenda', () => {
     expect(aviso(fixture)?.classList).toContain('plazo-cambio--vencido');
   });
 
+  describe('comprobante con QR', () => {
+    const ENLACE = 'https://fashionstore.example/caja?venta=V-0042';
+    const comprobante = (fixture: ReturnType<typeof montar>) =>
+      (fixture.nativeElement as HTMLElement).querySelector('[data-estado="comprobante-compra"]');
+
+    function cargarConEnlace(fixture: ReturnType<typeof montar>, estado: string): void {
+      http.expectOne(`${API}/ventas/42/comprobante`).flush({ ...venta(estado), enlace_verificacion: ENLACE });
+      http.expectOne((r) => r.url === `${API}/catalogo/variantes/detalle`).flush(LOOKUP);
+      fixture.detectChanges();
+    }
+
+    it.each(['pagada', 'entregada'])('una compra %s muestra el comprobante con sus prendas y el QR', async (estado) => {
+      const fixture = montar();
+      cargarConEnlace(fixture, estado);
+      await vi.waitFor(() => {
+        fixture.detectChanges();
+        expect((fixture.nativeElement as HTMLElement).querySelector('svg[data-estado="comprobante-qr"]')).not.toBeNull();
+      });
+
+      expect(texto(comprobante(fixture))).toContain('V-0042');
+      expect(texto(comprobante(fixture))).toContain('Polera');
+      expect(texto(comprobante(fixture))).toContain('M · Azul');
+    });
+
+    it('una compra pendiente de pago o anulada no muestra comprobante', async () => {
+      for (const estado of ['pendiente_pago', 'anulada']) {
+        TestBed.resetTestingModule();
+        const fixture = montar();
+        cargarConEnlace(fixture, estado);
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(comprobante(fixture), estado).toBeNull();
+        expect((fixture.nativeElement as HTMLElement).querySelector('svg[data-estado="comprobante-qr"]'), estado).toBeNull();
+      }
+    });
+
+    it('va después del aviso del plazo y antes de la solicitud de cambio', async () => {
+      const fixture = montar();
+      cargarConEnlace(fixture, 'pagada');
+      http.expectOne(`${API}/ventas/42/plazo-cambio`).flush(plazo(true));
+      http.match((r) => r.url.includes('/solicitudes-cambio')).forEach((r) => r.flush([]));
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement as HTMLElement;
+      const orden = ['plazo-cambio', 'comprobante-compra', 'solicitar-cambio'].map((marca) =>
+        Array.from(el.querySelectorAll('[data-estado]')).findIndex((nodo) => nodo.getAttribute('data-estado') === marca),
+      );
+      expect(orden.every((i) => i >= 0)).toBe(true);
+      expect(orden).toEqual([...orden].sort((a, b) => a - b));
+    });
+  });
+
   it('una compra pendiente de pago no consulta ni muestra el plazo', () => {
     const fixture = montar();
     cargar(fixture, 'pendiente_pago');

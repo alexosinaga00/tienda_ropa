@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -8,6 +8,7 @@ import { environment } from '../../environments/environment';
 import { TiendaActualService } from '../features/tienda/state/tienda-actual.service';
 import { AuthService } from './auth.service';
 import { ConectividadService } from './conectividad.service';
+import { SIN_RENOVAR_SESION } from './http-contexts';
 import type { UsuarioYo } from './models/seguridad.models';
 import { AlmacenOfflineService } from './offline/almacen-offline.service';
 import { BaseOffline } from './offline/db-offline';
@@ -194,6 +195,52 @@ describe('AuthService (tienda por empresa)', () => {
       auth.logout();
       expect(localStorage.getItem('fs_access_token')).toBeNull();
       expect(localStorage.getItem('fs_refresh_token')).toBeNull();
+    });
+
+    describe('avisos push del navegador', () => {
+      afterEach(() => localStorage.removeItem('fs_push_web_token'));
+
+      it('con avisos activados da de baja el token ANTES de borrar la sesión (con su token de acceso), sin renovarla', () => {
+        localStorage.setItem('fs_access_token', 'acceso');
+        localStorage.setItem('fs_refresh_token', 'refresco');
+        localStorage.setItem('fs_push_web_token', 'tok-web');
+        vi.spyOn(router, 'navigate').mockResolvedValue(true);
+        // En este instante (cuando el interceptor agregaría el Authorization) la sesión todavía tiene su token de acceso.
+        let accesoAlSalirLaBaja: string | null = null;
+        const cliente = TestBed.inject(HttpClient);
+        const publicar = cliente.post.bind(cliente);
+        vi.spyOn(cliente, 'post').mockImplementation(((...args: Parameters<HttpClient['post']>) => {
+          accesoAlSalirLaBaja = auth.getAccessToken();
+          return publicar(...args);
+        }) as HttpClient['post']);
+
+        auth.logout();
+
+        const baja = http.expectOne(`${API}/dispositivos-push/baja`);
+        expect(baja.request.method).toBe('POST');
+        expect(baja.request.body).toEqual({ token: 'tok-web' });
+        expect(accesoAlSalirLaBaja).toBe('acceso');
+        expect(baja.request.context.get(SIN_RENOVAR_SESION)).toBe(true);
+        expect(localStorage.getItem('fs_access_token')).toBeNull();
+        baja.flush(null, { status: 204, statusText: 'No Content' });
+      });
+
+      it('si la baja falla, salir funciona igual', () => {
+        localStorage.setItem('fs_push_web_token', 'tok-web');
+        const navegar = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+        auth.logout();
+        http.expectOne(`${API}/dispositivos-push/baja`).flush({ detail: 'x' }, { status: 401, statusText: 'Unauthorized' });
+
+        expect(navegar).toHaveBeenCalled();
+        expect(auth.estaAutenticado()).toBe(false);
+      });
+
+      it('sin avisos activados no manda ninguna baja', () => {
+        vi.spyOn(router, 'navigate').mockResolvedValue(true);
+        auth.logout();
+        http.expectNone(`${API}/dispositivos-push/baja`);
+      });
     });
   });
 

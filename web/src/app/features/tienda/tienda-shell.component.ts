@@ -2,6 +2,7 @@ import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inje
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, NavigationStart, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { PushWebService } from '../../core/push/push-web.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { IndicadorConexionComponent } from '../../shared/indicador-conexion/indicador-conexion.component';
 import { MarcaComponent } from '../../shared/marca/marca.component';
@@ -35,6 +36,7 @@ export class TiendaShellComponent {
   protected readonly reservaCarritoService = inject(ReservaCarritoService);
   protected readonly tienda = inject(TiendaActualService);
   private readonly router = inject(Router);
+  private readonly push = inject(PushWebService);
 
   // La sesión vale para UNA empresa: un usuario de otra tienda ve esta como visitante.
   protected readonly sesionDeEstaTienda = computed(
@@ -90,6 +92,8 @@ export class TiendaShellComponent {
     effect(() => {
       if (this.sesionDeEstaTienda()) {
         this.carritoService.cargar().subscribe({ error: () => undefined });
+        // Si los avisos del navegador ya estaban activados, quedan al día y escuchando (jamás pide permiso).
+        void this.push.sincronizarSiActivo();
       } else {
         this.carritoService.limpiar();
       }

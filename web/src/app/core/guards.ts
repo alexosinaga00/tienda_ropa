@@ -1,9 +1,10 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { CanActivateFn, Router, RouterStateSnapshot, UrlTree } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { CarritoService } from '../features/tienda/data/carrito.service';
 import { TiendaActualService } from '../features/tienda/state/tienda-actual.service';
 import { AuthService, RUTA_LOGIN_PERSONAL } from './auth.service';
+import { destinoInternoSeguro } from './navegacion-sin-conexion';
 
 /** Código de tienda al comienzo de una URL del comprador: /t/:codigo/... */
 const PATRON_TIENDA = /^\/t\/([^/?#]+)/;
@@ -15,6 +16,19 @@ export const RUTA_INICIO_SUPERADMIN = '/plataforma/empresas';
 export const RUTA_INICIO_PERSONAL = '/dashboard';
 
 const PATRON_PLATAFORMA = /^\/plataforma(?:[/?#]|$)/;
+
+/**
+ * A dónde manda a quien no tiene sesión en una pantalla del personal: al acceso del personal, recordando la pantalla
+ * que quería abrir (`returnTo`, solo si es una ruta interna) para volver a ella tras iniciar sesión. Así un QR que lleva
+ * a la Caja (`/caja?venta=VTA-0001`) sigue funcionando aunque la sesión esté cerrada.
+ */
+function irAlAccesoDelPersonal(router: Router, state: RouterStateSnapshot): UrlTree {
+  const destino = destinoInternoSeguro(state.url);
+  // Sin un destino propio ("/") no hay a dónde volver: el acceso entra por su pantalla de siempre.
+  return destino === '/'
+    ? router.createUrlTree([RUTA_LOGIN_PERSONAL])
+    : router.createUrlTree([RUTA_LOGIN_PERSONAL], { queryParams: { returnTo: destino } });
+}
 
 export const authGuard: CanActivateFn = (_route, state) => {
   const authService = inject(AuthService);
@@ -29,7 +43,7 @@ export const authGuard: CanActivateFn = (_route, state) => {
       queryParams: { returnTo: state.url },
     });
   }
-  return router.createUrlTree([RUTA_LOGIN_PERSONAL], { queryParams: { returnTo: state.url } });
+  return irAlAccesoDelPersonal(router, state);
 };
 
 /**
@@ -64,12 +78,12 @@ export const tiendaSesionGuard: CanActivateFn = (_route, state) => {
 
 /** Guarda de ruta por permiso (p. ej. "roles.gestionar"). */
 export function permisoGuard(permiso: string): CanActivateFn {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const router = inject(Router);
 
     if (!authService.estaAutenticado()) {
-      return router.parseUrl(RUTA_LOGIN_PERSONAL);
+      return irAlAccesoDelPersonal(router, state);
     }
     if (!authService.tienePermiso(permiso)) {
       return router.parseUrl(authService.esSuperadmin() ? RUTA_INICIO_SUPERADMIN : RUTA_INICIO_PERSONAL);
@@ -80,12 +94,12 @@ export function permisoGuard(permiso: string): CanActivateFn {
 
 /** Guarda de ruta por permiso: hay que tener TODOS los permisos indicados (p. ej. `reportes.ver` y el alcance global). */
 export function todosLosPermisosGuard(...permisos: string[]): CanActivateFn {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const router = inject(Router);
 
     if (!authService.estaAutenticado()) {
-      return router.parseUrl(RUTA_LOGIN_PERSONAL);
+      return irAlAccesoDelPersonal(router, state);
     }
     if (!permisos.every((permiso) => authService.tienePermiso(permiso))) {
       return router.parseUrl(authService.esSuperadmin() ? RUTA_INICIO_SUPERADMIN : RUTA_INICIO_PERSONAL);
@@ -96,12 +110,12 @@ export function todosLosPermisosGuard(...permisos: string[]): CanActivateFn {
 
 /** Guarda de ruta por permiso: basta con tener CUALQUIERA de los permisos indicados. */
 export function cualquierPermisoGuard(...permisos: string[]): CanActivateFn {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const router = inject(Router);
 
     if (!authService.estaAutenticado()) {
-      return router.parseUrl(RUTA_LOGIN_PERSONAL);
+      return irAlAccesoDelPersonal(router, state);
     }
     if (!permisos.some((permiso) => authService.tienePermiso(permiso))) {
       return router.parseUrl(authService.esSuperadmin() ? RUTA_INICIO_SUPERADMIN : RUTA_INICIO_PERSONAL);
@@ -112,12 +126,12 @@ export function cualquierPermisoGuard(...permisos: string[]): CanActivateFn {
 
 /** Guarda de ruta por rol (basta con tener uno de los roles indicados). */
 export function rolGuard(...roles: string[]): CanActivateFn {
-  return () => {
+  return (_route, state) => {
     const authService = inject(AuthService);
     const router = inject(Router);
 
     if (!authService.estaAutenticado()) {
-      return router.parseUrl(RUTA_LOGIN_PERSONAL);
+      return irAlAccesoDelPersonal(router, state);
     }
     if (!authService.roles().some((rol) => roles.includes(rol))) {
       return router.parseUrl(authService.esSuperadmin() ? RUTA_INICIO_SUPERADMIN : RUTA_INICIO_PERSONAL);
@@ -130,12 +144,12 @@ export function rolGuard(...roles: string[]): CanActivateFn {
  * Panel de la plataforma (/plataforma/...): solo el superadministrador. Un
  * administrador de empresa que escribe la URL termina en su dashboard.
  */
-export const superadminGuard: CanActivateFn = () => {
+export const superadminGuard: CanActivateFn = (_route, state) => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
   if (!authService.estaAutenticado()) {
-    return router.parseUrl(RUTA_LOGIN_PERSONAL);
+    return irAlAccesoDelPersonal(router, state);
   }
   if (!authService.esSuperadmin()) {
     return router.parseUrl(RUTA_INICIO_PERSONAL);
@@ -156,7 +170,7 @@ export const staffGuard: CanActivateFn = (_route, state) => {
   const router = inject(Router);
 
   if (!authService.estaAutenticado()) {
-    return router.parseUrl(RUTA_LOGIN_PERSONAL);
+    return irAlAccesoDelPersonal(router, state);
   }
   if (authService.esSuperadmin()) {
     return PATRON_PLATAFORMA.test(state.url) ? true : router.parseUrl(RUTA_INICIO_SUPERADMIN);

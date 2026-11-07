@@ -19,6 +19,15 @@
       <p class="panel__texto">Recibimos tu pago. Te avisaremos cuando tu pedido esté listo.</p>
       <div class="panel__acciones">
         <button type="button" class="fs-btn fs-btn--primario fs-btn--bloque" (click)="irAMiCompra()">Ver mi compra</button>
+        <button
+          type="button"
+          class="fs-btn fs-btn--secundario fs-btn--bloque"
+          data-estado="ver-comprobante"
+          (click)="irAMiCompra()"
+        >
+          <fs-icono nombre="escudo-check" [tam]="24" />
+          Ver comprobante
+        </button>
       </div>
     </section>
   } @else if (pago()?.estado === 'rechazado') {

@@ -152,10 +152,24 @@ describe('guards', () => {
       expect(ejecutar(staffGuard, '/dashboard')).toBe(true);
     });
 
-    it('sin sesión va a /admin/login', () => {
+    it('sin sesión va a /admin/login y recuerda la pantalla que quería abrir (returnTo)', () => {
       const resultado = ejecutar(staffGuard, '/dashboard');
 
-      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fdashboard');
+    });
+
+    it('sin sesión, el enlace del QR de un comprobante (/caja?venta=...) vuelve a la Caja con su venta tras entrar', () => {
+      const resultado = ejecutar(staffGuard, '/caja?venta=VTA-0001') as UrlTree;
+
+      expect(router.serializeUrl(resultado)).toBe('/admin/login?returnTo=%2Fcaja%3Fventa%3DVTA-0001');
+      expect(resultado.queryParamMap.get('returnTo')).toBe('/caja?venta=VTA-0001');
+    });
+
+    it('un destino que no es una ruta interna no se recuerda (nunca otro sitio)', () => {
+      for (const url of ['//otro.com/caja', 'https://otro.com/caja', '/\\otro.com']) {
+        const resultado = ejecutar(staffGuard, url);
+        expect(router.serializeUrl(resultado as UrlTree), url).toBe('/admin/login');
+      }
     });
 
     it('manda al superadministrador que pide una pantalla del back office a /plataforma/empresas', () => {
@@ -203,14 +217,19 @@ describe('guards', () => {
       expect(router.serializeUrl(resultado as UrlTree)).toBe('/dashboard');
     });
 
-    it('sin sesión va a /admin/login', () => {
+    it('sin sesión va a /admin/login con returnTo', () => {
       const resultado = ejecutar(superadminGuard, '/plataforma/empresas');
 
-      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fplataforma%2Fempresas');
     });
   });
 
   describe('rolGuard', () => {
+    it('sin sesión va a /admin/login con returnTo', () => {
+      const resultado = ejecutar(rolGuard('administrador'), '/x');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fx');
+    });
+
     it('deja pasar a quien tiene uno de los roles', () => {
       iniciarSesion(usuario(['cajero', 'encargado'], 'acme'));
 
@@ -246,9 +265,14 @@ describe('guards', () => {
       expect(ejecutar(permisoGuard('empresa.gestionar'), '/mi-empresa')).toBe(true);
     });
 
-    it('sin sesión va a /admin/login', () => {
+    it('sin sesión va a /admin/login con returnTo', () => {
       const resultado = ejecutar(permisoGuard('empresa.gestionar'), '/mi-empresa');
-      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fmi-empresa');
+    });
+
+    it('sin sesión conserva la query del destino (la Caja del QR)', () => {
+      const resultado = ejecutar(permisoGuard('ventas.presencial'), '/caja?venta=VTA-0001');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fcaja%3Fventa%3DVTA-0001');
     });
   });
 
@@ -288,9 +312,9 @@ describe('guards', () => {
       expect(router.serializeUrl(resultado as UrlTree)).toBe('/plataforma/empresas');
     });
 
-    it('sin sesión va a /admin/login', () => {
+    it('sin sesión va a /admin/login con returnTo', () => {
       const resultado = ejecutar(guardia(), '/catalogo-local');
-      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fcatalogo-local');
     });
   });
 
@@ -317,9 +341,9 @@ describe('guards', () => {
       expect(router.serializeUrl(resultado as UrlTree)).toBe('/dashboard');
     });
 
-    it('sin sesión va a /admin/login', () => {
+    it('sin sesión va a /admin/login con returnTo', () => {
       const resultado = ejecutar(guardia(), '/analitica');
-      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fanalitica');
     });
   });
 });

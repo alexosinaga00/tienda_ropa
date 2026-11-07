@@ -149,6 +149,12 @@
           </div>
         }
 
+        <app-comprobante-compra
+          [venta]="venta()!"
+          [sucursalNombre]="sucursalNombre()"
+          [lineas]="lineasComprobante()"
+        />
+
         @if (permiteCambio()) {
           <app-solicitar-cambio
             [venta]="venta()!"

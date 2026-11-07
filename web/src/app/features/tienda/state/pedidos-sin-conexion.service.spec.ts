@@ -3,6 +3,7 @@ import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@a
 import { TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
+import { AvisosMostradosService, claveDeVenta } from '../../../core/avisos-mostrados.service';
 import { ConectividadService } from '../../../core/conectividad.service';
 import { EMPRESA, USUARIO, linea, nuevoEntorno, pedido } from '../../../core/offline-cliente/ayudas-prueba';
 import {
@@ -251,6 +252,25 @@ describe('PedidosSinConexionService', () => {
       expect(servicio.sinVer()).toHaveLength(1);
       expect(mensajes.map((m) => [m.severity, m.summary])).toEqual([['success', 'Cobramos tu pedido']]);
       expect(mensajes[0].detail).toContain('V-0055');
+    });
+
+    it('el toast del cobro anota la compra en AvisosMostrados: un aviso push de la misma venta ya no avisa otra vez', async () => {
+      const avisos = TestBed.inject(AvisosMostradosService);
+      await encolar();
+      await reposo();
+
+      expect(mensajes.map((m) => m.summary)).toEqual(['Cobramos tu pedido']);
+      expect(avisos.registrar(claveDeVenta(55))).toBe(false);
+    });
+
+    it('si ya se le avisó de esa compra (aviso push o pago aprobado), el cobro NO repite el toast pero el pedido queda cobrado', async () => {
+      TestBed.inject(AvisosMostradosService).registrar(claveDeVenta(55));
+      const id = await encolar();
+      await reposo();
+
+      expect(mensajes).toEqual([]);
+      expect((await guardado(id))?.estado).toBe('cobrado');
+      expect(servicio.sinVer()).toHaveLength(1);
     });
 
     it('con red, el pedido sale solo al encolarlo', async () => {

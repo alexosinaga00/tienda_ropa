@@ -1,0 +1,85 @@
+@if (visible()) {
+  <section
+    id="area-imprimible"
+    class="comprobante"
+    data-estado="comprobante-compra"
+    [attr.aria-label]="'Comprobante de la compra ' + venta().codigo"
+  >
+    <header class="comprobante__encabezado">
+      <fs-icono nombre="escudo-check" [tam]="32" />
+      <div>
+        <div class="comprobante__titulo">Comprobante de compra</div>
+        <div class="comprobante__texto">{{ nombreTienda() }}</div>
+      </div>
+    </header>
+
+    <div class="comprobante__cuerpo">
+      <dl class="datos">
+        <div class="datos__fila">
+          <dt>Código</dt>
+          <dd class="fs-num" data-estado="comprobante-codigo">{{ venta().codigo }}</dd>
+        </div>
+        <div class="datos__fila">
+          <dt>Fecha</dt>
+          <dd class="fs-num">{{ fechaLocal(venta().fecha) | date: 'dd/MM/yyyy HH:mm' }}</dd>
+        </div>
+        @if (sucursalNombre(); as sucursal) {
+          <div class="datos__fila">
+            <dt>Sucursal</dt>
+            <dd>{{ sucursal }}</dd>
+          </div>
+        }
+      </dl>
+
+      @if (lineas().length > 0) {
+        <ul class="prendas" aria-label="Prendas">
+          @for (linea of lineas(); track linea.id) {
+            <li class="prendas__fila">
+              <span class="prendas__nombre">
+                {{ linea.nombre }}
+                @if (linea.detalle) {
+                  <span class="prendas__detalle">{{ linea.detalle }}</span>
+                }
+              </span>
+              <span class="prendas__cantidad fs-num">x{{ linea.cantidad }}</span>
+              <span class="prendas__precio fs-num">Bs {{ linea.subtotal | number: '1.2-2' }}</span>
+            </li>
+          }
+        </ul>
+      }
+
+      <div class="total">
+        <span>Total pagado</span>
+        <strong class="fs-num" data-estado="comprobante-total">Bs {{ venta().total | number: '1.2-2' }}</strong>
+      </div>
+
+      <div class="qr">
+        @if (qr(); as dibujo) {
+          <svg
+            class="qr__dibujo"
+            data-estado="comprobante-qr"
+            role="img"
+            [attr.viewBox]="'0 0 ' + dibujo.lado + ' ' + dibujo.lado"
+            [attr.aria-label]="'Código QR de la compra ' + venta().codigo"
+            shape-rendering="crispEdges"
+          >
+            <rect [attr.width]="dibujo.lado" [attr.height]="dibujo.lado" fill="#ffffff" />
+            <path [attr.d]="dibujo.ruta" fill="#000000" />
+          </svg>
+          <p class="qr__texto">Muestra este código en la tienda para que encuentren tu compra.</p>
+        } @else if (errorQr()) {
+          <p class="qr__texto" data-estado="comprobante-qr-error">
+            No pudimos dibujar el código QR. Tu código de compra es <strong class="fs-num">{{ venta().codigo }}</strong>.
+          </p>
+        }
+      </div>
+    </div>
+
+    <div class="comprobante__acciones">
+      <button type="button" class="fs-btn fs-btn--secundario" data-estado="imprimir-comprobante" (click)="imprimir()">
+        <fs-icono nombre="imprimir" [tam]="24" />
+        Imprimir o guardar PDF
+      </button>
+    </div>
+  </section>
+}

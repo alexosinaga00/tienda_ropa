@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { AvisosNavegadorComponent } from '../../../shared/avisos-navegador/avisos-navegador.component';
 import { PedidosSinConexionService } from '../state/pedidos-sin-conexion.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
 
@@ -10,7 +11,7 @@ export type PestanaCuenta = 'compras' | 'reservas' | 'metodo-pago' | 'sin-conexi
   selector: 'app-mi-cuenta-pestanas',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, AvisosNavegadorComponent],
   template: `
     <nav class="fs-tabs pestanas" aria-label="Mi cuenta">
       <a
@@ -46,11 +47,16 @@ export type PestanaCuenta = 'compras' | 'reservas' | 'metodo-pago' | 'sin-conexi
         }</a
       >
     </nav>
+    <app-avisos-navegador class="avisos" contexto="cliente" />
   `,
   styles: `
     :host {
       display: block;
       margin-bottom: 24px;
+    }
+
+    .avisos {
+      margin-top: 16px;
     }
 
     .fs-tabs {
