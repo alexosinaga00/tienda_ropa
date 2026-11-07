@@ -715,6 +715,9 @@ EXENTOS_DE_PLAN: list[tuple[tuple[str, ...] | None, tuple[str, ...], str]] = [
     (None, (f"{API}/auth/yo", f"{API}/clientes/perfil", f"{API}/empleados/yo", f"{API}/notificaciones", f"{API}/favoritos",
             f"{API}/dispositivos-push"),
      "perfil, sesión, avisos (y el teléfono que los recibe) y favoritos del propio usuario: base de toda cuenta, el plan no los distingue"),
+    (None, (f"{API}/inicio/resumen",),
+     "resumen de la pantalla de inicio del personal: cada sección se omite por su cuenta si el plan no la incluye (ventas, reservas), "
+     "así que la ruta no puede exigir una sola funcionalidad"),
     (None, (f"{API}/ciudades", f"{API}/sucursales", f"{API}/empleados"),
      "organización básica de toda empresa; el plan limita CUÁNTAS sucursales (409 limite_plan_excedido), no el módulo"),
     (None, (f"{API}/usuarios", f"{API}/roles", f"{API}/permisos"),

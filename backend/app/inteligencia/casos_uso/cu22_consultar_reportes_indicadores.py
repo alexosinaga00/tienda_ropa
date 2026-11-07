@@ -27,17 +27,22 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.catalogo import politicas as catalogo_politicas
+from app.catalogo.casos_uso.cu06_consultar_buscar_catalogo import ConsultarCatalogo
 from app.catalogo.casos_uso.cu09_gestionar_inventario import ConsultarInventarioGlobal
 from app.catalogo.politicas import reporte_uso_probador
 from app.comercial import politicas as comercial_politicas
 from app.comercial.politicas import reporte_reservas_por_estado
 from app.core.auditoria import ACCION_EXPORTAR, ENTIDAD_REPORTE, ContextoAuditoria
 from app.core.deps import ParametrosPeriodo
-from app.core.tiempo import ahora_bolivia
+from app.core.permisos import PERMISO_INVENTARIO_VER, PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
+from app.core.planes import FUNC_GESTION_VENTAS, FUNC_RESERVAS, plan_incluye_funcionalidad
+from app.core.tenant import exigir_empresa
+from app.core.tiempo import ahora_bolivia, dia_bolivia
 from app.inteligencia.exportacion import MAX_FILAS, TIPO_MIME, ArchivoExportado, construir_archivo
 from app.inteligencia.exportacion_convencionales import documento_inventario, documento_reservas, documento_ventas
 from app.inteligencia.politicas import etiqueta_periodo, tasa_conversion, ticket_promedio
 from app.inteligencia.schemas import (
+    AlertaStockInicio,
     DashboardRespuesta,
     FilaReservasPorEstado,
     FilaTopProducto,
@@ -45,10 +50,16 @@ from app.inteligencia.schemas import (
     FilaVentasDetalle,
     FilaVentasPorCanal,
     FilaVentasPorSucursal,
+    PrendaVendidaInicio,
     ReporteInventarioRespuesta,
     ReporteReservasRespuesta,
     ReporteVentasRespuesta,
+    ResumenInicioRespuesta,
+    ResumenReservasInicio,
+    ResumenStockInicio,
     ResumenVentas,
+    ResumenVentasInicio,
+    VentaRecienteInicio,
 )
 from app.plataforma import politicas as plataforma_politicas
 
@@ -258,6 +269,109 @@ class ExportarReportesVentasInventario:
             plataforma_politicas.registrar_bitacora_de(db, contexto, ENTIDAD_REPORTE, None, ACCION_EXPORTAR, datos)
             db.commit()
         return ArchivoExportado(contenido, TIPO_MIME[formato], nombre)
+
+
+# ---- Resumen de la pantalla de inicio del personal ----
+
+PRENDAS_MAS_VENDIDAS = 4
+ALERTAS_MOSTRADAS = 4
+VENTAS_RECIENTES = 5
+
+
+class ConsultarResumenInicio:
+    """El resumen de HOY (día de Bolivia) que ve el personal al entrar: ventas, stock bajo y reservas, en UNA llamada y
+    con las cuentas hechas en la base (sin traer el historial de cada sucursal).
+
+    No pide `reportes.ver`: lo ve todo el personal, y cada sección aparece solo si el usuario tiene el permiso de esa
+    parte (ventas, inventario, reservas) y el plan de la empresa la incluye; las demás van en null. Quien no tiene
+    alcance global ve su sucursal; el administrador, todas (`sucursal_id` null). Sin permiso para ninguna sección no
+    consulta nada. Solo lee."""
+
+    def __init__(self) -> None:
+        self._inventario = ConsultarInventarioGlobal()
+        self._catalogo = ConsultarCatalogo()
+
+    def ejecutar(self, db: Session, usuario_id: int) -> ResumenInicioRespuesta:
+        exigir_empresa(db)  # el superadministrador (modo plataforma) no alcanza datos de negocio: 403, no un resumen vacío
+        permisos = set(plataforma_politicas.permisos_de_usuario(db, usuario_id))
+        con_ventas = PERMISO_STAFF_VENTAS in permisos and plan_incluye_funcionalidad(db, FUNC_GESTION_VENTAS)
+        con_stock = PERMISO_INVENTARIO_VER in permisos
+        con_reservas = PERMISO_STAFF_RESERVAS in permisos and plan_incluye_funcionalidad(db, FUNC_RESERVAS)
+        hoy, desde, hasta = dia_bolivia()
+        if not (con_ventas or con_stock or con_reservas):
+            return ResumenInicioRespuesta(fecha=hoy, sucursal_id=None, sucursal_nombre="")
+
+        # 403 "No tenés una sucursal asignada" si no tiene alcance global ni sucursal propia.
+        sucursal_id = plataforma_politicas.acotar_sucursal(db, usuario_id, None)
+        nombre = (
+            "Todas las sucursales"
+            if sucursal_id is None
+            else plataforma_politicas.obtener_sucursal(db, sucursal_id).nombre
+        )
+        return ResumenInicioRespuesta(
+            fecha=hoy,
+            sucursal_id=sucursal_id,
+            sucursal_nombre=nombre,
+            ventas=self._ventas(db, desde, hasta, sucursal_id) if con_ventas else None,
+            stock=self._stock(db, usuario_id, sucursal_id) if con_stock else None,
+            reservas=self._reservas(db, hoy, sucursal_id) if con_reservas else None,
+        )
+
+    def _ventas(self, db: Session, desde: dt.datetime, hasta: dt.datetime, sucursal_id: int | None) -> ResumenVentasInicio:
+        datos = comercial_politicas.resumen_ventas_del_dia(
+            db, desde, hasta, sucursal_id, mas_vendidas=PRENDAS_MAS_VENDIDAS, recientes=VENTAS_RECIENTES
+        )
+        nombres = self._nombres_de_variantes(db, [variante_id for variante_id, _ in datos["mas_vendidas"]])
+        return ResumenVentasInicio(
+            tickets=datos["tickets"],
+            total_ventas=datos["total"],
+            por_cobrar_cantidad=datos["por_cobrar_cantidad"],
+            por_cobrar_total=datos["por_cobrar_total"],
+            mas_vendidas=[
+                PrendaVendidaInicio(variante_id=v, nombre=nombres.get(v, f"Variante {v}"), cantidad=cantidad)
+                for v, cantidad in datos["mas_vendidas"]
+            ],
+            recientes=[VentaRecienteInicio(**fila) for fila in datos["recientes"]],
+        )
+
+    def _nombres_de_variantes(self, db: Session, variante_ids: list[int]) -> dict[int, str]:
+        if not variante_ids:
+            return {}
+        items = self._catalogo.resolver_imagen_lookup(db, variante_ids, None)
+        return {i.variante_id: i.producto_nombre for i in items if i.variante_id is not None}
+
+    def _stock(self, db: Session, usuario_id: int, sucursal_id: int | None) -> ResumenStockInicio:
+        filas = self._inventario.listar_alertas(db, usuario_id, sucursal_id)
+        primeras = filas[:ALERTAS_MOSTRADAS]
+        fotos = {
+            i.producto_id: i.imagen_principal
+            for i in (
+                self._catalogo.resolver_imagen_lookup(db, None, sorted({f["producto_id"] for f in primeras}))
+                if primeras
+                else []
+            )
+        }
+        return ResumenStockInicio(
+            total_alertas=len(filas),
+            alertas=[
+                AlertaStockInicio(
+                    producto_id=f["producto_id"],
+                    variante_id=f["variante_id"],
+                    producto=f["producto"],
+                    stock_minimo=f["stock_minimo"],
+                    cantidad_disponible=f["cantidad_disponible"],
+                    imagen=fotos.get(f["producto_id"]),
+                )
+                for f in primeras
+            ],
+        )
+
+    def _reservas(self, db: Session, hoy: dt.date, sucursal_id: int | None) -> ResumenReservasInicio:
+        por_estado = reporte_reservas_por_estado(db, ParametrosPeriodo(desde=hoy, hasta=hoy), sucursal_id)
+        return ResumenReservasInicio(
+            total=sum(fila["cantidad"] for fila in por_estado),
+            por_estado=[FilaReservasPorEstado(**fila) for fila in por_estado],
+        )
 
 
 # ---- Dashboard de indicadores empresariales (antiguo CU-34: Visualizar indicadores empresariales) ----

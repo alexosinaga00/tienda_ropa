@@ -1303,6 +1303,44 @@ def _dinero(valor) -> Decimal:
     return Decimal(str(valor if valor is not None else 0)).quantize(_DOS_DECIMALES, rounding=ROUND_HALF_UP)
 
 
+def resumen_ventas_del_dia(
+    db: Session, desde: dt.datetime, hasta: dt.datetime, sucursal_id: int | None, *, mas_vendidas: int = 4, recientes: int = 5
+) -> dict:
+    """Para `inteligencia` (pantalla de inicio del personal): lo vendido en [desde, hasta) (instantes UTC) de una
+    sucursal o de todas, calculado en la base sin traer el historial. Devuelve `tickets` y `total` (pagadas y
+    entregadas), `por_cobrar_cantidad` y `por_cobrar_total` (pendientes de pago), `mas_vendidas`
+    (`[(variante_id, unidades)]`) y `recientes` (las últimas ventas del día, de cualquier estado, con lo devuelto).
+    Solo las pagadas y entregadas cuentan como "vendido": una pendiente de pago aún puede cancelarse."""
+    por_estado = venta_repo.totales_del_dia_por_estado(db, desde, hasta, sucursal_id)
+    vendidas = [por_estado[codigo] for codigo in ESTADOS_COMPRA_PAGADA if codigo in por_estado]
+    cobrar_cantidad, cobrar_total = por_estado.get("pendiente_pago", (0, 0))
+
+    ventas = venta_repo.recientes_del_dia(db, desde, hasta, sucursal_id, recientes)
+    estados = mapa_codigos_estado_venta(db)
+    devuelto_por_venta, _ = devuelto_por_venta_y_linea(db, ventas)
+    return {
+        "tickets": sum(cantidad for cantidad, _total in vendidas),
+        "total": _dinero(sum((_dinero(total) for _cantidad, total in vendidas), Decimal(0))),
+        "por_cobrar_cantidad": cobrar_cantidad,
+        "por_cobrar_total": _dinero(cobrar_total),
+        "mas_vendidas": venta_repo.unidades_vendidas_del_dia_por_variante(
+            db, desde, hasta, sucursal_id, ESTADOS_COMPRA_PAGADA, mas_vendidas
+        ),
+        "recientes": [
+            {
+                "id": v.id,
+                "codigo": v.codigo,
+                "fecha": v.fecha,
+                "total": v.total,
+                "estado": estados[v.estado_id],
+                "unidades_vendidas": sum(d.cantidad for d in v.detalle),
+                "unidades_devueltas": devuelto_por_venta.get(v.id, 0),
+            }
+            for v in ventas
+        ],
+    }
+
+
 def reporte_ventas_serie_diaria(
     db: Session,
     periodo: ParametrosPeriodo,

@@ -13,6 +13,7 @@ from app.inteligencia.casos_uso.cu20_recomendar_productos import RecomendarProdu
 from app.inteligencia.casos_uso.cu21_buscar_prendas_por_voz import BuscarComandoVoz
 from app.inteligencia.casos_uso.cu22_consultar_reportes_indicadores import (
     ConsultarReportesVentasInventario,
+    ConsultarResumenInicio,
     ExportarReportesVentasInventario,
     VisualizarDashboardIndicadores,
 )
@@ -30,6 +31,7 @@ from app.inteligencia.politicas import registrar_evento
 from app.inteligencia.schemas import (
     AnomaliasRespuesta,
     DashboardRespuesta,
+    ResumenInicioRespuesta,
     DemandaRespuesta,
     EntrenarRequest,
     EntrenarRespuesta,
@@ -243,6 +245,23 @@ def exportar_reporte_reservas(
 _routers_reportes = [reportes_router]
 
 
+# ---- Pantalla de inicio del personal ----
+# Sin `reportes.ver` ni plan de reportes: lo ve todo el personal. Cada sección se omite si falta su permiso o su plan
+# (ver `ConsultarResumenInicio`), así que la ruta solo exige sesión y suscripción activa (como `/empleados/yo`).
+
+cu_resumen_inicio = ConsultarResumenInicio()
+
+inicio_router = APIRouter(prefix="/api/v1/inicio", tags=["inicio"])
+
+
+@inicio_router.get("/resumen", response_model=ResumenInicioRespuesta)
+def resumen_inicio(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> ResumenInicioRespuesta:
+    return cu_resumen_inicio.ejecutar(db, usuario.id)
+
+
+_routers_inicio = [inicio_router]
+
+
 # ---- Reportes generativos con IA (CU-23, E09) ----------------------------------------
 # Orden de errores: 401, suscripción, plan (exigir_funcionalidad), permiso, y recién entonces las
 # reglas de negocio, que responden 200 con un estado (incompleta, ambigua, invalida...).
@@ -423,4 +442,11 @@ publico_tienda_router.add_api_route(
 )
 
 
-routers = _routers_inteligencia + _routers_reportes + _routers_reportes_ia + _routers_analitica + [publico_tienda_router]
+routers = (
+    _routers_inteligencia
+    + _routers_reportes
+    + _routers_inicio
+    + _routers_reportes_ia
+    + _routers_analitica
+    + [publico_tienda_router]
+)

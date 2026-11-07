@@ -44,6 +44,8 @@ class Reserva(EmpresaMixin, Base):
     __table_args__ = (
         UniqueConstraint("empresa_id", "codigo", name="uq_reserva_empresa_codigo"),
         Index("ix_reserva_empresa_estado_expiracion", "empresa_id", "estado_id", "fecha_expiracion"),
+        # Reservas de una sucursal en un día (pantalla de inicio y bandeja de la sucursal).
+        Index("ix_reserva_empresa_sucursal_visita", "empresa_id", "sucursal_id", "fecha_visita"),
         CheckConstraint("hora_visita_hasta > hora_visita_desde", name="ck_reserva_horas"),
     )
 
@@ -157,6 +159,9 @@ class Venta(EmpresaMixin, Base):
         # En venta presencial el cajero es obligatorio.
         CheckConstraint("canal <> 'presencial' OR cajero_id IS NOT NULL", name="ck_venta_cajero_presencial"),
         Index("ix_venta_empresa_fecha", "empresa_id", "fecha"),
+        # Ventas de una sucursal en un rango de fechas (pantalla de inicio del personal, Caja) y compras de un cliente.
+        Index("ix_venta_empresa_sucursal_fecha", "empresa_id", "sucursal_id", "fecha"),
+        Index("ix_venta_cliente", "cliente_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -180,7 +185,10 @@ class Venta(EmpresaMixin, Base):
 
 class VentaDetalle(EmpresaMixin, Base):
     __tablename__ = "venta_detalle"
-    __table_args__ = (CheckConstraint("cantidad > 0", name="ck_venta_detalle_cantidad"),)
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_venta_detalle_cantidad"),
+        Index("ix_venta_detalle_venta", "venta_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     venta_id: Mapped[int] = mapped_column(ForeignKey("venta.id", ondelete="CASCADE"), nullable=False)
@@ -232,6 +240,7 @@ class Devolucion(EmpresaMixin, Base):
         CheckConstraint(
             "estado IN ('pendiente','aprobada','rechazada','cancelada','vencida')", name="ck_devolucion_estado"
         ),
+        Index("ix_devolucion_venta", "venta_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -255,7 +264,10 @@ class Devolucion(EmpresaMixin, Base):
 
 class DevolucionDetalle(EmpresaMixin, Base):
     __tablename__ = "devolucion_detalle"
-    __table_args__ = (CheckConstraint("cantidad > 0", name="ck_devolucion_detalle_cantidad"),)
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_devolucion_detalle_cantidad"),
+        Index("ix_devolucion_detalle_devolucion", "devolucion_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     devolucion_id: Mapped[int] = mapped_column(ForeignKey("devolucion.id", ondelete="CASCADE"), nullable=False)
@@ -297,7 +309,7 @@ class EstadoPago(Base):
 
 class Pago(EmpresaMixin, Base):
     __tablename__ = "pago"
-    __table_args__ = (CheckConstraint("monto > 0", name="ck_pago_monto"),)
+    __table_args__ = (CheckConstraint("monto > 0", name="ck_pago_monto"), Index("ix_pago_venta", "venta_id"))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     venta_id: Mapped[int] = mapped_column(ForeignKey("venta.id"), nullable=False)
@@ -314,6 +326,8 @@ class Pago(EmpresaMixin, Base):
 # es justamente lo que permite auditar que llegó dos veces.
 class TransaccionPasarela(EmpresaMixin, Base):
     __tablename__ = "transaccion_pasarela"
+    # El webhook y la pantalla QR buscan la transacción SOLO por (pasarela, id_transaccion), sin conocer la empresa.
+    __table_args__ = (Index("ix_transaccion_pasarela_referencia", "pasarela", "id_transaccion"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pago_id: Mapped[int] = mapped_column(ForeignKey("pago.id", ondelete="CASCADE"), nullable=False)

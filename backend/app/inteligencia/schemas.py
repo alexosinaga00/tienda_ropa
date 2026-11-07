@@ -262,6 +262,64 @@ class DashboardRespuesta(BaseModel):
     uso_probador: list[FilaUsoProbador]
 
 
+# ---- Resumen de la pantalla de inicio del personal ---------------------------------------
+# Una sola respuesta con lo de HOY (día de Bolivia). Cada sección es null cuando el usuario no tiene el permiso de esa
+# parte o el plan de la empresa no la incluye: la pantalla simplemente no la dibuja.
+
+
+class PrendaVendidaInicio(BaseModel):
+    variante_id: int
+    nombre: str
+    cantidad: int
+
+
+class VentaRecienteInicio(BaseModel):
+    id: int
+    codigo: str
+    fecha: FechaUTC
+    total: Decimal
+    estado: str
+    unidades_vendidas: int
+    unidades_devueltas: int = 0
+
+
+class ResumenVentasInicio(BaseModel):
+    tickets: int
+    total_ventas: Decimal
+    por_cobrar_cantidad: int
+    por_cobrar_total: Decimal
+    mas_vendidas: list[PrendaVendidaInicio]
+    recientes: list[VentaRecienteInicio]
+
+
+class AlertaStockInicio(BaseModel):
+    producto_id: int
+    variante_id: int
+    producto: str
+    stock_minimo: int
+    cantidad_disponible: int
+    imagen: str | None = None
+
+
+class ResumenStockInicio(BaseModel):
+    total_alertas: int
+    alertas: list[AlertaStockInicio]
+
+
+class ResumenReservasInicio(BaseModel):
+    total: int
+    por_estado: list[FilaReservasPorEstado]
+
+
+class ResumenInicioRespuesta(BaseModel):
+    fecha: dt.date
+    sucursal_id: int | None  # null = todas las sucursales (administrador)
+    sucursal_nombre: str
+    ventas: ResumenVentasInicio | None = None
+    stock: ResumenStockInicio | None = None
+    reservas: ResumenReservasInicio | None = None
+
+
 # ---- Reportes generativos ---------------------------------------------------------
 # CU-23 (E09). Un solo modelo, SolicitudReporte, sirve para dos usos: es lo que debe
 # devolver el intérprete (Groq o reglas) y lo que puede mandar el cliente ya armado.

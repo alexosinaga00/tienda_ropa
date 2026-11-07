@@ -128,6 +128,14 @@ def verificar_funcionalidad(db: Session, funcionalidad: str, request: Request | 
     _exigir(_situacion(db, request), funcionalidad)
 
 
+def plan_incluye_funcionalidad(db: Session, funcionalidad: str) -> bool:
+    """Si el plan de la empresa de la sesión incluye `funcionalidad`, sin lanzar: para un caso de uso que arma una
+    pantalla con varias secciones y omite las que el plan no tiene (en vez de fallar todo con 403)."""
+    _validar_nombre(funcionalidad)
+    plan = _situacion(db).plan
+    return plan is not None and bool(getattr(plan, funcionalidad))
+
+
 def _validar_nombre(funcionalidad: str) -> None:
     if funcionalidad not in FUNCIONALIDADES:
         raise ValueError(f"Funcionalidad desconocida: {funcionalidad!r}. Válidas: {', '.join(FUNCIONALIDADES)}")

@@ -129,6 +129,7 @@ class Cliente(EmpresaMixin, Base):
 
 class Notificacion(EmpresaMixin, Base):
     __tablename__ = "notificacion"
+    __table_args__ = (Index("ix_notificacion_usuario", "usuario_id", "creado_en"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)

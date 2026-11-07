@@ -244,7 +244,10 @@ class TipoMovimiento(Base):
 # la suma de sus movimientos (ver catalogo.politicas.actualizar_stock_operacion).
 class MovimientoInventario(EmpresaMixin, Base):
     __tablename__ = "movimiento_inventario"
-    __table_args__ = (CheckConstraint("cantidad <> 0", name="ck_movimiento_cantidad"),)
+    __table_args__ = (
+        CheckConstraint("cantidad <> 0", name="ck_movimiento_cantidad"),
+        Index("ix_movimiento_inventario_variante_sucursal", "variante_id", "sucursal_id"),
+    )
 
     # BigInteger en Postgres (BIGSERIAL, como pide el esquema); en SQLite
     # (tests) se compila a INTEGER, el único tipo que ahí se autoincrementa

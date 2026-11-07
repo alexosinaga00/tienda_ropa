@@ -34,6 +34,15 @@ def ahora_bolivia() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc).astimezone(ZONA_BOLIVIA)
 
 
+def dia_bolivia(ahora: dt.datetime | None = None) -> tuple[dt.date, dt.datetime, dt.datetime]:
+    """El día de hoy en Bolivia y sus límites como instantes UTC naive: `(fecha, desde, hasta)`, con `desde` incluido
+    y `hasta` excluido. Sirve para decir "las ventas de hoy" contra `venta.fecha` (UTC): una venta de las 23:12 en
+    Bolivia ya es del día siguiente en UTC, y cortar la fecha UTC la sacaría de hoy. `ahora` solo existe para las pruebas."""
+    hoy = (ahora.astimezone(ZONA_BOLIVIA) if ahora is not None else ahora_bolivia()).date()
+    inicio = dt.datetime.combine(hoy, dt.time.min, tzinfo=ZONA_BOLIVIA).astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return hoy, inicio, inicio + dt.timedelta(days=1)
+
+
 def ahora_utc_naive() -> dt.datetime:
     """El instante actual en UTC como datetime naive (sin tzinfo).
 

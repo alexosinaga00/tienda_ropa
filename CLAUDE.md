@@ -1044,6 +1044,33 @@ sincronización offline y pedido sin conexión), así que el aviso vive ahí y n
   de la web y de la app. No se repite `costo_unitario` en nada nuevo.
 - Pruebas (Brevo y FCM simulados): `tests/comercial/test_compra_confirmada.py` y `tests/sincronizacion/test_compra_confirmada_sync.py`.
 
+### Resumen de inicio del personal (`GET /api/v1/inicio/resumen`, CU-22)
+La pantalla de inicio del back office pide UNA sola cosa: lo de HOY, ya sumado en la base. Antes bajaba el historial completo de
+ventas y de reservas de cada sucursal y filtraba "hoy" en el navegador (decenas de llamadas pesadas para un administrador con
+varias sucursales, y un 0 de relleno hasta que llegaban). Clase de control `ConsultarResumenInicio` (en `cu22_...py`, sin CU nuevo).
+- **Permisos y plan.** La ruta solo exige sesión (como `/empleados/yo`; está en `EXENTOS_DE_PLAN` de la prueba de planes porque cada
+  sección se omite por su cuenta). Cada sección sale `null` si falta su permiso (`ventas.gestionar_sucursal`, `inventario.ver`,
+  `reservas.gestionar_sucursal`) o si el plan no la incluye (`gestion_ventas`, `reservas`; `core.planes.plan_incluye_funcionalidad`).
+  Sin permiso para ninguna sección responde un resumen vacío (200); el superadministrador (modo plataforma) recibe 403
+  (`exigir_empresa`). Sin alcance global ni sucursal asignada, 403 "No tenés una sucursal asignada".
+- **Alcance.** Quien no tiene alcance global ve su sucursal; el administrador, todas (`sucursal_id` null, "Todas las sucursales").
+- **El día es el de Bolivia** (`core.tiempo.dia_bolivia`): `[desde, hasta)` en UTC naive, para que una venta de las 23:12 de Bolivia
+  (03:12 UTC del día siguiente) siga contando como de hoy.
+- **Qué trae.** `ventas` (tickets y total de pagadas y entregadas, por cobrar = pendientes de pago, 4 prendas más vendidas con su nombre,
+  5 ventas recientes con unidades vendidas y devueltas), `stock` (total de alertas y las 4 primeras con su foto) y `reservas` (las de
+  `fecha_visita` hoy, por estado). Consultas nuevas en `VentaRepository` (`totales_del_dia_por_estado`,
+  `unidades_vendidas_del_dia_por_variante`, `recientes_del_dia`) y `comercial.politicas.resumen_ventas_del_dia`; los nombres y las
+  fotos salen de `ConsultarCatalogo.resolver_imagen_lookup`.
+- **Web.** `DashboardComponent` hace esa única llamada y dibuja esqueletos (`.dash-esqueleto`) mientras llega; 403 muestra el aviso de
+  "sin sucursal" y cualquier otro error ofrece reintentar.
+- **Índices de consulta** (migración `a3c7e9d1b542`, también declarados en los modelos): `venta (empresa_id, sucursal_id, fecha)` y
+  `(cliente_id)`, `venta_detalle (venta_id)`, `pago (venta_id)`, `devolucion (venta_id)`, `devolucion_detalle (devolucion_id)`,
+  `reserva (empresa_id, sucursal_id, fecha_visita)`, `notificacion (usuario_id, creado_en)`,
+  `movimiento_inventario (variante_id, sucursal_id)` y `transaccion_pasarela (pasarela, id_transaccion)` (el webhook busca solo por eso).
+  Postgres NO indexa las llaves foráneas por sí solo: quedan ~70 sin índice (informe de auditoría del 07/11/2026).
+- Pruebas: `tests/inteligencia/test_resumen_inicio.py`, `tests/postgres/test_resumen_inicio_pg.py` (incluye subir y bajar la migración) y
+  `dashboard.component.spec.ts`. La ruta está en `tests/aislamiento/rutas_esperadas.py` (PROPIA, "solo autenticado").
+
 ## Plan de desarrollo
 `docs/plan_desarrollo_fashionstore.md`
 

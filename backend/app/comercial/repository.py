@@ -26,6 +26,7 @@ from app.comercial.models import (
     Reserva,
     TransaccionPasarela,
     Venta,
+    VentaDetalle,
     ZonaEnvio,
 )
 from app.comercial.schemas import (
@@ -265,6 +266,60 @@ class VentaRepository:
         return list(
             db.scalars(self._consulta_base().where(Venta.sucursal_id == sucursal_id).order_by(Venta.fecha.desc()))
         )
+
+    # -- Resumen del día (pantalla de inicio del personal): todo se calcula en la base, sin traer el historial --
+
+    @staticmethod
+    def _del_dia(consulta, desde: dt.datetime, hasta: dt.datetime, sucursal_id: int | None):
+        """Las ventas con `fecha` en [desde, hasta) (instantes UTC) y, si se pide, de una sucursal."""
+        consulta = consulta.where(Venta.fecha >= desde, Venta.fecha < hasta)
+        return consulta if sucursal_id is None else consulta.where(Venta.sucursal_id == sucursal_id)
+
+    def totales_del_dia_por_estado(
+        self, db: Session, desde: dt.datetime, hasta: dt.datetime, sucursal_id: int | None
+    ) -> dict[str, tuple[int, object]]:
+        """`{código de estado: (cantidad de ventas, suma de totales)}` del día; solo los estados que tuvieron ventas."""
+        consulta = self._del_dia(
+            select(EstadoVenta.codigo, func.count(Venta.id), func.coalesce(func.sum(Venta.total), 0))
+            .join(Venta, Venta.estado_id == EstadoVenta.id)
+            .group_by(EstadoVenta.codigo),
+            desde,
+            hasta,
+            sucursal_id,
+        )
+        return {codigo: (int(cantidad), total) for codigo, cantidad, total in db.execute(consulta).all()}
+
+    def unidades_vendidas_del_dia_por_variante(
+        self,
+        db: Session,
+        desde: dt.datetime,
+        hasta: dt.datetime,
+        sucursal_id: int | None,
+        estados: tuple[str, ...],
+        limite: int,
+    ) -> list[tuple[int, int]]:
+        """`[(variante_id, unidades)]` de las prendas más vendidas del día entre las ventas en `estados`."""
+        unidades = func.sum(VentaDetalle.cantidad)
+        consulta = self._del_dia(
+            select(VentaDetalle.variante_id, unidades.label("unidades"))
+            .join(Venta, Venta.id == VentaDetalle.venta_id)
+            .join(EstadoVenta, EstadoVenta.id == Venta.estado_id)
+            .where(EstadoVenta.codigo.in_(estados))
+            .group_by(VentaDetalle.variante_id)
+            .order_by(unidades.desc(), VentaDetalle.variante_id)
+            .limit(limite),
+            desde,
+            hasta,
+            sucursal_id,
+        )
+        return [(int(variante_id), int(total)) for variante_id, total in db.execute(consulta).all()]
+
+    def recientes_del_dia(
+        self, db: Session, desde: dt.datetime, hasta: dt.datetime, sucursal_id: int | None, limite: int
+    ) -> list[Venta]:
+        """Las últimas ventas del día (con su detalle), la más reciente primero."""
+        consulta = self._del_dia(self._consulta_base(), desde, hasta, sucursal_id)
+        return list(db.scalars(consulta.order_by(Venta.fecha.desc(), Venta.id.desc()).limit(limite)))
 
     def existe_venta_vigente_de_reserva(self, db: Session, reserva_id: int) -> bool:
         """True si la reserva ya tiene una venta que no está anulada

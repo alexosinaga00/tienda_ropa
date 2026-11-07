@@ -255,6 +255,7 @@ RUTAS: dict[tuple[str, str], Ruta] = {
     ('POST', '/api/v1/reportes-ia/ejecutar'): Ruta(CREA_O_ACCION, 'reportes.ver', 'reportes_ia', MATRIZ),
     ('POST', '/api/v1/reportes-ia/exportar'): Ruta(CREA_O_ACCION, 'reportes.ver', 'reportes_ia', MATRIZ),
     ('POST', '/api/v1/reportes-ia/interpretar'): Ruta(CREA_O_ACCION, 'reportes.ver', 'reportes_ia', MATRIZ),
+    ('GET', '/api/v1/inicio/resumen'): Ruta(PROPIA, None, None, MATRIZ, 'solo autenticado'),
     ('GET', '/api/v1/reportes/dashboard'): Ruta(LISTADO, 'reportes.ver', 'reportes_convencionales', MATRIZ),
     ('GET', '/api/v1/reportes/inventario'): Ruta(LISTADO, 'reportes.ver', 'reportes_convencionales', MATRIZ),
     ('GET', '/api/v1/reportes/inventario/exportar'): Ruta(CREA_O_ACCION, 'reportes.ver', 'reportes_convencionales', MATRIZ),
