@@ -29,7 +29,9 @@ export type MotivoPedidoDiferido =
   | 'pago_rechazado'
   | 'pedido_invalido'
   | 'pedido_vencido'
-  | 'suscripcion_no_activa';
+  | 'suscripcion_no_activa'
+  /** PayPal SÍ cobró (un cobro incierto que se confirmó al reintentar) y el pedido ya no se pudo completar: se devuelve el dinero. */
+  | 'cobro_a_reembolsar';
 
 export interface PedidoDiferidoLinea {
   variante_id: number;
