@@ -66,11 +66,21 @@ def test_el_mensaje_lleva_notificacion_datos_prioridad_alta_y_canal(fcm):
             "notification": {"title": "Cobramos tu pedido", "body": "Pagaste Bs 200.00"},
             "data": {"tipo": "pedido_diferido", "referencia_id": "7", "notificacion_id": "12"},
             "android": {"priority": "HIGH", "notification": {"channel_id": "fashionstore_avisos"}},
+            "webpush": {"headers": {"Urgency": "high"}},
         }
     }
     assert all(isinstance(v, str) for v in cuerpo["message"]["data"].values())
     assert fcm.urls_fcm == [f"https://fcm.googleapis.com/v1/projects/{PROJECT_ID}/messages:send"]
     assert fcm.cabeceras_fcm[0]["authorization"] == f"Bearer {TOKEN_ACCESO}"
+
+
+def test_el_mismo_mensaje_sirve_a_android_y_al_navegador_con_un_bloque_para_cada_uno(fcm):
+    push.enviar(_mensaje())
+
+    mensaje = fcm.mensajes[0]["message"]
+    assert mensaje["android"] == {"priority": "HIGH", "notification": {"channel_id": "fashionstore_avisos"}}  # intacto
+    assert mensaje["webpush"] == {"headers": {"Urgency": "high"}}
+    assert set(mensaje) == {"token", "notification", "data", "android", "webpush"}
 
 
 def test_los_valores_de_datos_siempre_son_texto(fcm):

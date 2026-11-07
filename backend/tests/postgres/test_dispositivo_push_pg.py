@@ -57,8 +57,43 @@ def test_el_esquema_de_las_migraciones_tiene_el_unique_y_el_check(client_pg, fab
             db.commit()
         db.rollback()
         db.add(DispositivoPush(usuario_id=1, token=TOKEN_2, plataforma="ios", activo=True))
-        with pytest.raises(IntegrityError):  # CHECK plataforma IN ('android')
+        with pytest.raises(IntegrityError):  # CHECK plataforma IN ('android','web')
             db.commit()
+        db.rollback()
+        db.add(DispositivoPush(usuario_id=1, token=TOKEN_2, plataforma="web", activo=True))
+        db.commit()  # el navegador (push web) cabe desde la migración b6d1f3a8c725
+
+
+def test_la_migracion_del_push_web_se_puede_bajar_y_volver_a_subir(url_pg, client_pg, fabrica_pg, admin_pg, engine_pg):
+    from sqlalchemy import text
+
+    from tests.postgres.conftest import ejecutar_alembic
+
+    with fabrica_pg() as db:
+        db.add(DispositivoPush(usuario_id=1, token=TOKEN, plataforma="android", activo=True))
+        db.add(DispositivoPush(usuario_id=1, token=TOKEN_2, plataforma="web", activo=True))
+        db.commit()
+    engine_pg.dispose()  # sin conexiones abiertas que bloqueen el DDL de alembic
+    try:
+        bajada = ejecutar_alembic(url_pg, "downgrade", "f4b8d2a6c139")
+        assert bajada.returncode == 0, bajada.stderr
+        with engine_pg.begin() as conexion:
+            # La baja borra las filas web (tokens de navegador) y deja el CHECK de solo android.
+            assert [f[0] for f in conexion.execute(text("SELECT plataforma FROM dispositivo_push"))] == ["android"]
+        with pytest.raises(IntegrityError), engine_pg.begin() as conexion:
+            conexion.execute(
+                text(
+                    "INSERT INTO dispositivo_push (empresa_id, usuario_id, token, plataforma, activo) "
+                    "VALUES (1, 1, 'token-web-rechazado', 'web', true)"
+                )
+            )
+    finally:
+        engine_pg.dispose()
+        subida = ejecutar_alembic(url_pg, "upgrade", "head")
+        assert subida.returncode == 0, subida.stderr
+    with fabrica_pg() as db:
+        db.add(DispositivoPush(usuario_id=1, token=TOKEN_2, plataforma="web", activo=True))
+        db.commit()  # otra vez acepta web
 
 
 def test_ocho_altas_simultaneas_del_mismo_token_dejan_una_fila_y_ninguna_falla(client_pg, fabrica_pg):

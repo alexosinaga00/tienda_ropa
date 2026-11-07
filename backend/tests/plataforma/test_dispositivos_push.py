@@ -269,16 +269,81 @@ def test_una_notificacion_nueva_programa_el_push_y_llega_a_fcm(client, db_sessio
     (cuerpo,) = fcm.mensajes
     assert cuerpo["message"]["token"] == TOKEN_1
     assert cuerpo["message"]["notification"] == {"title": "Cobramos tu pedido", "body": "Pagaste Bs 200"}
-    assert cuerpo["message"]["data"] == {"tipo": "pedido_diferido", "referencia_id": "9", "notificacion_id": str(aviso.id)}
+    assert cuerpo["message"]["data"] == {
+        "tipo": "pedido_diferido",
+        "referencia_id": "9",
+        "notificacion_id": str(aviso.id),
+        "empresa_codigo": "fashionstore",  # para que el navegador abra la tienda correcta
+    }
     assert cuerpo["message"]["android"] == {"priority": "HIGH", "notification": {"channel_id": "fashionstore_avisos"}}
+    assert cuerpo["message"]["webpush"] == {"headers": {"Urgency": "high"}}
 
 
 def test_una_notificacion_sin_tipo_ni_referencia_manda_datos_vacios(client, db_session, cliente_headers, fcm):
     aviso = _registrar_y_notificar(client, db_session, cliente_headers)
     fcm.correr()
 
-    assert fcm.mensajes[0]["message"]["data"] == {"tipo": "", "referencia_id": "", "notificacion_id": str(aviso.id)}
+    assert fcm.mensajes[0]["message"]["data"] == {
+        "tipo": "",
+        "referencia_id": "",
+        "notificacion_id": str(aviso.id),
+        "empresa_codigo": "fashionstore",
+    }
     assert fcm.mensajes[0]["message"]["notification"]["body"] == ""
+
+
+# ---- push web (plataforma "web") ----
+
+
+def test_el_alta_acepta_la_plataforma_web_y_la_guarda(client, db_session, cliente_headers):
+    respuesta = client.post(URL, json={"token": TOKEN_1, "plataforma": "web"}, headers=cliente_headers)
+
+    assert respuesta.status_code == 204
+    assert _fila(db_session, TOKEN_1).plataforma == "web"
+
+
+def test_un_token_web_recibe_el_push_con_ambos_bloques_y_la_empresa(client, db_session, cliente_headers, fcm):
+    client.post(URL, json={"token": TOKEN_1, "plataforma": "web"}, headers=cliente_headers)
+    politicas.crear_notificacion(
+        db_session, _yo(client, cliente_headers), "Compra confirmada", "Tu compra está pagada.", "compra_confirmada", 4
+    )
+    fcm.correr()
+
+    (cuerpo,) = fcm.mensajes
+    mensaje = cuerpo["message"]
+    assert mensaje["token"] == TOKEN_1
+    assert mensaje["webpush"] == {"headers": {"Urgency": "high"}}
+    assert mensaje["android"]["priority"] == "HIGH"
+    assert mensaje["data"]["empresa_codigo"] == "fashionstore" and mensaje["data"]["tipo"] == "compra_confirmada"
+    assert mensaje["data"]["referencia_id"] == "4"
+    assert all(isinstance(v, str) for v in mensaje["data"].values())
+
+
+def test_android_y_web_comparten_el_tope_de_dispositivos_del_usuario(client, db_session, cliente_headers, monkeypatch):
+    monkeypatch.setattr(get_settings(), "push_max_dispositivos_por_usuario", 2)
+    assert client.post(URL, json={"token": TOKEN_1, "plataforma": "android"}, headers=cliente_headers).status_code == 204
+    assert client.post(URL, json={"token": TOKEN_2, "plataforma": "web"}, headers=cliente_headers).status_code == 204
+    assert client.post(URL, json={"token": TOKEN_3, "plataforma": "web"}, headers=cliente_headers).status_code == 204
+
+    activos = {f.token: f.activo for f in _filas(db_session)}
+    assert activos == {TOKEN_1: False, TOKEN_2: True, TOKEN_3: True}  # el más antiguo (android) cede su lugar
+
+
+def test_un_token_web_muerto_se_desactiva_igual_que_uno_de_android(client, db_session, cliente_headers, fcm):
+    client.post(URL, json={"token": TOKEN_1, "plataforma": "web"}, headers=cliente_headers)
+    client.post(URL, json={"token": TOKEN_2, "plataforma": "android"}, headers=cliente_headers)
+    fcm.respuestas[TOKEN_1] = error_fcm(404, "NOT_FOUND", "UNREGISTERED")
+    politicas.crear_notificacion(db_session, _yo(client, cliente_headers), "Hola")
+    fcm.correr()
+
+    assert _fila(db_session, TOKEN_1).activo is False and _fila(db_session, TOKEN_2).activo is True
+
+
+def test_la_baja_de_un_token_web_funciona_como_la_de_android(client, db_session, cliente_headers):
+    client.post(URL, json={"token": TOKEN_1, "plataforma": "web"}, headers=cliente_headers)
+
+    assert _baja(client, cliente_headers).status_code == 204
+    assert _fila(db_session, TOKEN_1).activo is False
 
 
 def test_el_push_va_a_todos_los_dispositivos_activos_del_usuario_y_a_nadie_mas(client, db_session, admin_headers, cliente_headers, fcm):

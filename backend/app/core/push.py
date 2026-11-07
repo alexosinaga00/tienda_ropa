@@ -1,7 +1,7 @@
 """Cliente mínimo de Firebase Cloud Messaging (FCM HTTP v1) para las notificaciones push.
 
-Infraestructura transversal: NO importa ningún paquete de negocio. Quien necesita avisar a un teléfono (hoy, `plataforma`
-al crear una `Notificacion`) arma un `MensajePush` y llama a `enviar_sin_romper`; aquí vive lo único que sabe hablar con
+Infraestructura transversal: NO importa ningún paquete de negocio. Quien necesita avisar a un teléfono o a un navegador
+(hoy, `plataforma` al crear una `Notificacion`) arma un `MensajePush` y llama a `enviar_sin_romper`; aquí vive lo único que sabe hablar con
 Google: el token OAuth2 de la cuenta de servicio y el `messages:send` de FCM.
 
 - Configuración por variable de entorno (regla 9, nada en el código): `FIREBASE_CREDENCIALES_JSON`, el JSON COMPLETO de
@@ -201,12 +201,15 @@ def _codigos_de_error(respuesta: httpx.Response) -> set[str]:
 
 
 def _cuerpo_fcm(mensaje: MensajePush) -> dict:
+    """El mismo mensaje sirve a un teléfono y a un navegador: FCM aplica solo el bloque de la plataforma del token
+    (`android` para Android, `webpush` para el navegador) e ignora el otro."""
     return {
         "message": {
             "token": mensaje.token,
             "notification": {"title": mensaje.titulo, "body": mensaje.cuerpo},
             "data": {str(k): "" if v is None else str(v) for k, v in mensaje.datos.items()},
             "android": {"priority": "HIGH", "notification": {"channel_id": CANAL_ANDROID}},
+            "webpush": {"headers": {"Urgency": "high"}},
         }
     }
 

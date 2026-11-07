@@ -956,20 +956,22 @@ plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcional
   en `casos_fk.py`.
 
 ### Notificaciones push (FCM, `backend/app/core/push.py` y `plataforma`)
-Cada `Notificacion` que se crea para un usuario sale también como push a sus teléfonos registrados, con Firebase Cloud
-Messaging (API HTTP v1, sin el SDK `firebase-admin`). Es de MEJOR ESFUERZO: un push que no sale nunca rompe la operación que
+Cada `Notificacion` que se crea para un usuario sale también como push a sus teléfonos Android y a sus navegadores (push
+web) registrados, con Firebase Cloud Messaging (API HTTP v1, sin el SDK `firebase-admin`). Es de MEJOR ESFUERZO: un push que no sale nunca rompe la operación que
 creó la notificación, y la notificación dentro del sistema sigue siendo la fuente de verdad. NO se probó contra Firebase real
 (las pruebas simulan FCM y el OAuth de Google con `httpx.MockTransport`).
-- **Tabla `dispositivo_push`** (`DispositivoPush`, `plataforma/models.py`, `EmpresaMixin`; migración `f4b8d2a6c139`):
-  `usuario_id`, `token` (String 512), `plataforma` (CHECK `'android'`), `activo`, `creado_en`, `actualizado_en`, UNIQUE
+- **Tabla `dispositivo_push`** (`DispositivoPush`, `plataforma/models.py`, `EmpresaMixin`; migración `f4b8d2a6c139`, y
+  `b6d1f3a8c725` que amplía el CHECK `ck_dispositivo_push_plataforma` a `('android','web')`; su baja de versión borra las
+  filas `web`):
+  `usuario_id`, `token` (String 512), `plataforma` (`android` o `web`), `activo`, `creado_en`, `actualizado_en`, UNIQUE
   (`empresa_id`, `token`). Un token pertenece a UN usuario: si otro inicia sesión en el mismo teléfono, el registro se
   REASIGNA al nuevo (y el anterior deja de recibir sus avisos). `activo` marca los que reciben push (no es borrado lógico de
   negocio). EXCLUIDA de las copias de seguridad (identificador de dispositivo).
 - **Rutas** `/api/v1/dispositivos-push` (cualquier usuario autenticado: solo `get_current_user`, sin permiso ni plan, como
   `/notificaciones`; clase `GestionarDispositivosPush` en `cu01_...py`, sin CU nuevo): `POST` `{token (20-512, sin espacios),
-  plataforma: "android"}` -> 204, alta idempotente (crea, reactiva o reasigna); `POST /baja` `{token}` -> 204, idempotente: solo
+  plataforma: "android" | "web"}` -> 204, alta idempotente (crea, reactiva o reasigna); `POST /baja` `{token}` -> 204, idempotente: solo
   desactiva un token propio y activo, y un token ajeno o inexistente responde igual (204) sin revelar nada. Límites: máximo
-  `PUSH_MAX_DISPOSITIVOS_POR_USUARIO` (5) activos por usuario (al pasar, se desactiva el de uso más antiguo) y
+  `PUSH_MAX_DISPOSITIVOS_POR_USUARIO` (5) activos por usuario, UN solo tope compartido entre android y web (al pasar, se desactiva el de uso más antiguo) y
   `PUSH_DISPOSITIVOS_MAX_POR_VENTANA` (30) altas/bajas por cuenta cada `PUSH_DISPOSITIVOS_VENTANA_SEGUNDOS` (3600), 429 con
   `Retry-After` (`limitador_dispositivos_push`, en memoria, un solo worker). La alta simultánea del mismo token no falla: la
   segunda recoge la fila que creó la primera (SAVEPOINT + UNIQUE).
@@ -978,8 +980,10 @@ creó la notificación, y la notificación dentro del sistema sigue siendo la fu
   (PyJWT + `cryptography`) de la cuenta de servicio -> `https://oauth2.googleapis.com/token` (scope `firebase.messaging`);
   el token de acceso queda en memoria hasta 5 minutos antes de vencer. La credencial es la variable de entorno
   `FIREBASE_CREDENCIALES_JSON` (el JSON COMPLETO de la cuenta de servicio; de ahí sale el `project_id`); SIN ella no se envía
-  nada y todo funciona igual (como Brevo sin clave). El mensaje lleva `notification {title, body}`, `data {tipo, referencia_id,
-  notificacion_id}` (todo texto), `android {priority: HIGH, notification {channel_id: "fashionstore_avisos"}}`.
+  nada y todo funciona igual (como Brevo sin clave). El MISMO mensaje sirve a Android y al navegador (FCM aplica el bloque de
+  la plataforma del token): `notification {title, body}`, `data {tipo, referencia_id, notificacion_id, empresa_codigo}` (todo
+  texto; `empresa_codigo` es el código de la empresa de la notificación, para que el navegador abra `/t/<codigo>/...`),
+  `android {priority: HIGH, notification {channel_id: "fashionstore_avisos"}}` y `webpush {headers {Urgency: "high"}}`.
 - **Errores de FCM.** `UNREGISTERED`, `NOT_FOUND` e `INVALID_ARGUMENT` (400/404) = el token está muerto: se DESACTIVA ese
   dispositivo. 429, 5xx, red caída, OAuth caído o un 401 (descarta el token de acceso en caché) = UN reintento tras 0,5 s y,
   si falla, se abandona sin desactivar nada. Cualquier otro 4xx no se reintenta ni desactiva.
@@ -1005,7 +1009,34 @@ creó la notificación, y la notificación dentro del sistema sigue siendo la fu
   `tests/aislamiento/rutas_esperadas.py` (CREA_O_ACCION, cobertura MATRIZ, "solo autenticado").
 - **Límites conocidos:** el envío en hilo se pierde si el proceso muere justo después del commit (no hay cola persistente);
   un solo worker; `INVALID_ARGUMENT` también puede deberse a un mensaje mal armado (se desactiva igual, como pide el contrato);
-  sin push para iOS ni web; no hay reintento diferido de un push que falló.
+  sin push para iOS nativo (en iPhone el push web solo funciona con la web instalada como PWA, iOS 16.4 o más); no hay
+  reintento diferido de un push que falló. `tests/conftest.py` neutraliza `_programar_en_segundo_plano` en TODAS las pruebas
+  (fixture autouse): ninguna lanza hilos reales; `SimuladorFCM` lo sustituye para capturar y correr los envíos.
+
+### Compra confirmada: correo y notificación (una sola vez por venta)
+Cuando una venta pasa a `pagada` el comprador recibe UNA notificación (con su push) y UN correo, venga el pago de donde venga.
+`comercial.politicas.confirmar_venta` es el ÚNICO punto que marca `pagada` (webhook, polling, QR sandbox, tareas, `cobrar_en_caja`,
+sincronización offline y pedido sin conexión), así que el aviso vive ahí y ningún origen avisa por su cuenta.
+- **Quién.** `comprador_de_venta`: `Venta.cliente_id` -> usuario activo con correo. Sin cliente (venta presencial anónima),
+  usuario inactivo o sin correo, no se avisa nada.
+- **Notificación** (`tipo = compra_confirmada`, `referencia_id` = `venta.id`, título "Compra confirmada", mensaje "Tu compra
+  {codigo} por Bs {total} está pagada."): se crea en la MISMA transacción del pago con `crear_notificacion(commit=False)`
+  dentro de un SAVEPOINT, así que un rollback la deshace y su push sale solo al confirmar. Antes se busca una existente del
+  mismo usuario y venta (`existe_notificacion`; sin índice único nuevo): si la hay, no se crea ni se manda correo.
+- **Correo** (Brevo, `construir_correo_compra_confirmada`): `confirmar_venta` anota `(empresa, venta)` en `Session.info`
+  (`CLAVE_AVISO_COMPRA`, solo si Brevo está configurado); un `after_commit` (ignora SAVEPOINT; un rollback total lo descarta) lo
+  programa en el hilo del push (`plataforma.politicas.programar_en_segundo_plano`) y `enviar_correo_de_compra_confirmada` abre
+  sesión propia con la empresa fijada, REVALIDA que la venta siga `pagada`/`entregada` y manda. Lleva código, fecha en hora de
+  Bolivia, sucursal, prendas (nombre, talla, color, cantidad), subtotal/descuento/envío/total y el botón "Ver mi comprobante" ->
+  `{frontend_public_url}/t/{empresa.codigo}/mis-compras/{venta.id}`. SIN imagen de QR y SIN adjuntos; todo dato variable se
+  escapa. Sin Brevo o si falla, la venta y la notificación no cambian (log `aviso_compra_correo_fallido`, solo tipo e id).
+- **Sin duplicados.** `confirmar_venta`, `resolver_pago` y `registrar_cobro_pasarela_aprobado` reciben `avisar_compra: bool = True`; el
+  pedido sin conexión (CU-13) pasa `False` y conserva su correo "Cobramos tu pedido" y su notificación `pedido_diferido`. Un
+  webhook repetido, o polling más webhook, no confirman dos veces (la venta ya no está `pendiente_pago`).
+- **Comprobante.** `VentaRespuesta.enlace_verificacion` (`str | None`) lo llena SOLO `GET /ventas/{id}/comprobante`:
+  `{frontend_public_url}/caja?venta={codigo}` (`construir_enlace_verificacion`, sin barra final duplicada). Es lo que dibujan el QR
+  de la web y de la app. No se repite `costo_unitario` en nada nuevo.
+- Pruebas (Brevo y FCM simulados): `tests/comercial/test_compra_confirmada.py` y `tests/sincronizacion/test_compra_confirmada_sync.py`.
 
 ## Plan de desarrollo
 `docs/plan_desarrollo_fashionstore.md`

@@ -50,6 +50,7 @@ def test_un_pedido_rechazado_tambien_manda_el_push(client, cliente_headers, ctx,
         "tipo": "pedido_diferido",
         "referencia_id": "",
         "notificacion_id": cuerpo["message"]["data"]["notificacion_id"],
+        "empresa_codigo": "fashionstore",
     }
 
 

@@ -25,8 +25,9 @@ from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from app.catalogo import politicas as catalogo_politicas
@@ -72,6 +73,7 @@ from app.core.codigos import generar_codigo
 from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
 from app.core.deps import ParametrosPeriodo
 from app.core.correo import MensajeCorreo, enviar_correo_sin_romper
+from app.core.correo import envio_configurado as correo_configurado
 from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
@@ -83,7 +85,7 @@ from app.core.exceptions import (
 )
 from app.core.repository import confirmar
 from app.core.security import permisos_de_usuario
-from app.core.tenant import por_cada_empresa, sin_filtro
+from app.core.tenant import fijar_empresa, por_cada_empresa, sin_filtro
 from app.plataforma import politicas as plataforma_politicas
 from app.plataforma.politicas import obtener_perfil_cliente
 
@@ -613,8 +615,18 @@ def _exigir_pendiente_pago(db: Session, venta: Venta) -> None:
         raise DomainError(f"No se puede confirmar una venta en estado '{estado_actual.codigo}'")
 
 
-def confirmar_venta(db: Session, venta_id: int, *, usuario_id: int | None = None, commit: bool = True) -> Venta:
-    """Para que la sección de Pagos confirme la venta cuando su pago pasa a 'aprobado'
+def confirmar_venta(
+    db: Session,
+    venta_id: int,
+    *,
+    usuario_id: int | None = None,
+    commit: bool = True,
+    avisar_compra: bool = True,
+) -> Venta:
+    """`avisar_compra`: avisar al comprador de que su compra quedó pagada (notificación y correo, una sola vez por
+    venta; ver `_avisar_compra_confirmada`). El pedido sin conexión pasa False: ya tiene su propio aviso.
+
+    Para que la sección de Pagos confirme la venta cuando su pago pasa a 'aprobado'
     (webhook o caja): es recién acá, y no en `registrar_venta`, donde se
     descuenta físicamente el stock y se congela costo_unitario -- hasta
     este momento el stock de la venta solo estaba RESERVADO.
@@ -650,6 +662,9 @@ def confirmar_venta(db: Session, venta_id: int, *, usuario_id: int | None = None
 
     estado_pagada = estado_venta_repo.obtener_por_codigo(db, "pagada")
     venta.estado_id = estado_pagada.id
+
+    if avisar_compra:
+        _avisar_compra_confirmada(db, venta)
 
     _cerrar_tx(db, venta, commit)
     return venta
@@ -903,16 +918,23 @@ def validar_cambio_de_variante(original, nueva) -> None:
         raise DomainError("El cambio tiene diferencia de precio: todavía no se puede registrar")
 
 
-def destinatario_de_venta(db: Session, venta: Venta) -> tuple[str, str] | None:
-    """(correo, nombre) de quien compró, o None si la venta no tiene cliente (p. ej. una venta presencial sin
-    cuenta) o su usuario está inactivo."""
+def comprador_de_venta(db: Session, venta: Venta) -> tuple[int, str, str] | None:
+    """(usuario_id, correo, nombre) de quien compró, o None si la venta no tiene cliente (p. ej. una venta presencial
+    sin cuenta) o su usuario está inactivo o sin correo."""
     if venta.cliente_id is None:
         return None
     cliente = plataforma_politicas.obtener_cliente(db, venta.cliente_id)
     usuario = plataforma_politicas.obtener_usuario(db, cliente.usuario_id)
     if not usuario.activo or not usuario.email:
         return None
-    return usuario.email, usuario.nombre
+    return usuario.id, usuario.email, usuario.nombre
+
+
+def destinatario_de_venta(db: Session, venta: Venta) -> tuple[str, str] | None:
+    """(correo, nombre) de quien compró, o None si la venta no tiene cliente (p. ej. una venta presencial sin
+    cuenta) o su usuario está inactivo."""
+    comprador = comprador_de_venta(db, venta)
+    return None if comprador is None else (comprador[1], comprador[2])
 
 
 def _fecha_legible(fecha: dt.datetime) -> str:
@@ -1583,8 +1605,11 @@ def resolver_pago(
     estado_resultado: str,
     payload_respuesta: dict,
     commit: bool,
+    avisar_compra: bool = True,
 ) -> Pago:
-    """Registra la evidencia y, si el pago todavía estaba 'iniciado',
+    """`avisar_compra` se pasa a `confirmar_venta` (el pedido sin conexión pasa False: tiene su propio aviso).
+
+    Registra la evidencia y, si el pago todavía estaba 'iniciado',
     aplica el resultado (aprobado/rechazado) UNA sola vez. La usan tanto
     el webhook como el polling activo y la pantalla QR (todo CU-18): es el
     único lugar que decide si un resultado ya se aplicó o no (ahí vive la
@@ -1621,7 +1646,7 @@ def resolver_pago(
         estado_nuevo = estado_pago_repo.obtener_por_codigo(db, estado_resultado)
         pago.estado_id = estado_nuevo.id
         if estado_resultado == "aprobado":
-            confirmar_venta(db, pago.venta_id, commit=False)
+            confirmar_venta(db, pago.venta_id, commit=False, avisar_compra=avisar_compra)
         else:
             anular_venta(db, pago.venta_id, commit=False, restaurar_carrito=True)
     # 'iniciado' repetido (sin novedad real): no cambia nada más.
@@ -1703,6 +1728,7 @@ def registrar_cobro_pasarela_aprobado(
     monto_usd: Decimal,
     tipo_cambio: Decimal,
     origen: str,
+    avisar_compra: bool = True,
 ) -> Pago:
     """Deja asentado en el libro de pagos un cobro que la pasarela YA aprobó (sin que el cliente esté presente) y
     confirma la venta (descuenta el stock) en la unidad de trabajo del llamador: nunca confirma ni revierte.
@@ -1745,6 +1771,7 @@ def registrar_cobro_pasarela_aprobado(
         estado_resultado="aprobado",
         payload_respuesta={"origen": origen, "estado": "aprobado"},
         commit=False,
+        avisar_compra=avisar_compra,
     )
 
 
@@ -1870,5 +1897,197 @@ def construir_correo_pedido_diferido(
         f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)},</p>'
         f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{filas}</ul>'
         f'<p style="font-size:13px;line-height:1.5;color:#6B645C">{escape(cierre)}</p></div></body></html>'
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
+
+
+# ---- Compra confirmada: notificación y correo, UNA sola vez por venta (CU-18 / CU-13) ----------------------------
+#
+# `confirmar_venta` es el único punto que marca una venta como `pagada` (webhook, polling, QR, tareas, Caja, sincronización
+# offline y pedido sin conexión pasan por él). Ahí se crea, en la MISMA transacción, la notificación `compra_confirmada`
+# del comprador (su push sale solo, ver `plataforma.politicas.crear_notificacion`) y se anota la venta para el correo, que
+# se manda recién cuando la transacción CONFIRMA, en el hilo aparte del push y con sesión propia. Un SAVEPOINT revertido
+# deshace la notificación y el correo revalida que la venta siga pagada: nunca se avisa de algo que no quedó.
+
+CLAVE_AVISO_COMPRA = "aviso_compra_pendientes"  # en `Session.info`: {(empresa_id, venta_id), ...}
+TIPO_NOTIFICACION_COMPRA = "compra_confirmada"
+ESTADOS_COMPRA_PAGADA = ("pagada", "entregada")
+
+
+def enlace_comprobante_en_tienda(codigo_empresa: str, venta_id: int) -> str:
+    """El enlace del correo: el detalle de la compra en la tienda de la empresa."""
+    base = get_settings().frontend_public_url.rstrip("/")
+    return f"{base}/t/{quote(codigo_empresa, safe='')}/mis-compras/{venta_id}"
+
+
+def construir_enlace_verificacion(codigo_venta: str) -> str:
+    """Lo que lleva el QR del comprobante: la venta en la Caja. Web y app solo dibujan este texto."""
+    base = get_settings().frontend_public_url.rstrip("/")
+    return f"{base}/caja?venta={quote(codigo_venta, safe='')}"
+
+
+def _avisar_compra_confirmada(db: Session, venta: Venta) -> None:
+    """Notificación (en esta transacción) y anotación del correo (para después del commit). Sin cliente, usuario inactivo
+    o sin correo no se avisa. Nunca lanza: un aviso no puede deshacer un pago."""
+    try:
+        comprador = comprador_de_venta(db, venta)
+        if comprador is None:
+            return
+        usuario_id = comprador[0]
+        if plataforma_politicas.existe_notificacion(db, usuario_id, TIPO_NOTIFICACION_COMPRA, venta.id):
+            return  # ya se avisó de esta venta
+        mensaje = f"Tu compra {venta.codigo} por Bs {Decimal(venta.total):.2f} está pagada."
+        with db.begin_nested():
+            plataforma_politicas.crear_notificacion(
+                db, usuario_id, "Compra confirmada", mensaje, TIPO_NOTIFICACION_COMPRA, venta.id, commit=False
+            )
+        if correo_configurado():
+            db.info.setdefault(CLAVE_AVISO_COMPRA, set()).add((venta.empresa_id, venta.id))
+    except Exception:  # noqa: BLE001 - el aviso es un extra
+        logger.exception("aviso_compra_no_armado venta_id=%s", getattr(venta, "id", None))
+
+
+@event.listens_for(Session, "after_commit")
+def _despachar_correo_de_compra_al_confirmar(session: Session) -> None:
+    """Cuando la transacción confirma de verdad, programa el correo de cada compra anotada. No lanza."""
+    if session.in_nested_transaction():  # soltar un SAVEPOINT no es confirmar
+        return
+    pendientes = session.info.pop(CLAVE_AVISO_COMPRA, None)
+    if not pendientes:
+        return
+    try:
+        for empresa_id, venta_id in sorted(pendientes):
+            plataforma_politicas.programar_en_segundo_plano(enviar_correo_de_compra_confirmada, empresa_id, venta_id)
+    except Exception as exc:  # noqa: BLE001 - confirmar una venta jamás puede fallar por un correo
+        logger.error("aviso_compra_no_programado tipo=%s", type(exc).__name__)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _descartar_correo_de_compra_al_revertir(session: Session, previous_transaction) -> None:
+    """Un rollback de la transacción completa descarta lo anotado; el de un SAVEPOINT no (el envío revalida la venta)."""
+    if not previous_transaction.nested:
+        session.info.pop(CLAVE_AVISO_COMPRA, None)
+
+
+def enviar_correo_de_compra_confirmada(empresa_id: int, venta_id: int) -> None:
+    """Segundo plano, sesión propia con la empresa fijada. Revalida que la venta siga pagada y manda el correo por Brevo.
+    Nunca lanza."""
+    try:
+        db = plataforma_politicas.nueva_sesion_segundo_plano()
+        try:
+            fijar_empresa(db, empresa_id)
+            mensaje = _armar_correo_de_compra(db, venta_id)
+        finally:
+            db.close()
+        if mensaje is not None:
+            enviar_correo_sin_romper(mensaje)
+    except Exception as exc:  # noqa: BLE001 - mejor esfuerzo; el log lleva solo el tipo (nunca correos ni textos)
+        logger.error("aviso_compra_correo_fallido venta_id=%s tipo=%s", venta_id, type(exc).__name__)
+
+
+def _armar_correo_de_compra(db: Session, venta_id: int) -> MensajeCorreo | None:
+    venta = venta_repo.obtener(db, venta_id)
+    if obtener_estado_codigo(db, venta.estado_id) not in ESTADOS_COMPRA_PAGADA:
+        return None
+    destinatario = destinatario_de_venta(db, venta)
+    if destinatario is None:
+        return None
+    empresa = plataforma_politicas.obtener_empresa_de_la_sesion(db)
+    try:
+        sucursal = plataforma_politicas.obtener_sucursal(db, venta.sucursal_id).nombre
+    except NoEncontradoError:
+        sucursal = ""
+    lineas: list[tuple[str, int]] = []
+    for linea in venta.detalle:
+        variante = catalogo_politicas.buscar_variante(db, linea.variante_id)
+        prenda = catalogo_politicas.describir_variante(db, variante) if variante is not None else "Prenda"
+        lineas.append((prenda, linea.cantidad))
+    return construir_correo_compra_confirmada(
+        para_email=destinatario[0],
+        nombre=destinatario[1],
+        nombre_empresa=empresa.nombre,
+        codigo_empresa=empresa.codigo,
+        venta_id=venta.id,
+        codigo_venta=venta.codigo,
+        fecha=venta.fecha,
+        sucursal=sucursal,
+        lineas=lineas,
+        subtotal=venta.subtotal,
+        descuento=venta.descuento,
+        costo_envio=venta.costo_envio,
+        total=venta.total,
+    )
+
+
+def construir_correo_compra_confirmada(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    codigo_empresa: str,
+    venta_id: int,
+    codigo_venta: str,
+    fecha: dt.datetime,
+    sucursal: str,
+    lineas: list[tuple[str, int]],
+    subtotal: Decimal,
+    descuento: Decimal,
+    costo_envio: Decimal,
+    total: Decimal,
+) -> MensajeCorreo:
+    """'Compra confirmada': código, fecha en hora de Bolivia, sucursal, prendas (nombre, talla, color y cantidad), importes
+    y el botón 'Ver mi comprobante'. Sin imagen del QR ni adjuntos. Todo dato variable se escapa en el HTML."""
+    asunto = f"Compra confirmada {codigo_venta} · {nombre_empresa}"
+    enlace = enlace_comprobante_en_tienda(codigo_empresa, venta_id)
+    cuando = _fecha_legible(fecha)
+
+    def bs(monto: Decimal) -> str:
+        return f"Bs {Decimal(monto):.2f}"
+
+    importes = [("Subtotal", bs(subtotal))]
+    if Decimal(descuento) > 0:
+        importes.append(("Descuento", f"- {bs(descuento)}"))
+    if Decimal(costo_envio) > 0:
+        importes.append(("Envío", bs(costo_envio)))
+    importes.append(("Total", bs(total)))
+
+    datos = [("Código", codigo_venta), ("Fecha", cuando)]
+    if sucursal:
+        datos.append(("Sucursal", sucursal))
+
+    texto = (
+        f"Hola {nombre},\n\nTu compra en {nombre_empresa} está pagada.\n"
+        + "\n".join(f"{etiqueta}: {valor}" for etiqueta, valor in datos)
+        + "\n\nPrendas:\n"
+        + "\n".join(f"- {prenda} (x{cantidad})" for prenda, cantidad in lineas)
+        + "\n\n"
+        + "\n".join(f"{etiqueta}: {valor}" for etiqueta, valor in importes)
+        + f"\n\nVer mi comprobante: {enlace}\n"
+    )
+    filas_datos = "".join(
+        f'<li style="margin:0 0 6px">{escape(etiqueta)}: <strong>{escape(valor)}</strong></li>' for etiqueta, valor in datos
+    )
+    filas_prendas = "".join(
+        f'<li style="margin:0 0 6px">{escape(prenda)} (x{cantidad})</li>' for prenda, cantidad in lineas
+    )
+    filas_importes = "".join(
+        f'<tr><td style="padding:2px 12px 2px 0">{escape(etiqueta)}</td><td style="text-align:right">{escape(valor)}</td></tr>'
+        for etiqueta, valor in importes
+    )
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412"><div style="max-width:480px;margin:0 auto;padding:24px">'
+        '<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(nombre_empresa)}</p>"
+        '<h1 style="font-size:22px;margin:0 0 12px">Compra confirmada</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)}, tu compra está pagada.</p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{filas_datos}</ul>'
+        '<p style="font-size:15px;margin:0 0 6px"><strong>Prendas</strong></p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{filas_prendas}</ul>'
+        f'<table style="font-size:15px;margin:0 0 20px">{filas_importes}</table>'
+        f'<p style="margin:0 0 16px"><a href="{escape(enlace, quote=True)}" style="display:inline-block;background:#151515;'
+        'color:#F7F5F1;padding:12px 20px;text-decoration:none;border-radius:4px;font-size:15px">Ver mi comprobante</a></p>'
+        '<p style="font-size:13px;line-height:1.5;color:#6B645C">Guarda este mensaje como constancia de tu compra.</p>'
+        "</div></body></html>"
     )
     return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)

@@ -520,6 +520,11 @@ def crear_notificacion(
     return notificacion
 
 
+def existe_notificacion(db: Session, usuario_id: int, tipo: str, referencia_id: int) -> bool:
+    """¿Ya hay un aviso de ese `tipo` para ese usuario sobre esa referencia? Evita avisar dos veces lo mismo."""
+    return notificacion_repo.existe(db, usuario_id, tipo, referencia_id)
+
+
 def listar_notificaciones(db: Session, usuario_id: int) -> list[Notificacion]:
     return notificacion_repo.listar_por_usuario(db, usuario_id)
 
@@ -559,6 +564,17 @@ def _nueva_sesion() -> Session:
     from app.core.database import SessionLocal
 
     return SessionLocal()
+
+
+def programar_en_segundo_plano(funcion: Callable[..., None], *args: Any) -> None:
+    """Para los demás paquetes: corre `funcion(*args)` en el hilo aparte del push (mismo ejecutor, mismas pruebas
+    simuladas). `funcion` debe abrir su propia sesión con `nueva_sesion_segundo_plano` y no lanzar."""
+    _programar_en_segundo_plano(funcion, *args)
+
+
+def nueva_sesion_segundo_plano() -> Session:
+    """Sesión propia para quien corre en el segundo plano (sin empresa: se fija con `fijar_empresa`; hay que cerrarla)."""
+    return _nueva_sesion()
 
 
 @event.listens_for(Session, "after_commit")
@@ -608,6 +624,9 @@ def _armar_envios(empresa_id: int, notificacion_ids: list[int]) -> list[tuple[in
     db = _nueva_sesion()
     try:
         fijar_empresa(db, empresa_id)
+        pares = dispositivo_push_repo.para_notificaciones(db, notificacion_ids)
+        # El código de la empresa va en el `data` para que el navegador sepa a qué tienda abrir (`/t/<codigo>/...`).
+        empresa_codigo = obtener_empresa_de_la_sesion(db).codigo if pares else ""
         return [
             (
                 dispositivo.id,
@@ -619,10 +638,11 @@ def _armar_envios(empresa_id: int, notificacion_ids: list[int]) -> list[tuple[in
                         "tipo": notificacion.tipo or "",
                         "referencia_id": "" if notificacion.referencia_id is None else str(notificacion.referencia_id),
                         "notificacion_id": str(notificacion.id),
+                        "empresa_codigo": empresa_codigo,
                     },
                 ),
             )
-            for notificacion, dispositivo in dispositivo_push_repo.para_notificaciones(db, notificacion_ids)
+            for notificacion, dispositivo in pares
         ]
     finally:
         db.close()

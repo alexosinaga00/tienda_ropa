@@ -63,6 +63,15 @@ from scripts.seed_ventas import seed as seed_ventas
 
 
 @pytest.fixture(autouse=True)
+def _sin_hilos_de_segundo_plano(monkeypatch):
+    """Ninguna prueba lanza hilos reales de segundo plano (push y correo de compra): usarían la base real, no la de la
+    prueba. Quien necesita ver o correr esos envíos usa `SimuladorFCM`, que sustituye esto."""
+    from app.plataforma import politicas as _politicas_plataforma
+
+    monkeypatch.setattr(_politicas_plataforma, "_programar_en_segundo_plano", lambda funcion, *args: None)
+
+
+@pytest.fixture(autouse=True)
 def _limpiar_limite_de_trafico():
     """Todas las pruebas comparten la IP del cliente de pruebas, así que
     comparten el balde del limiter: sin esto, las fixtures que hacen login

@@ -298,6 +298,9 @@ class VentaRespuesta(BaseModel):
     # Unidades devueltas de esta venta (0 = ninguna). La devolución no cambia el estado: las pantallas lo muestran
     # junto al estado ("Con devolución (1 de 4)"). Las vendidas son la suma de `detalle[].cantidad`.
     unidades_devueltas: int = 0
+    # Lo que lleva el QR del comprobante (la venta en la Caja). SOLO lo llena `GET /ventas/{id}/comprobante`; en el resto
+    # de las respuestas es null. Web y app dibujan este texto tal cual.
+    enlace_verificacion: str | None = None
 
     @classmethod
     def from_modelo(

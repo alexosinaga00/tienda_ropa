@@ -315,6 +315,20 @@ class NotificacionRepository:
         db.flush()
         return notificacion
 
+    def existe(self, db: Session, usuario_id: int, tipo: str, referencia_id: int) -> bool:
+        return (
+            db.scalar(
+                select(Notificacion.id)
+                .where(
+                    Notificacion.usuario_id == usuario_id,
+                    Notificacion.tipo == tipo,
+                    Notificacion.referencia_id == referencia_id,
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
     def listar_por_usuario(self, db: Session, usuario_id: int) -> list[Notificacion]:
         return list(
             db.scalars(

@@ -38,6 +38,7 @@ from app.comercial.casos_uso.cu19_gestionar_envios_tarifas import (
     SolicitarEnvioDomicilio,
 )
 from app.comercial.politicas import (
+    construir_enlace_verificacion,
     construir_pago_respuesta,
     expirar_reservas_de_todas_las_empresas,
     expirar_ventas_de_todas_las_empresas,
@@ -333,7 +334,9 @@ def obtener_comprobante(
     venta_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
     venta = cu_historial_compras.obtener_comprobante(db, venta_id, usuario.id)
-    return _venta_respuesta(db, venta)
+    respuesta = _venta_respuesta(db, venta)
+    respuesta.enlace_verificacion = construir_enlace_verificacion(respuesta.codigo)  # solo el comprobante lo trae
+    return respuesta
 
 
 @ventas_router.get("/{venta_id}/plazo-cambio", response_model=PlazoCambioRespuesta)

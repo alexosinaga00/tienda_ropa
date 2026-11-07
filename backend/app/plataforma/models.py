@@ -148,7 +148,7 @@ class DispositivoPush(EmpresaMixin, Base):
     __tablename__ = "dispositivo_push"
     __table_args__ = (
         UniqueConstraint("empresa_id", "token", name="uq_dispositivo_push_empresa_token"),
-        CheckConstraint("plataforma IN ('android')", name="ck_dispositivo_push_plataforma"),
+        CheckConstraint("plataforma IN ('android','web')", name="ck_dispositivo_push_plataforma"),
         Index("ix_dispositivo_push_usuario", "usuario_id", "activo"),
     )
 

@@ -379,7 +379,8 @@ def test_consultar_un_envio_por_id_y_por_venta(client, admin_headers, cliente_he
 
 
 def _notificaciones(client, headers):
-    return client.get("/api/v1/notificaciones", headers=headers).json()
+    """Los avisos del ENVÍO. El de 'compra confirmada' (al pagar la venta) tiene su propia prueba."""
+    return [n for n in client.get("/api/v1/notificaciones", headers=headers).json() if n["tipo"] != "compra_confirmada"]
 
 
 def _codigo_de_venta(client, headers, venta_id):

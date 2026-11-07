@@ -511,6 +511,7 @@ class RealizarPedidoDiferido:
                 monto_usd=total_usd,
                 tipo_cambio=tipo_cambio,
                 origen="pedido_diferido",
+                avisar_compra=False,  # el pedido sin conexión ya tiene su propio correo y su notificación
             )
             db.refresh(venta)
         except Exception as exc:

@@ -216,7 +216,7 @@ class NotificacionRespuesta(BaseModel):
 class DispositivoPushRegistrar(BaseModel):
     # Un token de FCM mide ~160 caracteres y no lleva espacios; el piso de 20 descarta basura obvia.
     token: str = Field(min_length=20, max_length=512, pattern=r"^\S+$")
-    plataforma: Literal["android"]
+    plataforma: Literal["android", "web"]
 
 
 class DispositivoPushQuitar(BaseModel):
