@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../../core/avisos/avisos_mostrados.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../state/checkout_controller.dart';
@@ -199,6 +200,9 @@ class _EstadoPagoScreenState extends ConsumerState<EstadoPagoScreen> {
       final pago = siguiente.pago.valueOrNull;
       if (pago != null && (pago.aprobado || pago.rechazado) && previo?.pago.valueOrNull?.estado != pago.estado) {
         refrescarDespuesDeCompra(ref); // aprobado descuenta stock; rechazado lo libera y devuelve el carrito
+        // El pago aprobado se le dice a la persona aquí mismo ("¡Pago aprobado!"): el push de la misma compra que
+        // llegue después no debe repetirlo con un SnackBar.
+        if (pago.aprobado) ref.read(avisosMostradosProvider).marcar(AvisosMostrados.claveDeVenta(pago.ventaId));
         // El pago ya se resolvió (p. ej. "Confirmar pago" de la pantalla QR):
         // el WebView no hace falta más, sin depender de una URL de retorno.
         if (!_webviewCerrado) setState(() => _webviewCerrado = true);
@@ -285,6 +289,13 @@ class _PanelEstado extends StatelessWidget {
                   const Text('¡Pago aprobado!', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                   const SizedBox(height: AppSpacing.lg),
                   ElevatedButton(
+                    key: const Key('ver-comprobante'),
+                    onPressed: () => context.go('/compras/${pago.ventaId}'),
+                    child: const Text('Ver comprobante'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextButton(
+                    key: const Key('ver-mi-compra'),
                     onPressed: () => context.go('/compras/${pago.ventaId}'),
                     child: const Text('Ver mi compra'),
                   ),

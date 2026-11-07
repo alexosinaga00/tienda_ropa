@@ -14,6 +14,13 @@ void main() {
       expect(rutaDeNotificacion(notificacion(1, tipo: 'envio', referenciaId: 9)), '/compras/9');
     });
 
+    test('una compra confirmada abre esa compra (igual que un pedido sin conexión cobrado)', () {
+      expect(rutaDeNotificacion(notificacion(1, tipo: 'compra_confirmada', referenciaId: 31)), '/compras/31');
+      expect(rutaDeTipoNotificacion('compra_confirmada', 31), '/compras/31');
+      expect(rutaDeTipoNotificacion('pedido_diferido', 31), '/compras/31');
+      expect(rutaDeTipoNotificacion('compra_confirmada', null), isNull);
+    });
+
     test('un tipo desconocido, o sin referencia, no abre nada', () {
       expect(rutaDeNotificacion(notificacion(1, tipo: 'promocion', referenciaId: 3)), isNull);
       expect(rutaDeNotificacion(notificacion(1, tipo: null, referenciaId: 3)), isNull);

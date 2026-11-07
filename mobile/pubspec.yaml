@@ -53,6 +53,9 @@ dependencies:
   # Notificaciones push (FCM). Sin firebase_options.dart: en Android basta google-services.json.
   firebase_core: ^4.15.2
   firebase_messaging: ^16.7.1
+  # Comprobante de compra: el PDF se arma en el teléfono (sin `printing`) y el QR se dibuja en pantalla.
+  pdf: ^3.13.1
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
@@ -76,6 +79,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Roboto (Apache 2.0) solo para el PDF del comprobante: así las tildes y la ñ salen bien sin depender de Helvetica.
+  assets:
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

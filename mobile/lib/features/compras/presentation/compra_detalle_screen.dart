@@ -11,6 +11,7 @@ import '../models/envio.dart';
 import '../models/venta.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
+import 'comprobante_tarjeta.dart';
 import 'solicitar_cambio_seccion.dart';
 
 class CompraDetalleScreen extends ConsumerWidget {
@@ -70,6 +71,9 @@ class CompraDetalleScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
+
+              // El comprobante con QR y PDF: solo una compra pagada o entregada (la tarjeta lo decide).
+              ComprobanteTarjeta(venta: venta),
 
               // Con la compra pendiente o anulada el envío no está en marcha.
               if (venta.esEnvioADomicilio && (venta.estado == 'pagada' || venta.estado == 'entregada')) ...[

@@ -80,6 +80,7 @@ class Venta {
     required this.detalle,
     this.sucursalId,
     this.unidadesDevueltas = 0,
+    this.enlaceVerificacion,
   });
 
   factory Venta.fromJson(Map<String, dynamic> json) => Venta(
@@ -94,6 +95,7 @@ class Venta {
     detalle: (json['detalle'] as List).map((d) => VentaLinea.fromJson(d as Map<String, dynamic>)).toList(),
     sucursalId: json['sucursal_id'] as int?,
     unidadesDevueltas: json['unidades_devueltas'] as int? ?? 0,
+    enlaceVerificacion: _textoNoVacio(json['enlace_verificacion']),
   );
 
   final int id;
@@ -111,6 +113,12 @@ class Venta {
 
   /// Unidades devueltas de esta compra. La devolución no cambia el estado: se dice aparte.
   final int unidadesDevueltas;
+
+  /// La dirección que lleva el QR del comprobante (solo la trae `GET /ventas/{id}/comprobante`). Si falta, no hay QR.
+  final String? enlaceVerificacion;
+
+  /// Una compra pagada o entregada tiene comprobante con QR y PDF; la pendiente de pago o la anulada, no.
+  bool get tieneComprobante => estado == 'pagada' || estado == 'entregada';
 
   bool get esEnvioADomicilio => costoEnvio > 0;
 
@@ -163,7 +171,15 @@ class Venta {
     detalle: nuevoDetalle,
     sucursalId: sucursalId,
     unidadesDevueltas: unidadesDevueltas,
+    enlaceVerificacion: enlaceVerificacion,
   );
+}
+
+/// El texto sin espacios de más; null si falta, no es texto o queda vacío (el servidor puede mandar `null`).
+String? _textoNoVacio(Object? valor) {
+  if (valor is! String) return null;
+  final limpio = valor.trim();
+  return limpio.isEmpty ? null : limpio;
 }
 
 const etiquetasEstadoVenta = {

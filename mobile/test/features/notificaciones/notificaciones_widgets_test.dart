@@ -91,6 +91,22 @@ void main() {
       expect(find.text('COMPRA 12'), findsOneWidget);
     });
 
+    testWidgets('una compra confirmada tiene su ícono y al tocarla abre la compra', (tester) async {
+      final repositorio = RepositorioNotificacionesFalso([
+        notificacion(1, titulo: 'Compra confirmada', tipo: 'compra_confirmada', referenciaId: 31),
+      ]);
+      await _abrir(tester, repositorio);
+
+      expect(find.byIcon(Icons.receipt_long_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.notifications_none), findsNothing);
+
+      await tester.tap(find.text('Compra confirmada'));
+      await tester.pumpAndSettle();
+
+      expect(repositorio.marcadas, [1]);
+      expect(find.text('COMPRA 31'), findsOneWidget);
+    });
+
     testWidgets('un tipo desconocido se marca como leído pero no abre nada', (tester) async {
       final repositorio = RepositorioNotificacionesFalso([notificacion(1, titulo: 'Novedad', tipo: 'promocion')]);
       await _abrir(tester, repositorio);

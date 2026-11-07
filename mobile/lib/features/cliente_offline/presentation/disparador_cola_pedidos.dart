@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/avisos/avisos_mostrados.dart';
 import '../../../core/conectividad/conectividad_service.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/disparador_sincronizacion.dart' show mensajeroGlobal;
@@ -111,6 +112,13 @@ class _DisparadorColaPedidosState extends ConsumerState<DisparadorColaPedidos> w
   }
 
   void _avisar(PedidoSinConexion pedido) {
+    // Un pedido cobrado es una compra pagada: si el push (o la pantalla del pago) ya la avisó, no se repite; y si la
+    // persona ya está mirando esa compra, tampoco hace falta. El primero que llega gana.
+    final ventaId = pedido.estado == EstadoPedidoLocal.cobrado ? pedido.ventaId : null;
+    if (ventaId != null) {
+      if (!ref.read(avisosMostradosProvider).marcar(AvisosMostrados.claveDeVenta(ventaId))) return;
+      if (yaViendoLaCompra(rutaActualDe(ref.read(routerProvider)), ventaId)) return;
+    }
     final mensajero = mensajeroGlobal.currentState;
     if (mensajero == null) return;
     mensajero

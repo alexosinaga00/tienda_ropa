@@ -85,6 +85,7 @@ class _FilaNotificacion extends StatelessWidget {
   static IconData _icono(String? tipo) => switch (tipo) {
     'reserva_preparada' => Icons.event_available_outlined,
     'envio' => Icons.local_shipping_outlined,
+    'compra_confirmada' => Icons.receipt_long_outlined,
     _ => Icons.notifications_none,
   };
 

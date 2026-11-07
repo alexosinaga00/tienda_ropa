@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/avisos/avisos_mostrados.dart';
 import '../../../core/conectividad/conectividad_service.dart';
 import '../../../core/push/registro_push.dart';
 import '../../../core/push/servicio_push.dart';
@@ -10,6 +11,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/sync/disparador_sincronizacion.dart' show mensajeroGlobal;
 import '../../auth/state/auth_controller.dart';
 import '../../auth/state/auth_state.dart';
+import '../../compras/state/compras_providers.dart' show compraDetalleProvider;
 import '../models/ruta_notificacion.dart';
 import '../state/notificaciones_controller.dart';
 
@@ -99,7 +101,9 @@ class _DisparadorPushState extends ConsumerState<DisparadorPush> {
 
   void _alRecibirEnPrimerPlano(AvisoPush aviso) {
     if (_estadoSesion != EstadoSesion.autenticado) return;
+    // La campana y la lista se actualizan siempre; lo que se decide aparte es si además sale el SnackBar.
     unawaited(_refrescarLista());
+    if (!_hayQueMostrar(aviso)) return;
     final mensajero = mensajeroGlobal.currentState;
     final titulo = aviso.titulo;
     final cuerpo = aviso.cuerpo;
@@ -120,6 +124,30 @@ class _DisparadorPushState extends ConsumerState<DisparadorPush> {
           action: SnackBarAction(label: 'Ver', onPressed: () => _abrir(aviso)),
         ),
       );
+  }
+
+  /// Si el aviso en primer plano debe salir como SnackBar. No sale cuando el mismo hecho ya se avisó (el pago
+  /// aprobado en pantalla o el pedido sin conexión cobrado por la cola) ni cuando la persona ya está mirando esa
+  /// compra. Una compra confirmada y un pedido sin conexión cobrado con la misma referencia son el mismo hecho.
+  bool _hayQueMostrar(AvisoPush aviso) {
+    final avisos = ref.read(avisosMostradosProvider);
+    final referencia = aviso.referenciaId;
+    final notificacionId = aviso.notificacionId;
+    final esCompra = tiposDeCompraConfirmada.contains(aviso.tipo) && referencia != null;
+
+    var nuevo = true;
+    if (esCompra) nuevo = avisos.marcar(AvisosMostrados.claveDeVenta(referencia));
+    if (notificacionId != null) nuevo = avisos.marcar(AvisosMostrados.claveDeNotificacion(notificacionId)) && nuevo;
+    if (!nuevo) return false;
+
+    final rutaActual = rutaActualDe(ref.read(routerProvider));
+    final ruta = rutaDeTipoNotificacion(aviso.tipo, referencia);
+    if (esCompra && yaViendoLaCompra(rutaActual, referencia)) {
+      // La pantalla de la compra puede estar mostrando "Pendiente de pago": se vuelve a pedir.
+      ref.invalidate(compraDetalleProvider(referencia));
+      return false;
+    }
+    return ruta == null || ruta != rutaActual;
   }
 
   void _alAbrirAviso(AvisoPush aviso) {
