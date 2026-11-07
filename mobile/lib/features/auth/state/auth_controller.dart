@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/error_app.dart';
 import '../../../core/network/mensaje_error.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/push/registro_push.dart';
 import '../../tienda/models/tienda.dart';
 import '../../cliente_offline/models/linea_carrito_local.dart';
 import '../../cliente_offline/state/base_cliente.dart';
@@ -92,6 +95,8 @@ class AuthController extends StateNotifier<AuthState> {
       if (usuario.modo == ModoApp.vendedor) await sesionStorage.guardarPerfil(usuario);
       if (usuario.modo == ModoApp.cliente) await _guardarPerfilCliente(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+      // Sesión confirmada con el servidor: se registra el token push (sin pedir permiso: no hay contexto al abrir en frío).
+      _registrarPush();
     } catch (e) {
       if (esSinConexion(e) || esErrorDeServidor(e)) {
         // No se pudo verificar la sesión (sin red, timeout o 5xx): eso NO es un token inválido. Se conservan los tokens
@@ -116,6 +121,27 @@ class AuthController extends StateNotifier<AuthState> {
         return;
       }
       await _descartarSesionGuardada();
+    }
+  }
+
+  /// Registra el token push de este teléfono en el servidor, sin esperar ni fallar: la sesión ya está abierta y esto es un
+  /// extra. Con [pedirPermiso] (inicio de sesión de la persona) muestra el diálogo del sistema si el permiso falta; al
+  /// restaurar o verificar una sesión no pregunta nada.
+  void _registrarPush({bool pedirPermiso = false}) {
+    try {
+      unawaited(_ref.read(registroPushProvider).alIniciarSesion(pedirPermiso: pedirPermiso));
+    } catch (_) {
+      // Sin avisos push la app funciona igual.
+    }
+  }
+
+  /// Da de baja el token push ANTES de borrar la sesión (hace falta estar autenticado). Nunca falla ni espera más de unos
+  /// segundos; si la sesión ya venció no se intenta (pedirla dispararía otro cierre) y la baja queda pendiente.
+  Future<void> _darDeBajaPush(MotivoCierre motivo) async {
+    try {
+      await _ref.read(registroPushProvider).alCerrarSesion(intentarBaja: motivo != MotivoCierre.vencida);
+    } catch (_) {
+      // Cerrar sesión no debe depender de esto.
     }
   }
 
@@ -144,6 +170,7 @@ class AuthController extends StateNotifier<AuthState> {
       if (!usuario.esCliente) throw const AccesoSoloClientesException();
       await _guardarPerfilCliente(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+      _registrarPush(pedirPermiso: true);
     } on AccesoSoloClientesException {
       // Las credenciales eran correctas: se cierra la sesión que el login acaba de guardar y se explica por qué.
       await _repository.logout();
@@ -172,6 +199,7 @@ class AuthController extends StateNotifier<AuthState> {
       if (tienda != null) await _ref.read(tiendaControllerProvider.notifier).elegir(tienda);
       await _ref.read(sesionStorageProvider).guardarPerfil(usuario);
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+      _registrarPush(pedirPermiso: true);
     } on AccesoPersonalException catch (e) {
       await _repository.logout();
       state = AuthState(estado: EstadoSesion.noAutenticado, error: e.mensaje);
@@ -223,6 +251,7 @@ class AuthController extends StateNotifier<AuthState> {
         await _guardarPerfilCliente(usuario);
       }
       state = AuthState(estado: EstadoSesion.autenticado, usuario: usuario);
+      _registrarPush();
     } catch (e) {
       final estado = ErrorApp.desde(e).estado;
       if (estado == 401 || estado == 403) await logout(motivo: MotivoCierre.vencida);
@@ -298,6 +327,8 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> logout({MotivoCierre motivo = MotivoCierre.voluntario}) async {
     final usuarioPrevio = state.usuario;
     final modoPrevio = usuarioPrevio?.modo;
+    // Primero la baja del token push: después de borrar los tokens de sesión ya no se podría pedir.
+    await _darDeBajaPush(motivo);
     if (modoPrevio == ModoApp.vendedor) await _limpiarBaseLocal(usuarioPrevio!);
     if (modoPrevio == ModoApp.cliente) await _limpiarBaseCliente(usuarioPrevio!);
     await _repository.logout();

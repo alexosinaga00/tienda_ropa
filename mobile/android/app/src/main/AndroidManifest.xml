@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Búsqueda por voz (paquete `voz`, P6.1), vía speech_to_text. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Notificaciones push (Firebase Cloud Messaging). Android 13+ pide este permiso en tiempo de ejecución. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.front" android:required="false"/>
     <!-- Guardar la imagen generada por el probador en la galería (paquete
@@ -47,6 +49,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Canal de los avisos push; MainActivity lo crea con importancia alta. El servidor manda el mismo id. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="fashionstore_avisos" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

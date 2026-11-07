@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/push/registro_push.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/notificacion_app.dart';
 import '../models/ruta_notificacion.dart';
@@ -21,6 +22,9 @@ class _NotificacionesScreenState extends ConsumerState<NotificacionesScreen> {
     super.initState();
     // Al abrir la lista se pide de nuevo: puede haber algo más nuevo que lo que mostraba la campana.
     Future.microtask(() => ref.read(notificacionesProvider.notifier).refrescar());
+    // Aquí la persona ve para qué sirven los avisos: es el momento de pedir el permiso de notificaciones si aún falta.
+    // No bloquea nada y, si lo niega, la lista funciona igual.
+    Future.microtask(() => ref.read(registroPushProvider).alEntrarANotificaciones());
   }
 
   void _abrir(NotificacionApp notificacion) {

@@ -50,6 +50,9 @@ dependencies:
   sqflite: ^2.4.5
   path: ^1.9.1
   uuid: ^4.6.0
+  # Notificaciones push (FCM). Sin firebase_options.dart: en Android basta google-services.json.
+  firebase_core: ^4.15.2
+  firebase_messaging: ^16.7.1
 
 dev_dependencies:
   flutter_test:
