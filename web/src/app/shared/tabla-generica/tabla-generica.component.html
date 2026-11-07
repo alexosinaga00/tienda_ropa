@@ -23,8 +23,8 @@
     <input
       type="search"
       [placeholder]="placeholderBusqueda"
-      aria-label="Buscar en esta página"
-      (input)="filtrarGlobal($any($event.target).value)"
+      [attr.aria-label]="busquedaServidor ? 'Buscar' : 'Buscar en esta página'"
+      (input)="alEscribir($any($event.target).value)"
     />
   </label>
 
@@ -126,6 +126,8 @@
               <fs-icono nombre="refrescar" [tam]="24" />
               Reintentar
             </button>
+          } @else if (busquedaServidor && textoBusqueda()) {
+            Sin resultados para «{{ textoBusqueda() }}».
           } @else {
             Sin registros.
           }

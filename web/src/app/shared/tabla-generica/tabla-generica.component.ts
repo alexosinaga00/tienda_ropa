@@ -1,12 +1,15 @@
 import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, Input, Output, EventEmitter, ViewChild, computed, signal, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, computed, signal, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { Table, TableModule } from 'primeng/table';
 import { environment } from '../../../environments/environment';
 import { IconoComponent } from '../icono/icono.component';
+
+/** Espera tras la última tecla antes de consultar al servidor. */
+const RETRASO_BUSQUEDA_MS = 300;
 
 export interface ColumnaTabla<T> {
   campo: Extract<keyof T, string>;
@@ -33,6 +36,10 @@ export interface ColumnaTabla<T> {
  * encabezado de la pantalla (`.fs-pagina-encabezado`, con el rótulo `eyebrow`
  * y el botón "Nuevo ..."). Sin `titulo` (pantallas que dibujan su propio
  * encabezado) el botón queda en la barra de búsqueda.
+ *
+ * Búsqueda: por defecto filtra SOLO las filas de la página cargada. Con
+ * `busquedaServidor` el texto va al backend (`?buscar=`) y busca en todos los
+ * registros: el endpoint debe aceptar ese parámetro (hoy, `/usuarios`).
  */
 @Component({
   selector: 'app-tabla-generica',
@@ -42,11 +49,13 @@ export interface ColumnaTabla<T> {
   templateUrl: './tabla-generica.component.html',
   styleUrl: './tabla-generica.component.scss',
 })
-export class TablaGenericaComponent<T extends { id: number }> implements OnInit {
+export class TablaGenericaComponent<T extends { id: number }> implements OnInit, OnDestroy {
   @Input({ required: true }) endpoint!: string;
   @Input({ required: true }) columnas: ColumnaTabla<T>[] = [];
   @Input() tamanioPagina = 20;
   @Input() soloLectura = false;
+  /** El buscador consulta al servidor (`?buscar=`, en todos los registros) en vez de filtrar la página cargada. */
+  @Input() busquedaServidor = false;
 
   /** Título (h1) de la pantalla. Si se omite, la pantalla pone su propio encabezado. */
   @Input() titulo?: string;
@@ -86,12 +95,21 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
   protected readonly error = signal(false);
   private readonly filtroActivo = signal(false);
   private readonly conteoFiltrado = signal<number | null>(null);
+  /** Texto que se está buscando en el servidor (solo con `busquedaServidor`). */
+  protected readonly textoBusqueda = signal('');
+  private temporizadorBusqueda: ReturnType<typeof setTimeout> | undefined;
+  /** Número de la última petición: una respuesta vieja que llega tarde no pisa a la más reciente. */
+  private peticion = 0;
 
   /** El contador solo conoce la página cargada (la API no informa el total) y respeta la búsqueda. */
   protected readonly conteoTexto = computed(() => {
     const total = this.filas().length;
+    const registros = `${total} ${total === 1 ? 'registro' : 'registros'}`;
+    if (this.busquedaServidor) {
+      return this.textoBusqueda() ? `${registros} con esa búsqueda en esta página` : `${registros} en esta página`;
+    }
     if (this.filtroActivo()) return `${this.conteoFiltrado() ?? total} de ${total} en esta página`;
-    return `${total} ${total === 1 ? 'registro' : 'registros'} en esta página`;
+    return `${registros} en esta página`;
   });
 
   constructor(
@@ -100,6 +118,28 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
   ) {}
 
   ngOnInit(): void {
+    this.cargar();
+  }
+
+  ngOnDestroy(): void {
+    clearTimeout(this.temporizadorBusqueda);
+  }
+
+  /** Cada tecla del buscador: filtra la página cargada o, con `busquedaServidor`, consulta al servidor. */
+  alEscribir(valor: string): void {
+    if (!this.busquedaServidor) {
+      this.filtrarGlobal(valor);
+      return;
+    }
+    clearTimeout(this.temporizadorBusqueda);
+    this.temporizadorBusqueda = setTimeout(() => this.buscarEnServidor(valor), RETRASO_BUSQUEDA_MS);
+  }
+
+  private buscarEnServidor(valor: string): void {
+    const texto = valor.trim();
+    if (texto === this.textoBusqueda()) return;
+    this.textoBusqueda.set(texto);
+    this.pagina.set(1);
     this.cargar();
   }
 
@@ -161,9 +201,12 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
   private cargar(): void {
     this.cargando.set(true);
     this.error.set(false);
-    const url = `${environment.apiUrl}${this.endpoint}?pagina=${this.pagina()}&tamanio=${this.tamanioPagina}`;
+    const busqueda = this.busquedaServidor && this.textoBusqueda() ? `&buscar=${encodeURIComponent(this.textoBusqueda())}` : '';
+    const url = `${environment.apiUrl}${this.endpoint}?pagina=${this.pagina()}&tamanio=${this.tamanioPagina}${busqueda}`;
+    const numero = ++this.peticion;
     this.http.get<T[]>(url).subscribe({
       next: (datos) => {
+        if (numero !== this.peticion) return; // llegó tarde: ya se pidió otra cosa
         this.filas.set(datos);
         this.hayPaginaSiguiente.set(datos.length === this.tamanioPagina);
         this.cargando.set(false);
@@ -174,6 +217,7 @@ export class TablaGenericaComponent<T extends { id: number }> implements OnInit 
         }
       },
       error: () => {
+        if (numero !== this.peticion) return;
         this.cargando.set(false);
         this.error.set(true);
       },

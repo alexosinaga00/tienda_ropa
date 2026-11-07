@@ -258,4 +258,154 @@ describe('TablaGenericaComponent', () => {
       http.expectOne(`${environment.apiUrl}/categorias?pagina=2&tamanio=2`).flush([]);
     });
   });
+
+  describe('búsqueda en el servidor', () => {
+    const URL = `${environment.apiUrl}/categorias`;
+
+    function escribir(el: HTMLElement, texto: string): void {
+      const buscador = el.querySelector('input[type="search"]') as HTMLInputElement;
+      buscador.value = texto;
+      buscador.dispatchEvent(new Event('input'));
+    }
+
+    it('sin la opción, escribir no consulta al servidor (filtra la página cargada)', () => {
+      vi.useFakeTimers();
+      try {
+        const { el } = crear();
+        escribir(el, 'camis');
+        vi.advanceTimersByTime(1000);
+        http.expectNone((peticion) => peticion.url.includes('buscar='));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('con la opción, espera un momento y consulta al servidor con ?buscar= desde la página 1', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true });
+
+        escribir(el, 'ana');
+        vi.advanceTimersByTime(100);
+        http.expectNone((peticion) => peticion.url.includes('buscar='));
+        vi.advanceTimersByTime(400);
+        http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=ana`).flush([FILAS[0]]);
+        fixture.detectChanges();
+
+        expect(el.querySelectorAll('tbody tr').length).toBe(1);
+        expect(el.querySelector('.tg-conteo')?.textContent?.trim()).toBe('1 registro con esa búsqueda en esta página');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('varias teclas seguidas hacen UNA sola consulta, con el texto codificado y sin espacios en los bordes', () => {
+      vi.useFakeTimers();
+      try {
+        const { el } = crear({ busquedaServidor: true });
+
+        escribir(el, 'a');
+        vi.advanceTimersByTime(100);
+        escribir(el, 'ana g');
+        vi.advanceTimersByTime(100);
+        escribir(el, '  ana gómez ');
+        vi.advanceTimersByTime(400);
+
+        http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=ana%20g%C3%B3mez`).flush([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('al buscar vuelve a la página 1 y la paginación conserva el texto', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true, tamanioPagina: 2 });
+        (el.querySelector('[aria-label="Siguiente"]') as HTMLButtonElement).click();
+        http.expectOne(`${URL}?pagina=2&tamanio=2`).flush(FILAS);
+        fixture.detectChanges();
+
+        escribir(el, 'ca');
+        vi.advanceTimersByTime(400);
+        http.expectOne(`${URL}?pagina=1&tamanio=2&buscar=ca`).flush(FILAS);
+        fixture.detectChanges();
+
+        (el.querySelector('[aria-label="Siguiente"]') as HTMLButtonElement).click();
+        http.expectOne(`${URL}?pagina=2&tamanio=2&buscar=ca`).flush([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('borrar el texto vuelve a la lista completa', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true });
+        escribir(el, 'ana');
+        vi.advanceTimersByTime(400);
+        http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=ana`).flush([]);
+
+        escribir(el, '');
+        vi.advanceTimersByTime(400);
+        http.expectOne(`${URL}?pagina=1&tamanio=20`).flush(FILAS);
+        fixture.detectChanges();
+
+        expect(el.querySelectorAll('tbody tr').length).toBe(2);
+        expect(el.querySelector('.tg-conteo')?.textContent?.trim()).toBe('2 registros en esta página');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('sin coincidencias dice "Sin resultados" con el texto buscado', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true });
+        escribir(el, 'zzz');
+        vi.advanceTimersByTime(400);
+        http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=zzz`).flush([]);
+        fixture.detectChanges();
+
+        expect(el.querySelector('.fs-estado-vacio')?.textContent).toContain('Sin resultados para «zzz».');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('una respuesta vieja que llega tarde no pisa a la más reciente', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true });
+        escribir(el, 'a');
+        vi.advanceTimersByTime(400);
+        const vieja = http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=a`);
+        escribir(el, 'ana');
+        vi.advanceTimersByTime(400);
+        const nueva = http.expectOne(`${URL}?pagina=1&tamanio=20&buscar=ana`);
+
+        nueva.flush([FILAS[0]]);
+        vieja.flush(FILAS); // llega después, pero es de una búsqueda anterior
+        fixture.detectChanges();
+
+        expect(el.querySelectorAll('tbody tr').length).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('el buscador se nombra "Buscar" (no "en esta página") y no queda un temporizador al destruir', () => {
+      vi.useFakeTimers();
+      try {
+        const { fixture, el } = crear({ busquedaServidor: true });
+        expect(el.querySelector('input[type="search"]')?.getAttribute('aria-label')).toBe('Buscar');
+
+        escribir(el, 'ana');
+        fixture.destroy();
+        vi.advanceTimersByTime(1000);
+        http.expectNone((peticion) => peticion.url.includes('buscar='));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });
