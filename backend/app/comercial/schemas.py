@@ -309,7 +309,10 @@ class VentaRespuesta(BaseModel):
         estados_por_id: dict[int, str],
         unidades_devueltas: int = 0,
         devuelto_por_linea: dict[int, int] | None = None,
+        ocultar_costo: bool = False,
     ) -> "VentaRespuesta":
+        """`ocultar_costo`: la respuesta es para un COMPRADOR, que no debe ver lo que le cuesta la prenda a la tienda
+        (el costo es el margen del negocio): `costo_unitario` sale vacío en cada línea."""
         por_linea = devuelto_por_linea or {}
         return cls(
             unidades_devueltas=unidades_devueltas,
@@ -327,7 +330,12 @@ class VentaRespuesta(BaseModel):
             costo_envio=venta.costo_envio,
             total=venta.total,
             detalle=[
-                VentaDetalleRespuesta.model_validate(d).model_copy(update={"cantidad_devuelta": por_linea.get(d.id, 0)})
+                VentaDetalleRespuesta.model_validate(d).model_copy(
+                    update={
+                        "cantidad_devuelta": por_linea.get(d.id, 0),
+                        **({"costo_unitario": None} if ocultar_costo else {}),
+                    }
+                )
                 for d in venta.detalle
             ],
         )
@@ -535,6 +543,7 @@ MotivoPedidoDiferido = Literal[
     "pedido_invalido",
     "suscripcion_no_activa",
     "pedido_vencido",
+    "cobro_a_reembolsar",  # PayPal SÍ cobró (un cobro incierto que se confirmó al reintentar) y el pedido ya no se pudo completar
 ]
 
 

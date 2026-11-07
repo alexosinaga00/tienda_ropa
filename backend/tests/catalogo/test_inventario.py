@@ -96,12 +96,12 @@ def test_promedio_ponderado_tres_recepciones(client, admin_headers, variante_y_s
 
 def test_movimiento_que_no_afecta_costo_no_cambia_promedio(client, admin_headers, variante_y_sucursal):
     _registrar(client, admin_headers, *variante_y_sucursal, cantidad=10, costo_unitario="10.00")
-    # devolución no afecta costo (afecta_costo=False)
+    # un ajuste por sobrante no afecta costo (afecta_costo=False), igual que la devolución que lo genera el sistema
     respuesta = _registrar(
         client,
         admin_headers,
         *variante_y_sucursal,
-        tipo_movimiento_codigo="devolucion",
+        tipo_movimiento_codigo="ajuste_positivo",
         cantidad=5,
         costo_unitario=None,
     )
@@ -122,7 +122,7 @@ def test_movimiento_afecta_costo_requiere_costo_unitario(client, admin_headers, 
 def test_movimiento_salida_reduce_stock(client, admin_headers, variante_y_sucursal):
     _registrar(client, admin_headers, *variante_y_sucursal, cantidad=10, costo_unitario="10.00")
     respuesta = _registrar(
-        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="venta", cantidad=4, costo_unitario=None
+        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="ajuste_negativo", cantidad=4, costo_unitario=None
     )
     assert respuesta.status_code == 201
     assert respuesta.json()["cantidad"] == -4
@@ -132,9 +132,33 @@ def test_movimiento_salida_reduce_stock(client, admin_headers, variante_y_sucurs
 def test_movimiento_no_puede_dejar_stock_negativo(client, admin_headers, variante_y_sucursal):
     _registrar(client, admin_headers, *variante_y_sucursal, cantidad=5, costo_unitario="10.00")
     respuesta = _registrar(
-        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="venta", cantidad=6, costo_unitario=None
+        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="ajuste_negativo", cantidad=6, costo_unitario=None
     )
     assert respuesta.status_code == 409
+
+
+@pytest.mark.parametrize("tipo", ["venta", "devolucion", "transferencia_in", "transferencia_out"])
+def test_los_movimientos_que_genera_el_sistema_no_se_registran_a_mano(client, admin_headers, variante_y_sucursal, tipo):
+    _registrar(client, admin_headers, *variante_y_sucursal, cantidad=10, costo_unitario="10.00")
+
+    respuesta = _registrar(
+        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo=tipo, cantidad=5, costo_unitario="10.00"
+    )
+
+    assert respuesta.status_code == 400
+    assert "no se registra a mano" in respuesta.json()["detail"]
+    variante_id, sucursal_id = variante_y_sucursal
+    stock = client.get(f"/api/v1/inventario/stock/{variante_id}/{sucursal_id}", headers=admin_headers).json()
+    assert stock["cantidad_fisica"] == 10  # no se movió nada
+
+
+def test_la_recepcion_y_los_ajustes_si_se_registran_a_mano(client, admin_headers, variante_y_sucursal):
+    assert _registrar(client, admin_headers, *variante_y_sucursal, cantidad=10, costo_unitario="10.00").status_code == 201
+    for tipo in ("ajuste_positivo", "ajuste_negativo"):
+        respuesta = _registrar(
+            client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo=tipo, cantidad=1, costo_unitario=None
+        )
+        assert respuesta.status_code == 201, respuesta.text
 
 
 def test_movimiento_tipo_inexistente_falla(client, admin_headers, variante_y_sucursal):
@@ -153,7 +177,9 @@ def test_movimiento_variante_inexistente_falla(client, admin_headers, variante_y
 
 def test_saldo_post_coincide_con_suma_acumulada(client, admin_headers, variante_y_sucursal):
     _registrar(client, admin_headers, *variante_y_sucursal, cantidad=10, costo_unitario="10.00")
-    _registrar(client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="venta", cantidad=3, costo_unitario=None)
+    _registrar(
+        client, admin_headers, *variante_y_sucursal, tipo_movimiento_codigo="ajuste_negativo", cantidad=3, costo_unitario=None
+    )
     _registrar(client, admin_headers, *variante_y_sucursal, cantidad=7, costo_unitario="15.00")
 
     variante_id, sucursal_id = variante_y_sucursal

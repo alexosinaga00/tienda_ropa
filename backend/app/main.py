@@ -28,6 +28,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
 from app.core.exceptions import registrar_handlers
 from app.core.rate_limit import limiter
+from app.core.registro import configurar_logs
 from app.core.tenant import contexto_empresa
 from app.inteligencia.router import routers as inteligencia_routers
 from app.plataforma.politicas import vencer_suscripciones
@@ -65,6 +66,8 @@ def _correr_tareas_periodicas() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Enciende los logs informativos de la aplicación (la sincronización, RNF10); sin esto solo salen avisos y errores.
+    configurar_logs(settings.log_level)
     # Uvicorn corre con un solo worker (scripts/start.sh), así que hay una
     # sola copia de este loop; igual es idempotente por los locks de fila.
     tarea = None

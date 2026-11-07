@@ -104,7 +104,7 @@ from app.core.permisos import (
     PERMISO_VENTAS_PRESENCIAL,
 )
 from app.core.planes import FUNC_GESTION_VENTAS, FUNC_RESERVAS, exigir_funcionalidad
-from app.core.security import get_current_user, require_permission, require_service_token
+from app.core.security import get_current_user, permisos_de_usuario, require_permission, require_service_token
 
 # Compuertas del plan. Van SIEMPRE antes que las dependencias de permiso en la
 # lista `dependencies=` (orden de errores: 401 -> suscripcion_no_activa ->
@@ -237,15 +237,24 @@ cu_metodo_pago_guardado = GestionarMetodoPagoGuardado()
 cu_pedido_diferido = RealizarPedidoDiferido()
 
 
-def _venta_respuesta(db: Session, venta) -> VentaRespuesta:
-    return _ventas_respuesta(db, [venta])[0]
+def _venta_respuesta(db: Session, venta, *, ocultar_costos: bool = False) -> VentaRespuesta:
+    return _ventas_respuesta(db, [venta], ocultar_costos=ocultar_costos)[0]
 
 
-def _ventas_respuesta(db: Session, ventas: list) -> list[VentaRespuesta]:
-    """Una lista de ventas con su estado y lo devuelto de cada una y de cada línea (una sola consulta para todas)."""
+def _ventas_respuesta(db: Session, ventas: list, *, ocultar_costos: bool = False) -> list[VentaRespuesta]:
+    """Una lista de ventas con su estado y lo devuelto de cada una y de cada línea (una sola consulta para todas).
+    `ocultar_costos`: para un comprador (ver `_es_personal_de_ventas`): el costo de la prenda es el margen del negocio."""
     estados = mapa_codigos_estado_venta(db)
     por_venta, por_linea = devuelto_por_venta_y_linea(db, ventas)
-    return [VentaRespuesta.from_modelo(v, estados, por_venta.get(v.id, 0), por_linea) for v in ventas]
+    return [
+        VentaRespuesta.from_modelo(v, estados, por_venta.get(v.id, 0), por_linea, ocultar_costo=ocultar_costos)
+        for v in ventas
+    ]
+
+
+def _es_personal_de_ventas(db: Session, usuario_id: int) -> bool:
+    """Si quien pide es personal de ventas de una sucursal (Caja, encargado, administrador): solo ellos ven el costo."""
+    return PERMISO_STAFF_VENTAS in permisos_de_usuario(db, usuario_id)
 
 
 # ---- /api/v1/carrito ---------------------------------------------------------------
@@ -301,7 +310,7 @@ def registrar_venta_digital(
     datos: VentaDigitalCrear, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
     venta = cu_compra_digital.ejecutar(db, usuario.id, datos)
-    return _venta_respuesta(db, venta)
+    return _venta_respuesta(db, venta, ocultar_costos=True)  # quien compra por la tienda es un comprador
 
 
 @ventas_router.post(
@@ -319,7 +328,8 @@ def registrar_venta_presencial(
 
 @ventas_router.get("/mis-compras", response_model=list[VentaRespuesta])
 def listar_mis_compras(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> list[VentaRespuesta]:
-    return _ventas_respuesta(db, cu_historial_compras.listar_mis_compras(db, usuario.id))
+    # "Mis compras" es la vista del COMPRADOR, también si quien mira es personal: sin el costo de las prendas.
+    return _ventas_respuesta(db, cu_historial_compras.listar_mis_compras(db, usuario.id), ocultar_costos=True)
 
 
 @ventas_router.get("/sucursal/{sucursal_id}", response_model=list[VentaRespuesta], dependencies=[staff_ventas_requerido])
@@ -334,7 +344,7 @@ def obtener_comprobante(
     venta_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ) -> VentaRespuesta:
     venta = cu_historial_compras.obtener_comprobante(db, venta_id, usuario.id)
-    respuesta = _venta_respuesta(db, venta)
+    respuesta = _venta_respuesta(db, venta, ocultar_costos=not _es_personal_de_ventas(db, usuario.id))
     respuesta.enlace_verificacion = construir_enlace_verificacion(respuesta.codigo)  # solo el comprobante lo trae
     return respuesta
 

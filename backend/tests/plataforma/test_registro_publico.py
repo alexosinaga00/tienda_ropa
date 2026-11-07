@@ -68,6 +68,39 @@ def test_correo_repetido_en_la_misma_tienda_devuelve_409(client_por_peticion, do
     assert repetido.json() == {"detail": "Ya existe un usuario con ese email"}
 
 
+def test_el_registro_no_reactiva_una_cuenta_dada_de_baja_ni_le_cambia_la_clave(client_por_peticion, dos_empresas, db_session):
+    """Quien se registra con el correo de una cuenta dada de baja heredaría sus compras, su dirección y su PayPal guardado:
+    el registro público la rechaza (409, el mismo mensaje que con una activa) y no toca la cuenta."""
+    original = _registrar(client_por_peticion, "tienda-a")
+    assert original.status_code == 201
+    fijar_empresa(db_session, dos_empresas.a.id)
+    usuario = db_session.scalar(select(Usuario).where(Usuario.email == "cliente@example.com"))
+    usuario.activo = False
+    db_session.commit()
+    hash_antes = usuario.password_hash
+
+    intruso = client_por_peticion.post(
+        "/api/v1/public/tienda-a/registro",
+        json={**_datos(), "password": "otraClaveDistinta99"},
+    )
+
+    assert intruso.status_code == 409
+    assert intruso.json() == {"detail": "Ya existe un usuario con ese email"}
+    db_session.expire_all()
+    usuario = db_session.scalar(select(Usuario).where(Usuario.email == "cliente@example.com"))
+    assert usuario.activo is False and usuario.password_hash == hash_antes
+    assert _login(client_por_peticion, "tienda-a").status_code == 401  # sigue sin poder entrar nadie
+
+
+def test_el_correo_de_una_cuenta_dada_de_baja_en_otra_tienda_si_se_puede_registrar(client_por_peticion, dos_empresas, db_session):
+    assert _registrar(client_por_peticion, "tienda-a").status_code == 201
+    fijar_empresa(db_session, dos_empresas.a.id)
+    db_session.scalar(select(Usuario).where(Usuario.email == "cliente@example.com")).activo = False
+    db_session.commit()
+
+    assert _registrar(client_por_peticion, "tienda-b").status_code == 201  # el correo es único POR empresa
+
+
 def test_tienda_inexistente_o_inactiva_devuelve_404(client_por_peticion, dos_empresas, db_session):
     db_session.execute(Empresa.__table__.update().where(Empresa.id == dos_empresas.b.id).values(activo=False))
     db_session.commit()

@@ -122,6 +122,10 @@ def _validar_participa_en_transferencia(db: Session, usuario_id: int, transferen
         raise PermisoDenegadoError("No tenés acceso a esa transferencia")
 
 
+# Los únicos tipos que una persona registra a mano en `POST /inventario/movimientos`.
+TIPOS_DE_MOVIMIENTO_MANUALES = ("recepcion", "ajuste_positivo", "ajuste_negativo")
+
+
 class RegistrarMovimientoInventario:
     def __init__(self) -> None:
         self._movimientos = MovimientoRepository()
@@ -178,8 +182,18 @@ class RegistrarMovimientoInventario:
     ) -> MovimientoInventario:
         """POST /inventario/movimientos. Antes el router llamaba directo a
         actualizar_stock_operacion (regla 5); acá además se valida que la
-        sucursal sea la del empleado."""
+        sucursal sea la del empleado.
+
+        Solo se registran a mano la recepción y los ajustes: venta, devolución y transferencia las GENERA el sistema desde su
+        propia operación (con su venta, devolución o transferencia). Si se aceptaran aquí, se podría mover stock y costo
+        fingiendo otra operación y sin pasar por la bitácora de ajustes."""
         plataforma_politicas.validar_acceso_sucursal(db, usuario_id, datos.sucursal_id)
+        if datos.tipo_movimiento_codigo not in TIPOS_DE_MOVIMIENTO_MANUALES:
+            self._tipos.obtener_por_codigo(db, datos.tipo_movimiento_codigo)  # 404 si el tipo ni siquiera existe
+            raise DomainError(
+                f"El movimiento '{datos.tipo_movimiento_codigo}' no se registra a mano: lo genera el sistema. "
+                f"Aquí solo se admiten: {', '.join(TIPOS_DE_MOVIMIENTO_MANUALES)}"
+            )
         movimiento = actualizar_stock_operacion(
             db,
             variante_id=datos.variante_id,

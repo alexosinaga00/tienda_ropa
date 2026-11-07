@@ -467,7 +467,12 @@ def test_retirar_en_un_deposito_se_rechaza_pero_con_envio_se_acepta(client, admi
 # ---- fallos temporales: 503, nada guardado, el reintento no cobra doble ----
 
 
-def test_con_paypal_caido_responde_503_sin_dejar_nada_y_el_reintento_funciona(client, db_session, cliente_headers, listo, pp):
+def _filas_de_pedido(db_session) -> list[PedidoDiferido]:
+    db_session.expire_all()
+    return list(db_session.scalars(select(PedidoDiferido).order_by(PedidoDiferido.id)))
+
+
+def test_con_paypal_caido_responde_503_sin_decision_y_el_reintento_funciona(client, db_session, cliente_headers, listo, pp):
     ventas = _contar(db_session, Venta)
     cuerpo = _cuerpo(listo, cantidad=2)
     pp.caer_en = {"crear"}
@@ -476,20 +481,26 @@ def test_con_paypal_caido_responde_503_sin_dejar_nada_y_el_reintento_funciona(cl
 
     assert respuesta.status_code == 503
     assert respuesta.json()["codigo"] == "paypal_no_disponible"
-    assert _contar(db_session, PedidoDiferido) == 0  # sin estado final
-    _nada_quedo(db_session, listo, pp, ventas)  # ni venta colgada ni stock apartado
+    # Sin decisión final: solo la marca `incierto` con el monto (PayPal pudo haber cobrado y no se supo).
+    (marca,) = _filas_de_pedido(db_session)
+    assert marca.estado == "incierto" and marca.venta_id is None
+    assert marca.total == 200 and marca.total_usd is not None
+    assert _contar(db_session, Venta) == ventas and _reservado(db_session, listo) == 0  # ni venta colgada ni stock apartado
+    assert pp.cobros_vault == 0
     pp.caer_en = set()
     reintento = _enviar(client, cliente_headers, cuerpo)
     assert reintento.status_code == 200
     assert reintento.json()["estado"] == "cobrado" and reintento.json()["duplicada"] is False
     assert pp.cobros_vault == 1
+    (final,) = _filas_de_pedido(db_session)  # la MISMA fila pasó de incierto a cobrado
+    assert final.id == marca.id and final.estado == "cobrado" and final.venta_id is not None
 
 
 def test_si_el_cobro_se_hace_pero_la_respuesta_se_pierde_el_reintento_no_cobra_doble(
     client, db_session, cliente_headers, listo, pp
 ):
-    """El caso más delicado: PayPal SÍ cobró y la respuesta nunca llegó. El servidor no sabe qué pasó (503, nada
-    guardado). El reintento con la misma operación manda la misma clave y el mismo cuerpo: PayPal devuelve el cobro
+    """El caso más delicado: PayPal SÍ cobró y la respuesta nunca llegó. El servidor no sabe qué pasó (503, solo la marca
+    `incierto`). El reintento con la misma operación manda la misma clave y el mismo cuerpo: PayPal devuelve el cobro
     original y la venta se arma con él. Un solo cobro, una sola venta, el stock descontado una vez."""
     ctx = listo
     ventas = _contar(db_session, Venta)
@@ -500,7 +511,8 @@ def test_si_el_cobro_se_hace_pero_la_respuesta_se_pierde_el_reintento_no_cobra_d
 
     assert primera.status_code == 503 and primera.json()["codigo"] == "paypal_no_disponible"
     assert pp.cobros_vault == 1  # el dinero se movió
-    assert _contar(db_session, Venta) == ventas and _contar(db_session, PedidoDiferido) == 0
+    assert _contar(db_session, Venta) == ventas
+    assert [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
     assert _reservado(db_session, ctx) == 0 and _fisico(db_session, ctx, ctx["m"]) == STOCK_INICIAL
 
     segunda = _enviar(client, cliente_headers, cuerpo)
@@ -520,12 +532,16 @@ def test_si_el_cobro_se_hace_pero_la_respuesta_se_pierde_el_reintento_no_cobra_d
 def test_un_cobro_pendiente_de_revision_no_se_decide_todavia(client, db_session, cliente_headers, listo, pp):
     pp.estado_captura = "PENDING"
     ventas = _contar(db_session, Venta)
+    cuerpo = _cuerpo(listo)
 
-    respuesta = _enviar(client, cliente_headers, _cuerpo(listo))
+    respuesta = _enviar(client, cliente_headers, cuerpo)
 
     assert respuesta.status_code == 503
-    assert _contar(db_session, Venta) == ventas and _contar(db_session, PedidoDiferido) == 0
+    assert _contar(db_session, Venta) == ventas and [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
     assert _reservado(db_session, listo) == 0
+    # Mientras PayPal siga revisándolo, el reintento sigue sin decidir (y no cobra otra vez).
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503
+    assert [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"] and pp.cobros_vault == 1
 
 
 def test_si_paypal_informa_otro_monto_no_se_confirma_nada(client, db_session, cliente_headers, listo, pp):
@@ -533,29 +549,153 @@ def test_si_paypal_informa_otro_monto_no_se_confirma_nada(client, db_session, cl
 
     pp.monto_reportado = Decimal("1.00")
     ventas = _contar(db_session, Venta)
+    cuerpo = _cuerpo(listo)
 
-    respuesta = _enviar(client, cliente_headers, _cuerpo(listo))
+    respuesta = _enviar(client, cliente_headers, cuerpo)
 
     assert respuesta.status_code == 503
-    assert _contar(db_session, Venta) == ventas and _contar(db_session, PedidoDiferido) == 0
+    assert _contar(db_session, Venta) == ventas and [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503  # el monto sigue sin coincidir: no se decide
 
 
-def test_si_falla_al_confirmar_despues_de_cobrar_no_queda_nada_a_medias(
+def test_si_falla_al_confirmar_despues_de_cobrar_el_reintento_arma_la_venta_con_ese_cobro(
     client, db_session, cliente_headers, listo, pp, monkeypatch
 ):
     import app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital as cu13
+
+    original = cu13.registrar_cobro_pasarela_aprobado
 
     def falla(*args, **kwargs):
         raise RuntimeError("falla simulada al confirmar")
 
     monkeypatch.setattr(cu13, "registrar_cobro_pasarela_aprobado", falla)
     ventas = _contar(db_session, Venta)
+    cuerpo = _cuerpo(listo)
 
-    respuesta = _enviar(client, cliente_headers, _cuerpo(listo))
+    respuesta = _enviar(client, cliente_headers, cuerpo)
 
     assert respuesta.status_code == 503
-    assert _contar(db_session, Venta) == ventas and _contar(db_session, PedidoDiferido) == 0
-    assert _reservado(db_session, listo) == 0
+    assert _contar(db_session, Venta) == ventas and [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
+    assert _reservado(db_session, listo) == 0 and pp.cobros_vault == 1  # PayPal SÍ cobró
+
+    monkeypatch.setattr(cu13, "registrar_cobro_pasarela_aprobado", original)
+    reintento = _enviar(client, cliente_headers, cuerpo)
+
+    assert reintento.status_code == 200 and reintento.json()["estado"] == "cobrado"
+    assert pp.cobros_vault == 1  # el mismo cobro, no otro
+    assert _contar(db_session, Venta) == ventas + 1
+
+
+# ---- cobro incierto que se confirma: lo cobrado nunca se pierde ni se niega ----
+
+
+def test_si_paypal_cobro_y_el_stock_se_agoto_antes_del_reintento_el_pedido_queda_para_reembolso(
+    client, db_session, admin_headers, cliente_headers, listo, pp, caplog
+):
+    """PayPal SÍ cobró (la respuesta se perdió) y, antes del reintento, alguien se llevó el stock. Antes el reintento
+    guardaba un rechazo FINAL con "tu pedido no se cobró": mentira, y sin rastro del dinero. Ahora el cliente recibe la
+    verdad y queda un log de ERROR con el monto y la orden para devolverlo."""
+    ctx = listo
+    ventas = _contar(db_session, Venta)
+    cuerpo = _cuerpo(ctx, cantidad=2)
+    pp.perder_respuestas_de_cobro = 1
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503 and pp.cobros_vault == 1
+    _agotar(client, ctx, admin_headers, ctx["m"])
+
+    with caplog.at_level("ERROR", logger="app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital"):
+        respuesta = _enviar(client, cliente_headers, cuerpo)
+
+    assert respuesta.status_code == 200, respuesta.text
+    datos = respuesta.json()
+    assert (datos["estado"], datos["motivo"]) == ("rechazado", "cobro_a_reembolsar")
+    assert "Cobramos Bs 200.00" in datos["mensaje"] and "devolveremos" in datos["mensaje"]
+    assert "no se cobró" not in datos["mensaje"].lower() and datos["venta_id"] is None
+    assert pp.cobros_vault == 1  # no se cobró otra vez
+    assert _contar(db_session, Venta) == ventas and _reservado(db_session, ctx) == 0
+    (fila,) = _filas_de_pedido(db_session)
+    assert fila.estado == "rechazado" and fila.motivo == "cobro_a_reembolsar" and fila.total == 200
+    assert "pedido_diferido_cobro_a_reembolsar" in caplog.text and "total_usd=" in caplog.text and "orden=" in caplog.text
+    avisos = [n.titulo for n in db_session.scalars(select(Notificacion).order_by(Notificacion.id))]
+    assert avisos[-1] == "No pudimos completar tu pedido"  # no dice "no pudimos cobrar": SÍ se cobró
+    again = _enviar(client, cliente_headers, cuerpo).json()  # decisión final: un reenvío devuelve lo mismo
+    assert again["motivo"] == "cobro_a_reembolsar" and again["duplicada"] is True and pp.cobros_vault == 1
+
+
+def test_si_el_precio_cambio_entre_el_cobro_incierto_y_el_reintento_se_marca_para_reembolso(
+    client, db_session, admin_headers, cliente_headers, listo, pp
+):
+    """Lo cobrado fue por Bs 200; si el precio sube, la venta ya no coincide con lo cobrado: no se entrega por menos ni se
+    cobra de más. Se devuelve el dinero."""
+    from decimal import Decimal
+
+    ctx = listo
+    cuerpo = _cuerpo(ctx, cantidad=2)
+    pp.perder_respuestas_de_cobro = 1
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503
+    producto = db_session.scalar(select(ProductoVariante).where(ProductoVariante.id == ctx["m"])).producto
+    producto.precio_base = Decimal("150.00")
+    db_session.commit()
+
+    respuesta = _enviar(client, cliente_headers, cuerpo)
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["motivo"] == "cobro_a_reembolsar" and "precio cambió" in respuesta.json()["mensaje"]
+    assert pp.cobros_vault == 1 and _reservado(db_session, ctx) == 0
+
+
+def test_si_paypal_confirma_que_no_cobro_la_marca_se_descarta_y_el_pedido_sigue_como_nuevo(
+    client, db_session, cliente_headers, listo, pp
+):
+    ctx = listo
+    cuerpo = _cuerpo(ctx, cantidad=2)
+    pp.caer_en = {"crear"}
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503
+    assert [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
+    pp.caer_en = set()
+    pp.rechazar_cobro_vault = "INSTRUMENT_DECLINED"  # al preguntar, PayPal dice con claridad que NO cobró
+
+    respuesta = _enviar(client, cliente_headers, cuerpo)
+
+    assert respuesta.status_code == 200
+    assert (respuesta.json()["estado"], respuesta.json()["motivo"]) == ("rechazado", "pago_rechazado")
+    assert pp.cobros_vault == 0
+    (fila,) = _filas_de_pedido(db_session)  # la marca no quedó: solo la decisión final
+    assert fila.estado == "rechazado" and fila.motivo == "pago_rechazado"
+
+
+def test_sin_paypal_guardado_la_marca_no_se_puede_conciliar_y_se_conserva(
+    client, db_session, cliente_headers, listo, pp
+):
+    cuerpo = _cuerpo(listo, cantidad=2)
+    pp.perder_respuestas_de_cobro = 1
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503
+    assert client.delete("/api/v1/metodos-pago/paypal", headers=cliente_headers).status_code == 204
+
+    respuesta = _enviar(client, cliente_headers, cuerpo)
+
+    assert respuesta.status_code == 503  # sin el token no se puede preguntar a PayPal: no se decide nada
+    assert [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
+
+
+def test_la_marca_incierta_de_otra_persona_se_ve_inexistente(client, db_session, cliente_headers, listo, pp):
+    cuerpo = _cuerpo(listo, cantidad=2)
+    pp.perder_respuestas_de_cobro = 1
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 503
+    otro = _otro_cliente(client)
+
+    respuesta = _enviar(client, otro, cuerpo)
+
+    assert respuesta.status_code == 404
+    assert [f.estado for f in _filas_de_pedido(db_session)] == ["incierto"]
+
+
+def test_la_marca_incierta_nunca_se_ve_en_la_respuesta_ni_cuenta_para_el_limite(client, db_session, cliente_headers, listo, pp):
+    cuerpo = _cuerpo(listo, cantidad=1)
+    pp.perder_respuestas_de_cobro = 1
+    primera = _enviar(client, cliente_headers, cuerpo)
+
+    assert primera.status_code == 503 and "incierto" not in primera.text
+    assert _enviar(client, cliente_headers, cuerpo).status_code == 200  # el reintento concilia sin gastar el límite
 
 
 # ---- validación del cuerpo y permisos ----

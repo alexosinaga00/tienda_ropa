@@ -121,7 +121,7 @@ def test_registro_http_exitoso_sigue_igual(client, db_session):
     assert ClienteRepository().obtener_por_usuario(db_session, cuerpo["id"]).ci_nit == "42"
 
 
-def test_reregistro_de_usuario_dado_de_baja_reutiliza_el_perfil_de_cliente(client, db_session):
+def test_reregistro_de_usuario_dado_de_baja_se_rechaza_y_no_toca_su_perfil_de_cliente(client, db_session):
     cuerpo = {
         "nombre": "Nuevo",
         "apellido": "Cliente",
@@ -137,10 +137,10 @@ def test_reregistro_de_usuario_dado_de_baja_reutiliza_el_perfil_de_cliente(clien
 
     respuesta = client.post("/api/v1/public/fashionstore/registro", json={**cuerpo, "ci_nit": "222"})
 
-    assert respuesta.status_code == 201
-    assert respuesta.json()["id"] == primero["id"]
+    assert respuesta.status_code == 409  # el registro público ya no reactiva cuentas dadas de baja
     assert _contar_clientes(db_session) == clientes_antes  # no se duplicó el perfil
-    assert ClienteRepository().obtener_por_usuario(db_session, primero["id"]).ci_nit == "222"
+    db_session.expire_all()
+    assert ClienteRepository().obtener_por_usuario(db_session, primero["id"]).ci_nit == "111"  # y no se pisó el CI
 
 
 def test_cliente_repository_crear_o_actualizar_perfil_commit_false_mas_rollback(db_session):

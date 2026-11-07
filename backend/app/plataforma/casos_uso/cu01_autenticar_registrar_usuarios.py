@@ -40,7 +40,7 @@ from app.core.auditoria import (
     ContextoAuditoria,
 )
 from app.core.config import get_settings
-from app.core.exceptions import DemasiadosIntentosError, NoAutenticadoError
+from app.core.exceptions import ConflictoError, DemasiadosIntentosError, NoAutenticadoError
 from app.core.correo import MensajeCorreo, enviar_correo_sin_romper, envio_configurado
 from app.core.rate_limit import limitador_dispositivos_push, limitador_intentos, limitador_recuperacion
 from app.core.tiempo import ahora_utc_naive
@@ -103,6 +103,13 @@ class RegistrarCliente:
         # Usuario + rol + perfil de cliente son UNA unidad de trabajo: un solo
         # commit al final. Si falta el rol "cliente" (o cualquier paso falla)
         # se revierte todo, sin dejar un usuario huérfano sin perfil ni rol.
+        #
+        # El registro público NUNCA toma una cuenta que ya existe, ni siquiera una dada de baja: el repositorio la
+        # reactivaría con la contraseña nueva (sin verificar el correo) y quien se registra heredaría las compras, la
+        # dirección y el PayPal guardado de su dueño. Reactivar una cuenta lo decide el personal de la tienda
+        # (`POST /usuarios`). El mensaje es el mismo exista activa o dada de baja: no revela cuál es.
+        if self._usuarios.obtener_por_email(db, datos.email) is not None:
+            raise ConflictoError("Ya existe un usuario con ese email")
         try:
             usuario = self._usuarios.crear(
                 db,

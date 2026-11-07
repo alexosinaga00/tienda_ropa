@@ -140,6 +140,16 @@ def obtener_variante(db: Session, variante_id: int) -> ProductoVariante:
     return variante_repo.obtener(db, variante_id)
 
 
+def obtener_variante_aunque_este_dada_de_baja(db: Session, variante_id: int) -> ProductoVariante:
+    """La variante exista o no su baja lógica (404 solo si no existe). Para operar sobre lo que YA se vendió o se apartó: dar
+    de baja una prenda no puede impedir confirmar el pago de una venta pendiente, anular una venta, ni devolver o cambiar lo
+    que el cliente ya compró. Vender o reservar una prenda NUEVA sigue exigiendo que esté activa (`obtener_variante`)."""
+    variante = variante_repo.buscar(db, variante_id)
+    if variante is None:
+        raise NoEncontradoError("ProductoVariante no encontrado")
+    return variante
+
+
 def buscar_variante(db: Session, variante_id: int) -> ProductoVariante | None:
     """Como obtener_variante, pero devuelve la variante aunque esté dada de
     baja (y None si no existe), sin lanzar: para mostrar lo que un cliente
@@ -450,7 +460,9 @@ def actualizar_stock_operacion(
     if cantidad <= 0:
         raise DomainError("cantidad debe ser positiva")
 
-    obtener_variante(db, variante_id)  # 404 si no existe
+    # 404 si no existe. Una variante dada de baja SÍ admite movimientos: confirmar el pago de una venta pendiente, anular,
+    # devolver o cambiar lo ya vendido pasan por aquí; la baja solo impide vender o reservar de nuevo (`reservar_stock`).
+    obtener_variante_aunque_este_dada_de_baja(db, variante_id)
     plataforma_politicas.obtener_sucursal(db, sucursal_id)  # 404 si no existe
 
     tipo = tipo_movimiento_repo.obtener_por_codigo(db, tipo_movimiento_codigo)

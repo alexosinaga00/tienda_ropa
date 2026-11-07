@@ -635,7 +635,7 @@ def _sembrar_operacion_boutique(
 ) -> None:
     """2 ventas presenciales pagadas en caja y 1 reserva de ejemplo. Se hacen una
     sola vez: si la empresa ya tiene ventas (o reservas) se omiten."""
-    from app.comercial.casos_uso.cu12_gestionar_reservas import ReservarPrendas
+    from app.comercial.politicas import crear_reserva
     from app.comercial.casos_uso.cu14_registrar_venta_presencial import RegistrarVentaPresencial
     from app.comercial.casos_uso.cu18_procesar_pagos import ProcesarPagoCaja
     from app.comercial.models import Reserva, Venta
@@ -692,7 +692,8 @@ def _sembrar_operacion_boutique(
             if obtener_horario_dia(db, tienda, fecha.isoweekday()) is not None:
                 break
             fecha += dt.timedelta(days=1)
-        reserva = ReservarPrendas().ejecutar(
+        # Datos de ejemplo: se crean sin los topes que `ReservarPrendas` le pone a un cliente real.
+        reserva = crear_reserva(
             db,
             clientes[2],
             ReservaCrear(

@@ -517,7 +517,9 @@ def _resolver_lineas(db: Session, venta, lineas) -> list[tuple]:
         detalle = detalle_por_id.get(linea.venta_detalle_id)
         if detalle is None:
             raise NoEncontradoError(f"La línea {linea.venta_detalle_id} no pertenece a la venta {venta.id}")
-        original = catalogo_politicas.obtener_variante(db, detalle.variante_id)
+        # La prenda que se devuelve ya se vendió: aunque hoy esté dada de baja se puede devolver o cambiar. La NUEVA sí
+        # debe estar activa (se vuelve a vender).
+        original = catalogo_politicas.obtener_variante_aunque_este_dada_de_baja(db, detalle.variante_id)
         nueva = None
         if linea.variante_nueva_id is not None:
             nueva = catalogo_politicas.obtener_variante(db, linea.variante_nueva_id)

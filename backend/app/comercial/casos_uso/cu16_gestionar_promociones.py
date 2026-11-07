@@ -70,6 +70,10 @@ class GestionarPromociones:
             setattr(promocion, campo, valor)
         if promocion.fecha_fin < promocion.fecha_inicio:
             raise DomainError("fecha_fin no puede ser anterior a fecha_inicio")
+        # Lo mismo que al crear: un porcentaje mayor a 100 regalaría la prenda. El `tipo` no se edita; el `valor` sí.
+        if promocion.tipo == "porcentaje" and promocion.valor > 100:
+            db.rollback()
+            raise DomainError("Una promoción por porcentaje no puede superar 100")
         db.commit()
         db.refresh(promocion)
         return promocion

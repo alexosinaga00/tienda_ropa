@@ -310,7 +310,7 @@ def test_el_modulo_del_caso_de_uso_no_carga_numpy_ni_scikit_learn_al_importarse(
     raiz = Path(cu24.__file__).resolve().parents[3]
     salida = subprocess.run(
         [sys.executable, "-c", codigo], cwd=raiz, capture_output=True, text=True,
-        env={**__import__("os").environ, "PYTHONPATH": str(raiz), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "x"},
+        env={**__import__("os").environ, "PYTHONPATH": str(raiz), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "clave-de-pruebas-larga"},
     )  # fmt: skip
     assert salida.returncode == 0, salida.stderr
     assert salida.stdout.strip() == "[]"

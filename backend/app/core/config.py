@@ -1,15 +1,30 @@
+import logging
+import os
 import secrets
 from decimal import Decimal
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Railway define estas variables en TODO servicio que despliega: sirven para saber que el proceso corre en un servidor y no
+# en la máquina de alguien, aunque falte `ENVIRONMENT`.
+_VARIABLES_DE_RAILWAY = ("RAILWAY_ENVIRONMENT_NAME", "RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID")
+LARGO_MINIMO_CLAVE_JWT = 16  # por debajo de esto la clave no es una clave: el arranque se niega
+LARGO_RECOMENDADO_CLAVE_JWT = 32
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # "local" ENCIENDE atajos de desarrollo (p. ej. la recuperación de contraseña devuelve el token en la respuesta y la IP
+    # del cliente se toma del socket): cualquier otro valor ("production") es un servidor. Por eso, si falta en un
+    # servidor de Railway, el arranque se niega en vez de quedarse en "local" (ver `_validar_entorno`).
     environment: str = "local"
+    # Nivel de los logs de la aplicación (`app.*`): DEBUG, INFO, WARNING, ERROR. INFO muestra la sincronización (RNF10).
+    log_level: str = "INFO"
 
     database_url: str
 
@@ -238,6 +253,45 @@ class Settings(BaseSettings):
     # pedido en comercial.casos_uso.cu19_gestionar_envios_tarifas._peso_pedido()
     # sin modelar el peso real de cada variante (fuera del alcance de P5.3).
     peso_promedio_prenda_kg: Decimal = Decimal("0.3")
+
+    # Topes de una reserva que hace el CLIENTE (CU-12): sin ellos, cualquiera con una cuenta podría apartar todo el stock con
+    # una visita en el año 2099. No aplican a la reserva que el personal registra sin conexión (sincronización).
+    reserva_max_dias_anticipacion: int = Field(default=60, ge=1)
+    reserva_max_unidades_por_linea: int = Field(default=10, ge=1)
+    reserva_max_unidades: int = Field(default=30, ge=1)
+    reserva_max_activas_por_cliente: int = Field(default=5, ge=1)
+
+    @model_validator(mode="after")
+    def _validar_entorno(self) -> "Settings":
+        """Falla cerrado ante una configuración peligrosa y avisa de las dudosas. Nunca imprime valores de secretos."""
+        self.environment = (self.environment or "local").strip().lower()
+        en_railway = any(os.environ.get(variable) for variable in _VARIABLES_DE_RAILWAY)
+        if en_railway and self.environment == "local":
+            raise ValueError(
+                "ENVIRONMENT es 'local' en un servidor de Railway: en ese modo la recuperación de contraseña devuelve el "
+                "token en la respuesta. Define ENVIRONMENT=production en las variables del servicio."
+            )
+        if len(self.jwt_secret_key) < LARGO_MINIMO_CLAVE_JWT:
+            raise ValueError(
+                f"JWT_SECRET_KEY es demasiado corta (mínimo {LARGO_MINIMO_CLAVE_JWT} caracteres): con ella se firman todos "
+                "los tokens de sesión."
+            )
+        if self.environment != "local":
+            if len(self.jwt_secret_key) < LARGO_RECOMENDADO_CLAVE_JWT:
+                logger.warning(
+                    "config_dudosa JWT_SECRET_KEY tiene menos de %s caracteres; se recomienda una clave aleatoria larga",
+                    LARGO_RECOMENDADO_CLAVE_JWT,
+                )
+            for nombre, valor in (
+                ("FRONTEND_PUBLIC_URL", self.frontend_public_url),
+                ("BACKEND_PUBLIC_URL", self.backend_public_url),
+                ("CORS_ORIGINS", self.cors_origins),
+            ):
+                if "localhost" in valor or "127.0.0.1" in valor:
+                    logger.warning("config_dudosa %s apunta a localhost en un servidor", nombre)
+            if not self.tareas_token:
+                logger.warning("config_dudosa TAREAS_TOKEN está vacío: las rutas /tareas/* responderán siempre 401")
+        return self
 
 
 @lru_cache

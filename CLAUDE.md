@@ -926,8 +926,9 @@ plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcional
   lo mismo con `duplicada=true` (ignora el cuerpo nuevo), sin volver a cobrar, avisar ni contar para el límite
   (`PEDIDO_DIFERIDO_MAX_POR_VENTANA`, 30/hora por cuenta). Los rechazos también son finales: la operación rechazada no se
   reabre, el cliente arma otra. La fila de otra persona se ve inexistente (404). `en_proceso` es un estado interno que jamás
-  se confirma. Tabla `pedido_diferido` (`EmpresaMixin`, incluida en las copias): `operacion_id`, `usuario_id`, `sucursal_id`,
-  `estado`, `motivo`, `mensaje`, `venta_id`, `total`, `total_usd`, `creado_en`.
+  se confirma; `incierto` es la marca de un cobro sin resultado conocido (ver "Resultado INCIERTO") y tampoco sale por la API.
+  Tabla `pedido_diferido` (`EmpresaMixin`, incluida en las copias): `operacion_id`, `usuario_id`, `sucursal_id`,
+  `estado` (`en_proceso`, `incierto`, `cobrado`, `rechazado`), `motivo`, `mensaje`, `venta_id`, `total`, `total_usd`, `creado_en`.
 - **Cómo se cobra, sin doble cobro.** TODO en UNA transacción: reservar la operación, `registrar_venta(commit=False)` (la venta
   nace `pendiente_pago` con el stock RESERVADO y los bloqueos en orden de siempre), comprobar `total <= total_maximo`, convertir
   a USD (`monto_en_usd`), cobrar con PayPal y, si salió `COMPLETED`, asentar `Pago` + `TransaccionPasarela` (pasarela `paypal`) con
@@ -938,13 +939,25 @@ plan con `gestion_ventas`, dinero como texto, errores `{detail}` y los funcional
     `pago_rechazado`; el SAVEPOINT deshace la venta y el stock apartado. Igual con `stock_insuficiente` y `total_supera_maximo`:
     no queda venta, ni stock reservado, ni cobro.
   - **Resultado INCIERTO** (PayPal o la red no responden, 401/403/429/5xx, `DUPLICATE_REQUEST_ID`, captura `PENDING`, monto o
-    moneda distintos, o cualquier fallo DESPUÉS de cobrar): 503 `paypal_no_disponible`, se revierte TODO (ni venta colgada, ni
-    stock apartado, ni fila `pedido_diferido`) y el cliente reintenta con la MISMA `operacion_id`. Si PayPal sí había cobrado
-    y la respuesta se perdió, el reintento recibe el cobro original (misma clave y cuerpo) y arma la venta con él: un solo
-    cobro, una sola venta. Límites conocidos: si entre intentos cambian los precios, el cuerpo ya no coincide y PayPal rechaza la
-    clave repetida (503 hasta que expire su ventana de idempotencia); una captura `PENDING` se queda en 503; el reembolso de
-    cualquier cobro huérfano es MANUAL; la transacción de la base queda abierta durante la llamada a PayPal (hasta 15 s por
-    petición), con el stock de esas variantes bloqueado en PostgreSQL.
+    moneda distintos, o cualquier fallo DESPUÉS de cobrar): 503 `paypal_no_disponible` y se revierte la venta y el stock apartado
+    (`PagoIncierto` trae `total_bs` y `total_usd`), pero YA NO se pierde el rastro: en su propia transacción se guarda una fila
+    `incierto` con el monto y un `logger.error pedido_diferido_cobro_incierto` (operación, Bs y USD). El cliente reintenta con
+    la MISMA `operacion_id` y `_conciliar` (fila bloqueada con FOR UPDATE: dos reintentos a la vez concilian UNA vez) le pregunta
+    a PayPal por ESE cobro (misma clave, mismo cuerpo, el monto guardado) ANTES de mirar stock o precios:
+    - PayPal **no cobró** (400/404/422 o la orden no está `COMPLETED`): se descarta la marca y el pedido sigue como uno nuevo.
+    - **Sigue sin saberse** (error de red, captura `PENDING`, monto distinto, PayPal guardado ya quitado): 503 y la marca se conserva.
+    - PayPal **sí cobró**: se arma la venta con ese cobro (misma fila: `incierto` -> `cobrado`; un solo cobro, una sola venta). Si
+      ya no se puede (se agotó el stock, la prenda se dio de baja o el precio cambió y no coincide con lo cobrado) el pedido queda
+      `rechazado` con motivo **`cobro_a_reembolsar`**, el mensaje dice la verdad ("Cobramos Bs X de tu PayPal, pero ya no pudimos
+      completar tu pedido... te devolveremos el dinero"), la notificación se titula "No pudimos completar tu pedido", el correo
+      lo dice y queda un `logger.error pedido_diferido_cobro_a_reembolsar` con operación, montos y la orden de PayPal. El
+      reembolso sigue siendo MANUAL (no hay llamada de reembolso a PayPal). Antes este caso guardaba un rechazo final con "tu
+      pedido no se cobró" aunque PayPal sí había cobrado.
+    Límites conocidos: una captura `PENDING` se queda en 503 mientras PayPal la revise; no hay tarea que concilie las marcas
+    `incierto` sin reintento del cliente (si el cliente nunca reintenta, solo queda el log y la fila); la transacción de la base
+    queda abierta durante la llamada a PayPal (hasta 15 s por petición), con el stock de esas variantes bloqueado en
+    PostgreSQL. Pruebas: `tests/comercial/test_pedido_diferido.py` y `tests/postgres/test_cobro_incierto_pg.py` (migración
+    `b8d4f1a7c935` y reintentos simultáneos).
 - **Avisos.** Notificación dentro del sistema (`notificacion`, tipo `pedido_diferido`, `referencia_id` = la venta si se cobró) en la
   MISMA transacción, y correo por Brevo en segundo plano (`construir_correo_pedido_diferido`, `despachar_correo`): "Cobramos tu
   pedido" (código, total en Bs, sucursal) o "No pudimos cobrar tu pedido" (motivo en palabras). Sin Brevo o si falla, el pedido
@@ -1070,6 +1083,37 @@ varias sucursales, y un 0 de relleno hasta que llegaban). Clase de control `Cons
   Postgres NO indexa las llaves foráneas por sí solo: quedan ~70 sin índice (informe de auditoría del 07/11/2026).
 - Pruebas: `tests/inteligencia/test_resumen_inicio.py`, `tests/postgres/test_resumen_inicio_pg.py` (incluye subir y bajar la migración) y
   `dashboard.component.spec.ts`. La ruta está en `tests/aislamiento/rutas_esperadas.py` (PROPIA, "solo autenticado").
+
+### Endurecimiento tras la auditoría del backend (07/11/2026)
+Informe completo (fuera del repo): `documento\2doParcial\auditoria_backend_2026-11-07.txt`. Lo corregido, con su prueba:
+- **Logs y configuración al arrancar** (`core/registro.py`, `core/config.py`). El `lifespan` enciende los logs de `app.*` en
+  `LOG_LEVEL` (INFO por defecto; las librerías siguen en WARNING): sin esto la sincronización (`sync_*`, RNF10) no se veía en
+  Railway. El motor usa `hide_parameters=True` (un error de base de datos no vuelca correos, hashes ni tokens). `Settings` se niega a
+  arrancar con `ENVIRONMENT=local` en Railway (detecta `RAILWAY_*`; en `local` la recuperación de contraseña devuelve el token en la
+  respuesta) y con una `JWT_SECRET_KEY` de menos de 16 caracteres; avisa (log `config_dudosa`) de una clave de menos de 32, URLs a
+  localhost y `TAREAS_TOKEN` vacío en un servidor. Pruebas: `tests/core/test_configuracion_arranque.py`.
+- **El comprador no ve el costo.** `VentaRespuesta.from_modelo(ocultar_costo=True)` deja `costo_unitario` en null en la compra
+  digital, en "Mis compras" y en el comprobante de quien no es personal de ventas (`ventas.gestionar_sucursal`); Caja,
+  encargado y administrador lo siguen viendo. Pruebas: `tests/comercial/test_costo_oculto_al_comprador.py`.
+- **Topes de reserva del cliente** (`validar_topes_de_reserva_del_cliente`, solo `ReservarPrendas`; la reserva que el personal
+  registra sin conexión no los tiene): visita de hoy a `RESERVA_MAX_DIAS_ANTICIPACION` (60) días en hora de Bolivia, hasta
+  `RESERVA_MAX_UNIDADES_POR_LINEA` (10) por prenda y `RESERVA_MAX_UNIDADES` (30) en total, y `RESERVA_MAX_ACTIVAS_POR_CLIENTE` (5)
+  reservas en pendiente, preparada o en prueba. 400 con el motivo. Pruebas: `tests/comercial/test_reservas_topes.py`.
+- **Una prenda dada de baja ya no rompe lo ya vendido.** `actualizar_stock_operacion` y las devoluciones y cambios usan
+  `obtener_variante_aunque_este_dada_de_baja` (404 solo si no existe): confirmar el pago de una venta pendiente, anular, devolver
+  y cambiar siguen funcionando. Vender o reservar la prenda de nuevo (y la prenda NUEVA de un cambio) sigue exigiendo que esté
+  activa. Pruebas: `tests/comercial/test_variante_dada_de_baja.py`.
+- **`POST /inventario/movimientos` solo admite `recepcion`, `ajuste_positivo` y `ajuste_negativo`**
+  (`TIPOS_DE_MOVIMIENTO_MANUALES`): venta, devolución y transferencia las genera el sistema desde su propia operación.
+- **Promociones y totales.** Editar una promoción por porcentaje a más de 100 es 400 (igual que al crearla); `registrar_venta`
+  rechaza un total menor o igual a cero (la Caja no cobra 0 y el pago exige monto mayor a cero).
+- **El registro público no reactiva cuentas.** `RegistrarCliente.registrar` responde 409 "Ya existe un usuario con ese email"
+  también si la cuenta existe dada de baja (antes la reactivaba con la contraseña nueva y el que se registraba heredaba compras,
+  direcciones y el PayPal guardado). Reactivar una cuenta lo hace el personal (`POST /usuarios`).
+- **El cobro incierto del pedido sin conexión se concilia con PayPal** (ver "PayPal guardado y pedido sin conexión").
+- Siguen pendientes (decisión de diseño, después de la defensa): orden de bloqueo pago/venta (deadlock posible en PostgreSQL),
+  reservas en prueba que no expiran, recepción de mercadería sin validar contra la orden de compra, y fecha del dispositivo sin
+  límite hacia atrás en la sincronización.
 
 ## Plan de desarrollo
 `docs/plan_desarrollo_fashionstore.md`

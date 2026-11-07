@@ -156,29 +156,34 @@ def test_usuario_dado_de_baja_se_puede_recrear_con_el_mismo_email(client, admin_
     assert login.status_code == 200
 
 
-def test_cliente_dado_de_baja_se_puede_reregistrar_con_el_mismo_email(client, admin_headers, db_session):
+def test_cliente_dado_de_baja_no_se_puede_reregistrar_con_el_mismo_email(client, admin_headers, db_session):
+    """Antes el registro público reactivaba la cuenta con la contraseña nueva, y quien se registraba heredaba las compras y el
+    PayPal guardado de su dueño. Ahora responde 409 y no toca la cuenta: reactivarla lo decide el personal."""
     from app.plataforma.models import Cliente
     from app.plataforma.repository import UsuarioRepository
 
     registrar(client, email="baja-cliente@example.com", password="claveSegura123")
-    usuario_id = UsuarioRepository().obtener_por_email(db_session, "baja-cliente@example.com").id
+    usuario = UsuarioRepository().obtener_por_email(db_session, "baja-cliente@example.com")
+    usuario_id, hash_antes = usuario.id, usuario.password_hash
 
     baja = client.delete(f"/api/v1/usuarios/{usuario_id}", headers=admin_headers)
     assert baja.status_code == 204
 
     reregistro = registrar(client, email="baja-cliente@example.com", password="otraClaveSegura456")
-    assert reregistro.status_code == 201
-    assert reregistro.json()["id"] == usuario_id
+    assert reregistro.status_code == 409
+    assert reregistro.json() == {"detail": "Ya existe un usuario con ese email"}
 
-    # No debe haber quedado una fila de Cliente duplicada para el mismo usuario_id.
-    filas_cliente = db_session.query(Cliente).filter(Cliente.usuario_id == usuario_id).all()
-    assert len(filas_cliente) == 1
+    db_session.expire_all()
+    usuario = UsuarioRepository().obtener_por_email(db_session, "baja-cliente@example.com")
+    assert usuario.activo is False and usuario.password_hash == hash_antes  # la cuenta quedó intacta
+    assert len(db_session.query(Cliente).filter(Cliente.usuario_id == usuario_id).all()) == 1
 
-    login = client.post(
-        "/api/v1/auth/login",
-        json={"empresa": "fashionstore", "email": "baja-cliente@example.com", "password": "otraClaveSegura456"},
-    )
-    assert login.status_code == 200
+    for clave in ("claveSegura123", "otraClaveSegura456"):  # nadie entra: ni el dueño ni quien intentó registrarse
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"empresa": "fashionstore", "email": "baja-cliente@example.com", "password": clave},
+        )
+        assert login.status_code == 401
 
 
 def test_yo_devuelve_roles_y_permisos_del_usuario(client):

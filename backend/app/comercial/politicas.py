@@ -74,7 +74,7 @@ from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
 from app.core.deps import ParametrosPeriodo
 from app.core.correo import MensajeCorreo, enviar_correo_sin_romper
 from app.core.correo import envio_configurado as correo_configurado
-from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, hoy_utc
+from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, dia_bolivia, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
     DomainError,
@@ -246,6 +246,37 @@ def crear_reserva(
     confirmar(db, commit)
     db.refresh(reserva)
     return reserva
+
+
+ESTADOS_RESERVA_CON_STOCK_APARTADO = ("pendiente", "preparada", "en_prueba")
+
+
+def validar_topes_de_reserva_del_cliente(db: Session, usuario_id: int, datos: ReservaCrear) -> None:
+    """Los topes de una reserva que hace el CLIENTE (no la que el personal registra sin conexión): la visita es de hoy a unos
+    pocos días (hora de Bolivia), pocas unidades por prenda y en total, y pocas reservas abiertas a la vez. Sin ellos, un solo
+    cliente podría dejar la tienda "agotada" apartando todo el stock con una visita muy lejana. `DomainError` (400)."""
+    ajustes = get_settings()
+    hoy = dia_bolivia()[0]
+    if datos.fecha_visita < hoy:
+        raise DomainError("La fecha de la visita ya pasó: elige hoy o un día próximo")
+    limite = hoy + dt.timedelta(days=ajustes.reserva_max_dias_anticipacion)
+    if datos.fecha_visita > limite:
+        raise DomainError(
+            f"Solo se puede reservar con hasta {ajustes.reserva_max_dias_anticipacion} días de anticipación "
+            f"(hasta el {limite.isoformat()})"
+        )
+    for linea in datos.detalle:
+        if linea.cantidad > ajustes.reserva_max_unidades_por_linea:
+            raise DomainError(f"Una reserva admite hasta {ajustes.reserva_max_unidades_por_linea} unidades de cada prenda")
+    if sum(linea.cantidad for linea in datos.detalle) > ajustes.reserva_max_unidades:
+        raise DomainError(f"Una reserva admite hasta {ajustes.reserva_max_unidades} unidades en total")
+    cliente = obtener_perfil_cliente(db, usuario_id)
+    abiertas = reserva_repo.contar_abiertas_de_cliente(db, cliente.id, ESTADOS_RESERVA_CON_STOCK_APARTADO)
+    if abiertas >= ajustes.reserva_max_activas_por_cliente:
+        raise DomainError(
+            f"Ya tienes {abiertas} reservas abiertas (el máximo es {ajustes.reserva_max_activas_por_cliente}): "
+            "cancela una o espera a que se atienda"
+        )
 
 
 def mapa_codigos_estado_reserva(db: Session) -> dict[int, str]:
@@ -594,6 +625,10 @@ def registrar_venta(
     venta.subtotal = redondear(subtotal_bruto)
     venta.descuento = redondear(descuento_total)
     venta.total = redondear(venta.subtotal - venta.descuento + venta.costo_envio)
+    if venta.total <= 0:
+        # Una venta sin nada que cobrar (promoción del 100 %, precio 0) quedaría pendiente de pago para siempre: la Caja no
+        # acepta cobrar 0 y el pago exige un monto mayor a cero. Se rechaza al registrarla, con la causa clara.
+        raise DomainError("La venta no tiene nada que cobrar: el total es cero. Revisa los precios y las promociones aplicadas")
 
     if carrito_a_vaciar is not None:
         carrito_repo.vaciar(db, carrito_a_vaciar)
@@ -1032,7 +1067,9 @@ def construir_respuesta_solicitud(
     pendiente = devolucion.estado == "pendiente"
     detalle = []
     for linea in devolucion.detalle:
-        original = catalogo_politicas.obtener_variante(db, lineas_venta[linea.venta_detalle_id].variante_id)
+        original = catalogo_politicas.obtener_variante_aunque_este_dada_de_baja(
+            db, lineas_venta[linea.venta_detalle_id].variante_id
+        )
         nueva = (
             catalogo_politicas.obtener_variante(db, linea.variante_nueva_id)
             if linea.variante_nueva_id is not None
@@ -1824,6 +1861,11 @@ MOTIVO_PAGO_RECHAZADO = "pago_rechazado"
 MOTIVO_PEDIDO_INVALIDO = "pedido_invalido"
 MOTIVO_SUSCRIPCION_NO_ACTIVA = "suscripcion_no_activa"
 MOTIVO_PEDIDO_VENCIDO = "pedido_vencido"
+# PayPal SÍ cobró (un cobro incierto que al reintentar se confirmó) pero el pedido ya no se pudo completar: el dinero hay que
+# devolverlo. A diferencia de todos los demás rechazos, aquí SÍ se cobró; el mensaje y el correo lo dicen.
+MOTIVO_COBRO_A_REEMBOLSAR = "cobro_a_reembolsar"
+# El motivo interno de la fila `incierto` (nunca sale por la API).
+MOTIVO_COBRO_INCIERTO = "cobro_incierto"
 
 # Cómo se dice cada motivo en el correo ("con el motivo en palabras").
 MOTIVOS_EN_PALABRAS = {
@@ -1835,6 +1877,7 @@ MOTIVOS_EN_PALABRAS = {
     MOTIVO_PEDIDO_INVALIDO: "el pedido no es válido",
     MOTIVO_SUSCRIPCION_NO_ACTIVA: "la tienda no está disponible por ahora",
     MOTIVO_PEDIDO_VENCIDO: "pasaron demasiados días sin conexión y el pedido venció",
+    MOTIVO_COBRO_A_REEMBOLSAR: "cobramos tu PayPal pero ya no pudimos completar el pedido (por ejemplo, se agotó la prenda)",
 }
 
 
@@ -1851,7 +1894,13 @@ class RechazoPedido(Exception):
 class PagoIncierto(Exception):
     """El cobro no tiene un resultado conocido (PayPal o la red no respondieron bien): ni cobrado ni rechazado. No se
     guarda estado final; el cliente reintenta con la MISMA operación y PayPal, por el `PayPal-Request-Id`, no cobra
-    dos veces."""
+    dos veces. Trae el monto que se intentó cobrar (`total_bs`, `total_usd`) para dejar una marca `incierto` y, al
+    reintentar, preguntarle a PayPal por ESE cobro antes de decidir cualquier otra cosa."""
+
+    def __init__(self, mensaje: str, *, total_bs: Decimal | None = None, total_usd: Decimal | None = None) -> None:
+        super().__init__(mensaje)
+        self.total_bs = total_bs
+        self.total_usd = total_usd
 
 
 def enmascarar_correo(correo: str | None) -> str | None:
@@ -1923,7 +1972,17 @@ def construir_correo_pedido_diferido(
         titulo = "No pudimos cobrar tu pedido"
         palabras = MOTIVOS_EN_PALABRAS.get(motivo or "", "hubo un problema con el pedido")
         detalle = [f"Motivo: {palabras}", f"Sucursal: {sucursal}"]
-        cierre = "No se te cobró nada. Puedes volver a hacer tu pedido cuando quieras."
+        if motivo == MOTIVO_COBRO_A_REEMBOLSAR:
+            titulo = asunto_base = "No pudimos completar tu pedido"
+            asunto = f"{asunto_base} · {nombre_empresa}"
+            if total is not None:
+                detalle.insert(0, f"Monto cobrado: Bs {total}")
+            cierre = (
+                "Sí se cobró tu PayPal, así que te devolveremos el dinero. Si no lo ves en unos días, "
+                "escríbele a la tienda con este mensaje."
+            )
+        else:
+            cierre = "No se te cobró nada. Puedes volver a hacer tu pedido cuando quieras."
     texto = f"Hola {nombre},\n\n{titulo} en {nombre_empresa}.\n" + "\n".join(detalle) + f"\n\n{cierre}\n"
     filas = "".join(f'<li style="margin:0 0 8px">{escape(linea)}</li>' for linea in detalle)
     html = (

@@ -511,7 +511,16 @@ def seed_operacion(
     cu_actualizar_estado_envio = ActualizarEstadoEnvio()
     cu_transferencias = RegistrarMovimientoInventario()
     cu_pago_caja = ProcesarPagoCaja()
-    cu_reservar = ReservarPrendas()
+    # Los datos de demostración incluyen reservas de fechas pasadas y varias por cliente: se crean con `crear_reserva`, sin los
+    # topes que `ReservarPrendas` le pone a un cliente real.
+    from app.comercial.politicas import crear_reserva
+
+    class _CrearSinTopes:
+        @staticmethod
+        def ejecutar(db, usuario_id, datos):
+            return crear_reserva(db, usuario_id, datos, commit=True)
+
+    cu_reservar = _CrearSinTopes()
     cu_cancelar_reserva = CancelarReserva()
     cu_atender_reserva = AtenderPruebaReservaSucursal()
     cu_carrito = GestionarCarrito()

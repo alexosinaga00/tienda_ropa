@@ -106,6 +106,15 @@ class ReservaRepository:
             )
         )
 
+    def contar_abiertas_de_cliente(self, db: Session, cliente_id: int, codigos_estado: tuple[str, ...]) -> int:
+        """Cuántas reservas del cliente están en alguno de esos estados (las que todavía tienen stock apartado)."""
+        consulta = (
+            select(func.count(Reserva.id))
+            .join(EstadoReserva, EstadoReserva.id == Reserva.estado_id)
+            .where(Reserva.cliente_id == cliente_id, EstadoReserva.codigo.in_(codigos_estado))
+        )
+        return int(db.scalar(consulta) or 0)
+
     def listar_vencidas(self, db: Session, ahora: dt.datetime, estados_ids: list[int]) -> list[Reserva]:
         return list(
             db.scalars(
@@ -995,8 +1004,13 @@ class PedidoDiferidoRepository:
     """Registro técnico del resultado de cada pedido sin conexión. Mismo patrón de reserva de clave que
     `OperacionSyncRepository` (CU-25)."""
 
-    def obtener_por_operacion(self, db: Session, operacion_id) -> PedidoDiferido | None:
-        return db.scalar(select(PedidoDiferido).where(PedidoDiferido.operacion_id == operacion_id))
+    def obtener_por_operacion(self, db: Session, operacion_id, *, bloquear: bool = False) -> PedidoDiferido | None:
+        """El pedido de esa operación. Con `bloquear` toma la fila con FOR UPDATE (PostgreSQL): dos reintentos simultáneos
+        de un cobro `incierto` no lo concilian a la vez."""
+        consulta = select(PedidoDiferido).where(PedidoDiferido.operacion_id == operacion_id)
+        if bloquear:
+            consulta = consulta.with_for_update().execution_options(populate_existing=True)
+        return db.scalar(consulta)
 
     def reservar_clave(self, db: Session, **campos) -> PedidoDiferido | None:
         """Inserta la fila `en_proceso` dentro de un SAVEPOINT. Si la clave (empresa, operación) ya existía devuelve

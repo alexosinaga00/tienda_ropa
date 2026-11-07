@@ -401,7 +401,7 @@ PESADOS = ("sklearn", "scipy", "joblib", "threadpoolctl")
 
 def _cargados_tras(importar: str) -> list[str]:
     codigo = f"import sys; {importar}; print(sorted(m for m in {PESADOS!r} if m in sys.modules))"
-    entorno = {**os.environ, "PYTHONPATH": str(RAIZ), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "x"}
+    entorno = {**os.environ, "PYTHONPATH": str(RAIZ), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "clave-de-pruebas-larga"}
     salida = subprocess.run([sys.executable, "-c", codigo], cwd=RAIZ, capture_output=True, text=True, env=entorno)
     assert salida.returncode == 0, salida.stderr
     return eval(salida.stdout.strip())  # lista de nombres que imprimió el propio subproceso

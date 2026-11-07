@@ -11,7 +11,10 @@ settings = get_settings()
 # horaria de la SESIÓN, así que se fija en UTC y un servidor o una base con otra zona no guarda hora local.
 _argumentos_conexion = {"options": "-c timezone=UTC"} if settings.database_url.startswith("postgresql") else {}
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args=_argumentos_conexion)
+# `hide_parameters`: un error de base de datos no vuelca los VALORES de la consulta (correos, hashes, tokens) a los logs.
+engine = create_engine(
+    settings.database_url, pool_pre_ping=True, connect_args=_argumentos_conexion, hide_parameters=True
+)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

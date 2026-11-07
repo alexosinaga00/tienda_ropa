@@ -137,7 +137,10 @@ def test_la_respuesta_perdida_del_cobro_se_recupera_sin_cobrar_doble(client_pg, 
     primera = client_pg.post("/api/v1/pedidos-diferidos", json=cuerpo, headers=cliente["headers"])
 
     assert primera.status_code == 503 and primera.json()["codigo"] == "paypal_no_disponible"
-    assert (_contar(fabrica_pg, Venta), _contar(fabrica_pg, PedidoDiferido)) == (0, 0)
+    # Ni venta ni stock apartado; solo la marca `incierto` (PayPal sí cobró y no se supo) para conciliar al reintentar.
+    assert (_contar(fabrica_pg, Venta), _contar(fabrica_pg, PedidoDiferido)) == (0, 1)
+    with fabrica_pg() as db:
+        assert db.scalar(select(PedidoDiferido.estado)) == "incierto"
     assert _stock(fabrica_pg, escenario["variantes"][0], escenario["sucursal_id"]) == (10, 0)
 
     segunda = client_pg.post("/api/v1/pedidos-diferidos", json=cuerpo, headers=cliente["headers"])
@@ -145,7 +148,7 @@ def test_la_respuesta_perdida_del_cobro_se_recupera_sin_cobrar_doble(client_pg, 
     assert segunda.status_code == 200 and segunda.json()["estado"] == "cobrado"
     assert pp.cobros_vault == 1
     assert _stock(fabrica_pg, escenario["variantes"][0], escenario["sucursal_id"]) == (7, 0)
-    assert _contar(fabrica_pg, Venta) == 1
+    assert _contar(fabrica_pg, Venta) == 1 and _contar(fabrica_pg, PedidoDiferido) == 1  # la misma fila, ya cobrada
 
 
 # ---- guardar el PayPal ----

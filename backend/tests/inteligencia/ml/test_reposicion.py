@@ -218,7 +218,7 @@ def test_el_modulo_no_importa_numpy_ni_scikit_learn():
         cwd=RAIZ,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(RAIZ), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "x"},
+        env={**os.environ, "PYTHONPATH": str(RAIZ), "DATABASE_URL": "sqlite:///:memory:", "JWT_SECRET_KEY": "clave-de-pruebas-larga"},
     )
     assert salida.returncode == 0, salida.stderr
     assert salida.stdout.strip() == "[]"

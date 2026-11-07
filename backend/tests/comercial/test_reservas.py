@@ -107,8 +107,9 @@ def test_crear_reserva_descuenta_disponible(client, admin_headers, cliente_heade
 
 
 def test_crear_reserva_sin_stock_suficiente_falla(client, admin_headers, cliente_headers, contexto):
+    # El stock del contexto es 5: 10 es lo máximo que admite una línea (ver test_reservas_topes.py) y aun así no alcanza.
     respuesta = client.post(
-        "/api/v1/reservas", json=_payload_reserva(contexto, cantidad=999), headers=cliente_headers
+        "/api/v1/reservas", json=_payload_reserva(contexto, cantidad=10), headers=cliente_headers
     )
     assert respuesta.status_code == 409
 

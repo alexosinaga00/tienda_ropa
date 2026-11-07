@@ -25,7 +25,12 @@ from sqlalchemy.orm import Session
 
 from app.catalogo.politicas import bloquear_stock_en_orden, liberar_stock
 from app.comercial.models import Reserva
-from app.comercial.politicas import crear_reserva, validar_propietario_o_staff, validar_transicion
+from app.comercial.politicas import (
+    crear_reserva,
+    validar_propietario_o_staff,
+    validar_topes_de_reserva_del_cliente,
+    validar_transicion,
+)
 from app.comercial.repository import EstadoReservaRepository, ReservaRepository
 from app.comercial.schemas import ReservaCrear, SeleccionActualizar
 from app.core.exceptions import ConflictoError, NoEncontradoError
@@ -39,6 +44,8 @@ class ReservarPrendas:
     def ejecutar(self, db: Session, usuario_id: int, datos: ReservaCrear) -> Reserva:
         # La lógica vive en comercial.politicas.crear_reserva, para que la
         # sincronización offline (CU-25) reserve dentro de su propia unidad de trabajo.
+        # Los topes (fecha cercana, pocas unidades, pocas reservas abiertas) valen para el CLIENTE que reserva en línea.
+        validar_topes_de_reserva_del_cliente(db, usuario_id, datos)
         return crear_reserva(db, usuario_id, datos, commit=True)
 
 

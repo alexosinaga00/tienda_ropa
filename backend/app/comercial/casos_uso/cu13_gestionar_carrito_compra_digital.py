@@ -35,6 +35,8 @@ from app.catalogo.casos_uso.cu09_gestionar_inventario import ConsultarDisponibil
 from app.comercial.models import Carrito, CarritoDetalle, MetodoPagoGuardado, PedidoDiferido, Venta
 from app.comercial.pasarela import monto_en_usd
 from app.comercial.politicas import (
+    MOTIVO_COBRO_A_REEMBOLSAR,
+    MOTIVO_COBRO_INCIERTO,
     MOTIVO_PAGO_RECHAZADO,
     MOTIVO_PEDIDO_INVALIDO,
     MOTIVO_PEDIDO_VENCIDO,
@@ -279,6 +281,10 @@ class RealizarCompraDigital:
 ProgramarEnvio = Callable[[Callable[[MensajeCorreo], object], MensajeCorreo], object]
 
 
+# El estado de un pedido cuyo cobro pudo haberse hecho sin que se supiera (ver el modelo `PedidoDiferido`).
+ESTADO_INCIERTO = "incierto"
+
+
 def _no_disponible() -> ErrorFuncional:
     return ErrorFuncional(
         "paypal_no_disponible",
@@ -318,6 +324,13 @@ class RealizarPedidoDiferido:
     ) -> PedidoDiferidoRespuesta:
         cliente = obtener_perfil_cliente(db, usuario_id)
         previa = self._pedidos.obtener_por_operacion(db, datos.operacion_id)
+        if previa is not None and previa.estado == ESTADO_INCIERTO and previa.usuario_id == usuario_id:
+            # Un intento anterior pudo haber COBRADO sin que se supiera: antes de decidir nada sobre stock o precios, se le
+            # pregunta a PayPal por ESE cobro (misma clave de idempotencia).
+            decidida = self._conciliar(db, usuario_id, cliente, datos, contexto, programar_envio)
+            if decidida is not None:
+                return decidida
+            previa = None  # PayPal confirmó que NO cobró: el pedido sigue como uno nuevo
         if previa is not None:
             return self._duplicada(db, usuario_id, previa)
 
@@ -354,8 +367,9 @@ class RealizarPedidoDiferido:
         except StockInsuficienteError as exc:
             rechazo = RechazoPedido(MOTIVO_STOCK_INSUFICIENTE, self._mensaje_de_stock(db, exc))
         except PagoIncierto as exc:
-            db.rollback()
+            db.rollback()  # deshace la venta, el stock apartado y la reserva de la clave
             logger.warning("pedido_diferido_incierto op=%s causa=%s", str(datos.operacion_id)[:8], exc)
+            self._dejar_marca_de_cobro_incierto(db, usuario_id, datos, exc)
             raise _no_disponible() from exc
         except ErrorFuncional:
             db.rollback()
@@ -382,6 +396,173 @@ class RealizarPedidoDiferido:
         codigo_venta = venta.codigo if venta is not None else None
         self._avisar_por_correo(db, usuario_id, sucursal, fila, codigo_venta, programar_envio)
         return self._respuesta(fila, codigo_venta, duplicada=False)
+
+    # -- cobro incierto: la marca y la conciliación con PayPal ------------------------------------
+
+    def _dejar_marca_de_cobro_incierto(self, db: Session, usuario_id: int, datos: PedidoDiferidoCrear, exc: PagoIncierto) -> None:
+        """PayPal pudo haber cobrado y no se supo. Se guarda una fila `incierto` con el monto (en su propia transacción,
+        porque la del pedido ya se deshizo) para que el reintento pregunte a PayPal antes de rechazar nada, y queda un
+        `logger.error` con la operación y el monto: es lo que se concilia a mano si algo sale mal. Mejor esfuerzo: un fallo
+        al guardarla no cambia la respuesta (503 reintentable)."""
+        operacion = str(datos.operacion_id)[:8]
+        if exc.total_usd is None or exc.total_bs is None:
+            logger.error("pedido_diferido_cobro_incierto_sin_monto op=%s", operacion)
+            return
+        try:
+            fila = self._pedidos.reservar_clave(
+                db,
+                operacion_id=datos.operacion_id,
+                usuario_id=usuario_id,
+                sucursal_id=datos.sucursal_id,
+                estado=ESTADO_INCIERTO,
+                motivo=MOTIVO_COBRO_INCIERTO,
+                mensaje="Cobro sin resultado conocido: pendiente de confirmar con PayPal",
+                total=exc.total_bs,
+                total_usd=exc.total_usd,
+            )
+            db.commit()
+            logger.error(
+                "pedido_diferido_cobro_incierto op=%s total_bs=%s total_usd=%s marca=%s",
+                operacion, exc.total_bs, exc.total_usd, "guardada" if fila is not None else "ya_existia",
+            )  # fmt: skip
+        except Exception:  # noqa: BLE001 - la respuesta (503 reintentable) no cambia
+            db.rollback()
+            logger.exception("pedido_diferido_marca_no_guardada op=%s total_usd=%s", operacion, exc.total_usd)
+
+    def _conciliar(
+        self,
+        db: Session,
+        usuario_id: int,
+        cliente,
+        datos: PedidoDiferidoCrear,
+        contexto: ContextoAuditoria | None,
+        programar_envio: ProgramarEnvio | None,
+    ) -> PedidoDiferidoRespuesta | None:
+        """Reintento de un cobro `incierto`: repite la llamada a PayPal con la MISMA clave y el MISMO monto guardado, así
+        que PayPal devuelve el cobro original si lo hizo (nunca cobra dos veces).
+        - PayPal NO cobró -> se descarta la marca y devuelve `None`: el pedido sigue como uno nuevo.
+        - Sigue sin saberse -> 503 reintentable (la marca se conserva).
+        - SÍ cobró -> se arma la venta con ese cobro; si ya no se puede (stock, precio, prenda dada de baja) el pedido
+          queda `rechazado` con motivo `cobro_a_reembolsar` y un mensaje que dice la verdad: se cobró y se devolverá."""
+        fila = self._pedidos.obtener_por_operacion(db, datos.operacion_id, bloquear=True)
+        if fila is None:
+            return None
+        if fila.estado != ESTADO_INCIERTO:  # otro reintento ya lo resolvió mientras tanto
+            return self._duplicada(db, usuario_id, fila)
+        operacion = str(datos.operacion_id)[:8]
+        metodo = self._metodos.obtener_activo(db, usuario_id)
+        if metodo is None or not metodo.payment_token_id or fila.total_usd is None or fila.total is None:
+            logger.error("pedido_diferido_conciliacion_imposible op=%s (sin PayPal guardado o sin monto)", operacion)
+            raise _no_disponible()
+
+        total_bs, total_usd, empresa_id = fila.total, fila.total_usd, fila.empresa_id
+        try:
+            orden = paypal.cobrar_con_vault(
+                vault_id=metodo.payment_token_id,
+                monto=total_usd,
+                moneda="USD",
+                referencia=str(datos.operacion_id),
+                descripcion="Pedido hecho sin conexión",
+                request_id=request_id_de_pedido(empresa_id, datos.operacion_id),
+            )
+        except paypal.PayPalError as exc:
+            if paypal_rechazo_definitivo(exc):
+                return self._descartar_marca(db, fila, operacion, "paypal_rechazo")
+            logger.warning("pedido_diferido_conciliacion_incierta op=%s estado_http=%s", operacion, exc.status_code)
+            raise _no_disponible() from exc
+
+        if orden.estado_captura == "PENDING":  # PayPal retiene el cobro para revisarlo: todavía no se sabe
+            logger.warning("pedido_diferido_conciliacion_incierta op=%s captura=PENDING", operacion)
+            raise _no_disponible()
+        if orden.estado != paypal.ESTADO_COMPLETADA or orden.estado_captura not in (None, paypal.ESTADO_COMPLETADA):
+            return self._descartar_marca(db, fila, operacion, f"orden_{orden.estado}")
+        if orden.monto is not None and (orden.moneda != "USD" or orden.monto != total_usd):
+            logger.error("pedido_diferido_conciliacion_monto_no_coincide op=%s", operacion)
+            raise _no_disponible()
+
+        # PayPal SÍ cobró. Se arma la venta con ese cobro.
+        sucursal = plataforma_politicas.obtener_sucursal(db, fila.sucursal_id)
+        venta = None
+        rechazo: RechazoPedido | None = None
+        try:
+            with db.begin_nested():
+                venta = registrar_venta(
+                    db,
+                    canal="digital",
+                    sucursal_id=fila.sucursal_id,
+                    lineas=[(linea.variante_id, linea.cantidad) for linea in datos.lineas],
+                    cliente_id=cliente.id,
+                    cajero_id=None,
+                    reserva_id=None,
+                    costo_envio=datos.costo_envio,
+                    usuario_id=usuario_id,
+                    commit=False,
+                )
+                total_usd_venta, tipo_cambio = monto_en_usd(venta.total)
+                if venta.total != total_bs or total_usd_venta != total_usd:
+                    raise RechazoPedido(MOTIVO_COBRO_A_REEMBOLSAR, self._mensaje_de_reembolso(total_bs, "el precio cambió"))
+                registrar_cobro_pasarela_aprobado(
+                    db,
+                    venta,
+                    pasarela_codigo="paypal",
+                    id_transaccion=orden.id,
+                    monto_usd=total_usd,
+                    tipo_cambio=tipo_cambio,
+                    origen="pedido_diferido",
+                    avisar_compra=False,
+                )
+                db.refresh(venta)
+        except RechazoPedido as decision:
+            rechazo, venta = decision, None
+        except StockInsuficienteError as exc:
+            rechazo, venta = RechazoPedido(
+                MOTIVO_COBRO_A_REEMBOLSAR, self._mensaje_de_reembolso(total_bs, "se agotó una prenda")
+            ), None
+            logger.warning("pedido_diferido_conciliacion_sin_stock op=%s variante=%s", operacion, exc.variante_id)
+        except DomainError as exc:
+            rechazo, venta = RechazoPedido(
+                MOTIVO_COBRO_A_REEMBOLSAR, self._mensaje_de_reembolso(total_bs, "una prenda ya no está disponible")
+            ), None
+            logger.warning("pedido_diferido_conciliacion_no_se_pudo op=%s causa=%s", operacion, type(exc).__name__)
+        except Exception:
+            db.rollback()
+            logger.exception("pedido_diferido_conciliacion_fallo op=%s", operacion)
+            raise _no_disponible()
+
+        try:
+            if rechazo is None:
+                self._cerrar_cobrado(db, usuario_id, fila, venta, total_usd, sucursal, datos, contexto)
+            else:
+                # El dinero está cobrado y no se puede entregar: queda a la vista de quien concilia (log de ERROR y fila).
+                logger.error(
+                    "pedido_diferido_cobro_a_reembolsar op=%s empresa=%s total_bs=%s total_usd=%s orden=%s",
+                    operacion, empresa_id, total_bs, total_usd, orden.id,
+                )  # fmt: skip
+                self._cerrar_rechazado(db, usuario_id, fila, rechazo, datos, contexto)
+            db.commit()
+        except Exception as exc:
+            db.rollback()  # la marca `incierto` se conserva: el siguiente reintento vuelve a conciliar
+            logger.exception("pedido_diferido_conciliacion_no_guardada op=%s", operacion)
+            raise _no_disponible() from exc
+
+        db.refresh(fila)
+        codigo_venta = venta.codigo if venta is not None else None
+        self._avisar_por_correo(db, usuario_id, sucursal, fila, codigo_venta, programar_envio)
+        return self._respuesta(fila, codigo_venta, duplicada=False)
+
+    @staticmethod
+    def _mensaje_de_reembolso(total_bs: Decimal, causa: str) -> str:
+        return (
+            f"Cobramos Bs {total_bs} de tu PayPal, pero ya no pudimos completar tu pedido ({causa}). "
+            "Te devolveremos el dinero; si no lo ves en unos días, escríbele a la tienda."
+        )
+
+    def _descartar_marca(self, db: Session, fila: PedidoDiferido, operacion: str, causa: str) -> None:
+        """PayPal confirmó que NO cobró: la marca ya no hace falta y el pedido sigue como uno nuevo (devuelve None)."""
+        db.delete(fila)
+        db.commit()
+        logger.info("pedido_diferido_marca_descartada op=%s causa=%s", operacion, causa)
+        return None
 
     # -- validaciones previas (sin escribir nada) -----------------------------------------------
 
@@ -468,6 +649,10 @@ class RealizarPedidoDiferido:
                 "Tu pedido no se cobró.",
             )
         total_usd, tipo_cambio = monto_en_usd(venta.total)
+        # Lo que se intenta cobrar, en variables locales: si algo falla después, el aviso de cobro incierto no depende de
+        # leer la venta de una sesión que pudo quedar a medias.
+        total_bs = venta.total
+        empresa_id = venta.empresa_id
 
         try:
             orden = paypal.cobrar_con_vault(
@@ -478,7 +663,7 @@ class RealizarPedidoDiferido:
                 # idempotencia. Por eso la referencia es la operación y no el código de la venta (que cambia).
                 referencia=str(datos.operacion_id),
                 descripcion="Pedido hecho sin conexión",
-                request_id=request_id_de_pedido(venta.empresa_id, datos.operacion_id),
+                request_id=request_id_de_pedido(empresa_id, datos.operacion_id),
             )
         except paypal.PayPalError as exc:
             definitivo = paypal_rechazo_definitivo(exc)
@@ -488,20 +673,20 @@ class RealizarPedidoDiferido:
             )  # fmt: skip
             if definitivo:
                 raise RechazoPedido(MOTIVO_PAGO_RECHAZADO, "PayPal rechazó el cobro. Tu pedido no se cobró.") from exc
-            raise PagoIncierto("PayPal no respondió bien") from exc
+            raise PagoIncierto("PayPal no respondió bien", total_bs=total_bs, total_usd=total_usd) from exc
 
         if orden.estado != paypal.ESTADO_COMPLETADA:
             raise RechazoPedido(MOTIVO_PAGO_RECHAZADO, "PayPal no autorizó el cobro. Tu pedido no se cobró.")
         if orden.estado_captura not in (None, paypal.ESTADO_COMPLETADA):
             if orden.estado_captura == "PENDING":  # PayPal retiene el cobro para revisarlo: no se sabe todavía
-                raise PagoIncierto("la captura quedó pendiente en PayPal")
+                raise PagoIncierto("la captura quedó pendiente en PayPal", total_bs=total_bs, total_usd=total_usd)
             raise RechazoPedido(MOTIVO_PAGO_RECHAZADO, "PayPal rechazó el cobro. Tu pedido no se cobró.")
         if orden.monto is not None and (orden.moneda != "USD" or orden.monto != total_usd):
             logger.error("pedido_diferido_monto_no_coincide op=%s", str(datos.operacion_id)[:8])
-            raise PagoIncierto("PayPal informó otro monto u otra moneda")
+            raise PagoIncierto("PayPal informó otro monto u otra moneda", total_bs=total_bs, total_usd=total_usd)
 
-        # El dinero YA se movió: desde aquí cualquier fallo es "incierto" (nada se guarda; el reintento recibe el mismo
-        # cobro de PayPal y vuelve a armar la venta), jamás un rechazo.
+        # El dinero YA se movió: desde aquí cualquier fallo es "incierto", jamás un rechazo. Se deja una marca `incierto`
+        # con el monto y el reintento le pregunta a PayPal por ESE cobro (misma clave) antes de decidir.
         try:
             registrar_cobro_pasarela_aprobado(
                 db,
@@ -516,7 +701,9 @@ class RealizarPedidoDiferido:
             db.refresh(venta)
         except Exception as exc:
             logger.exception("pedido_diferido_cobrado_sin_confirmar op=%s", str(datos.operacion_id)[:8])
-            raise PagoIncierto("el cobro se hizo pero la venta no se pudo confirmar") from exc
+            raise PagoIncierto(
+                "el cobro se hizo pero la venta no se pudo confirmar", total_bs=total_bs, total_usd=total_usd
+            ) from exc
         return venta, total_usd
 
     # -- cierre ---------------------------------------------------------------------------------
@@ -563,8 +750,14 @@ class RealizarPedidoDiferido:
         fila.estado = "rechazado"
         fila.motivo = rechazo.motivo
         fila.mensaje = rechazo.mensaje[:300]
+        # En el único rechazo donde SÍ se cobró, el título no puede decir "no pudimos cobrar".
+        titulo = (
+            "No pudimos completar tu pedido"
+            if rechazo.motivo == MOTIVO_COBRO_A_REEMBOLSAR
+            else "No pudimos cobrar tu pedido"
+        )
         plataforma_politicas.crear_notificacion(
-            db, usuario_id, "No pudimos cobrar tu pedido", rechazo.mensaje[:400], "pedido_diferido", None, commit=False
+            db, usuario_id, titulo, rechazo.mensaje[:400], "pedido_diferido", None, commit=False
         )
         plataforma_politicas.registrar_bitacora_de(
             db,
@@ -582,7 +775,7 @@ class RealizarPedidoDiferido:
         inexistente."""
         if fila.usuario_id != usuario_id:
             raise NoEncontradoError("Pedido no encontrado")
-        if fila.estado == "en_proceso":  # no se confirma jamás en este estado: defensa
+        if fila.estado in ("en_proceso", ESTADO_INCIERTO):  # ninguno es una decisión: el cliente reintenta (503)
             raise _no_disponible()
         codigo = obtener_venta(db, fila.venta_id).codigo if fila.venta_id is not None else None
         return self._respuesta(fila, codigo, duplicada=True)

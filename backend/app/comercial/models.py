@@ -385,13 +385,18 @@ Index(
 
 class PedidoDiferido(EmpresaMixin, Base):
     """Un pedido que el cliente armó SIN conexión y el servidor cobró (o rechazó) al reconectar, con su resultado FINAL:
-    es lo que hace idempotente el reenvío (UNIQUE empresa + operación). Un fallo temporal no deja fila. `en_proceso` es
-    interno: solo existe dentro de la transacción mientras se procesa (el commit ya lleva `cobrado` o `rechazado`)."""
+    es lo que hace idempotente el reenvío (UNIQUE empresa + operación). `en_proceso` es interno: solo existe dentro de la
+    transacción mientras se procesa (el commit ya lleva `cobrado` o `rechazado`).
+
+    `incierto` es la excepción a "un fallo temporal no deja fila": PayPal pudo haber COBRADO pero no se supo (la respuesta
+    se perdió, la captura quedó pendiente o el cobro no se pudo registrar). Guarda el monto (`total`, `total_usd`) para que
+    el reintento le PREGUNTE a PayPal (misma clave de idempotencia) antes de decidir nada: así un cobro hecho no se pierde
+    ni se le dice al cliente "no se cobró". Nunca sale por la API: el cliente sigue viendo un 503 reintentable."""
 
     __tablename__ = "pedido_diferido"
     __table_args__ = (
         UniqueConstraint("empresa_id", "operacion_id", name="uq_pedido_diferido_empresa_operacion"),
-        CheckConstraint("estado IN ('en_proceso','cobrado','rechazado')", name="ck_pedido_diferido_estado"),
+        CheckConstraint("estado IN ('en_proceso','incierto','cobrado','rechazado')", name="ck_pedido_diferido_estado"),
         Index("ix_pedido_diferido_usuario", "usuario_id", "creado_en"),
     )
 

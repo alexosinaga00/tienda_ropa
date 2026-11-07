@@ -49,6 +49,20 @@ CODIGO_EMPRESA = "fashionstore"
 EMPRESA_ID_PG = 1
 
 
+@pytest.fixture(scope="package", autouse=True)
+def _sin_topes_de_reserva():
+    """Las pruebas de aislamiento en PostgreSQL crean muchas reservas del mismo cliente en fechas lejanas: los topes de la
+    reserva del cliente no son lo que se prueba aquí (ver tests/aislamiento/conftest.py)."""
+    from app.core.config import get_settings
+
+    ajustes = get_settings()
+    parche = pytest.MonkeyPatch()
+    parche.setattr(ajustes, "reserva_max_dias_anticipacion", 3650)
+    parche.setattr(ajustes, "reserva_max_activas_por_cliente", 100_000)
+    yield
+    parche.undo()
+
+
 @pytest.fixture(scope="session")
 def url_pg() -> str:
     url = os.environ.get("TEST_DATABASE_URL")

@@ -111,6 +111,20 @@ def _dos_empresas(sesiones) -> tuple[EmpresaDePrueba, EmpresaDePrueba]:
     return creadas["a"], creadas["b"]
 
 
+@pytest.fixture(scope="package", autouse=True)
+def _sin_topes_de_reserva():
+    """El universo crea muchas reservas del MISMO cliente en fechas muy distintas (un día libre por reserva): los topes de la
+    reserva del cliente (fecha cercana, reservas abiertas) no son lo que se prueba aquí, así que se aflojan en este paquete."""
+    from app.core.config import get_settings
+
+    ajustes = get_settings()
+    parche = pytest.MonkeyPatch()
+    parche.setattr(ajustes, "reserva_max_dias_anticipacion", 3650)
+    parche.setattr(ajustes, "reserva_max_activas_por_cliente", 100_000)
+    yield
+    parche.undo()
+
+
 @pytest.fixture(scope="package")
 def _mundo():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
