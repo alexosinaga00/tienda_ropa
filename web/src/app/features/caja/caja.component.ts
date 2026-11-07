@@ -25,7 +25,7 @@ import { forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
 import { ConectividadService } from '../../core/conectividad.service';
-import { fechaLocalIso } from '../../core/date-utils';
+import { diaLocalDe, fechaLocalIso, instanteServidor } from '../../core/date-utils';
 import { SIN_TOAST_ERROR } from '../../core/http-contexts';
 import { CatalogoDetalle, ProductoImagenLookupItem, VarianteBusqueda } from '../../core/models/catalogo.models';
 import { Empleado, Sucursal } from '../../core/models/organizacion.models';
@@ -37,8 +37,11 @@ import {
   DevolucionCrear,
   PlazoCambio,
   Venta,
+  VentaDetalle,
   VentaPresencialCrear,
+  cantidadRestante,
   etiquetaDevolucion,
+  unidadesRestantes,
 } from '../../core/models/ventas.models';
 import { CatalogoLocalService, VarianteBusquedaLocal } from '../../core/offline/catalogo-local.service';
 import { ColaSincronizacionService } from '../../core/offline/cola-sincronizacion.service';
@@ -1066,11 +1069,11 @@ export class CajaComponent implements OnInit, OnDestroy {
     this.vencimientoConfirmado.clear();
     this.http.get<Venta[]>(`${environment.apiUrl}/ventas/sucursal/${sucursalId}`).subscribe({
       next: (ventas) => {
-        // `venta.fecha` viene del backend sin offset: comparar contra toISOString() (UTC) desalinea la fecha cerca de
+        // `venta.fecha` es un instante UTC ("Z"): cortar el texto compara el día UTC y desalinea la fecha cerca de
         // medianoche. Se compara por DÍA calendario local, con un día de margen: el plazo exacto lo decide el servidor
         // (el indicador de cada fila) y la fila vencida solo desactiva su botón.
         const desde = fechaLocalIso(new Date(Date.now() - DIAS_VENTAS_RECIENTES * 24 * 3_600_000));
-        const recientes = ventas.filter((v) => v.fecha.slice(0, 10) >= desde).sort((a, b) => b.id - a.id);
+        const recientes = ventas.filter((v) => diaLocalDe(v.fecha) >= desde).sort((a, b) => b.id - a.id);
         this.ventasRecientes.set(recientes);
         this.busquedaHistorial.set('');
         this.cargandoHistorial.set(false);
@@ -1084,9 +1087,18 @@ export class CajaComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Solo una venta pagada o entregada ofrece el botón "Devolución". */
+  /** Solo una venta pagada o entregada con alguna prenda por devolver ofrece el botón "Devolución". */
   protected permiteDevolucion(venta: Venta): boolean {
-    return venta.estado === 'pagada' || venta.estado === 'entregada';
+    return (venta.estado === 'pagada' || venta.estado === 'entregada') && unidadesRestantes(venta) > 0;
+  }
+
+  /** Las líneas de la venta del diálogo que aún se pueden devolver (las ya agotadas no se ofrecen). */
+  protected readonly lineasDevolvibles = computed(() =>
+    (this.ventaParaDevolucion()?.detalle ?? []).filter((linea) => cantidadRestante(linea) > 0),
+  );
+
+  protected restante(linea: VentaDetalle): number {
+    return cantidadRestante(linea);
   }
 
   // ---- Plazo para devolver o cambiar ---------------------------------------------
@@ -1134,7 +1146,7 @@ export class CajaComponent implements OnInit, OnDestroy {
   }
 
   private guardarPlazo(respuesta: PlazoCambio, forzarVencido: boolean): void {
-    const venceMs = Date.parse(respuesta.vence_en);
+    const venceMs = instanteServidor(respuesta.vence_en).getTime();
     if (Number.isNaN(venceMs) || typeof respuesta.vigente !== 'boolean') return;
     const ahora = Date.now();
     this.vencimientoConfirmado.delete(respuesta.venta_id);
@@ -1202,7 +1214,9 @@ export class CajaComponent implements OnInit, OnDestroy {
   abrirDevolucion(venta: Venta): void {
     if (this.sinConexion()) return;
     this.ventaParaDevolucion.set(venta);
-    this.cantidadesDevolucion.set(Object.fromEntries(venta.detalle.map((d) => [d.id, 0])));
+    this.cantidadesDevolucion.set(
+      Object.fromEntries(venta.detalle.filter((d) => cantidadRestante(d) > 0).map((d) => [d.id, 0])),
+    );
     this.cambiosElegidos.set({});
     this.opcionesCambio.set({});
     this.errorDevolucion.set(null);

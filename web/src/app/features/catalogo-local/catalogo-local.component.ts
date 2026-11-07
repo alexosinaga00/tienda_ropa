@@ -6,6 +6,7 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ConectividadService } from '../../core/conectividad.service';
+import { instanteServidor } from '../../core/date-utils';
 import { CatalogoLocalService } from '../../core/offline/catalogo-local.service';
 import type { FilaCategoria, FilaSucursal, ProductoLocal } from '../../core/offline/offline.models';
 import { ErrorDescargaOffline, PaqueteOfflineService } from '../../core/offline/paquete-offline.service';
@@ -86,7 +87,7 @@ export class CatalogoLocalComponent implements OnInit, OnDestroy {
   /** "hace 3 h": se recalcula cada minuto. */
   protected readonly haceCuanto = computed(() => {
     const ultima = this.paquete.ultimaDescarga();
-    return ultima === null ? '' : textoHace(this.ahora() - Date.parse(ultima));
+    return ultima === null ? '' : textoHace(this.ahora() - instanteServidor(ultima).getTime());
   });
 
   protected readonly filas = computed<FilaCatalogo[]>(() => this.productos().map(aFila));

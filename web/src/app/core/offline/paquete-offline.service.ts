@@ -3,6 +3,7 @@ import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ConectividadService } from '../conectividad.service';
+import { instanteServidor } from '../date-utils';
 import { codigoFuncional } from '../errores-funcionales';
 import { SIN_TOAST_ERROR } from '../http-contexts';
 import { PlanService } from '../plan.service';
@@ -70,7 +71,7 @@ export class PaqueteOfflineService {
   readonly estadoDatos = computed<EstadoDatosOffline>(() => {
     const ultima = this._ultimaDescarga();
     if (ultima === null) return 'sin_datos';
-    const instante = Date.parse(ultima);
+    const instante = instanteServidor(ultima).getTime();
     if (Number.isNaN(instante)) return 'desactualizados';
     return this.ahora() - instante > this.umbralHoras() * MS_POR_HORA ? 'desactualizados' : 'vigentes';
   });

@@ -77,10 +77,10 @@ function respuestaPlazo(ventaId: number, restanteMs: number, extra: Partial<Plaz
 }
 
 function fechaDeHoy(haceDias = 0): string {
-  const hoy = new Date(Date.now() - haceDias * 24 * 3_600_000);
-  const mes = String(hoy.getMonth() + 1).padStart(2, '0');
-  const dia = String(hoy.getDate()).padStart(2, '0');
-  return `${hoy.getFullYear()}-${mes}-${dia}T09:30:00`;
+  // Como lo manda el servidor: un instante UTC con "Z" que, en la hora local del navegador, cae a las 09:30 de ese día.
+  const dia = new Date(Date.now() - haceDias * 24 * 3_600_000);
+  dia.setHours(9, 30, 0, 0);
+  return dia.toISOString();
 }
 
 describe('CajaComponent', () => {
@@ -1833,6 +1833,49 @@ describe('CajaComponent', () => {
         expect(marca(1)).toBe('Con devolución (1 de 2)'); // id 6
         expect(marca(2)).toBe('Devuelta'); // id 5
         expect(limpioTxt(filas()[1].querySelector('.fs-chip'))).toBe('pagada');
+      });
+
+      it('una venta totalmente devuelta ya no ofrece el botón "Devolución" ni consulta su plazo', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        const linea = (cantidad_devuelta: number) => [{ ...VENTA.detalle[0], cantidad: 2, cantidad_devuelta }];
+        abrirElHistorial(pantalla, [
+          venta(7, 0, { detalle: linea(0) }), // nada devuelto
+          venta(6, 0, { detalle: linea(1), unidades_devueltas: 1 }), // parcial: queda 1
+          venta(5, 0, { detalle: linea(2), unidades_devueltas: 2 }), // total
+        ]);
+        expect(http.match(urlPlazo(5)).length).toBe(0); // la totalmente devuelta no pide su plazo
+        http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.error(new ProgressEvent('error')));
+        pantalla.fixture.detectChanges();
+
+        expect(filas()[0].querySelector('button')).not.toBeNull(); // 7
+        expect(filas()[1].querySelector('button')).not.toBeNull(); // 6
+        expect(filas()[2].querySelector('button')).toBeNull(); // 5
+        expect(limpioTxt(filas()[2].querySelector('[data-estado="con-devolucion"]'))).toBe('Devuelta');
+      });
+
+      it('en el diálogo, una devolución parcial solo deja devolver lo que queda y dice cuánto se devolvió', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        const parcial = {
+          ...venta(55, 0),
+          unidades_devueltas: 2,
+          detalle: [
+            { ...VENTA.detalle[0], id: 9, variante_id: 7, cantidad: 3, cantidad_devuelta: 1 },
+            { ...VENTA.detalle[0], id: 10, variante_id: 8, cantidad: 1, cantidad_devuelta: 1 }, // agotada
+          ],
+        };
+        abrirElHistorial(pantalla, [parcial]);
+        http.match((r) => r.url.endsWith('/plazo-cambio')).forEach((p) => p.flush(respuestaPlazo(55, 3 * HORA_MS)));
+        pantalla.fixture.detectChanges();
+        botonDeFila(filas()[0]).click();
+        pantalla.fixture.detectChanges();
+
+        const lineasDelDialogo = Array.from(document.body.querySelectorAll('.p-dialog table.tabla-carrito tbody tr'));
+        expect(lineasDelDialogo.length).toBe(1);
+        const entrada = lineasDelDialogo[0].querySelector('input.input-cantidad') as HTMLInputElement;
+        expect(entrada.max).toBe('2'); // 3 vendidas menos 1 devuelta
+        expect(limpioTxt(lineasDelDialogo[0].querySelector('[data-estado="ya-devuelto"]'))).toBe('(ya devuelto 1)');
       });
     });
 

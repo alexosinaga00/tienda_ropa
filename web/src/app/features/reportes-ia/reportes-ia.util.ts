@@ -1,4 +1,4 @@
-import { fechaDesdeIso, fechaLocalIso } from '../../core/date-utils';
+import { fechaDesdeIso, fechaLocalIso, instanteServidor } from '../../core/date-utils';
 import {
   AgrupacionReporte,
   CanalReporte,
@@ -55,7 +55,7 @@ function dos(n: number): string {
 
 /** `2026-10-30T14:05:00Z` (UTC) → `30/10/2026 10:05` en la hora LOCAL del navegador. Un valor ilegible se devuelve tal cual. */
 export function fechaHoraLocal(iso: string): string {
-  const fecha = new Date(iso);
+  const fecha = instanteServidor(iso);
   if (Number.isNaN(fecha.getTime())) return iso;
   return (
     `${dos(fecha.getDate())}/${dos(fecha.getMonth() + 1)}/${fecha.getFullYear()} ` +

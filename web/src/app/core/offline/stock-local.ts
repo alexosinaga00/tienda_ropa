@@ -1,3 +1,4 @@
+import { instanteServidor } from '../date-utils';
 import type { OperacionOffline } from './offline.models';
 
 /** Estados cuyas operaciones ya "ocuparon" unidades en este equipo: una rechazada devuelve las suyas. */
@@ -15,7 +16,7 @@ export function stockDisponibleLocal(
   varianteId: number,
   sucursalId: number,
 ): number {
-  const desde = Date.parse(generadoEn);
+  const desde = instanteServidor(generadoEn).getTime();
   let usado = 0;
   for (const operacion of operaciones) {
     if (operacion.sucursal_id !== sucursalId || !ESTADOS_QUE_DESCUENTAN.has(operacion.estado)) continue;

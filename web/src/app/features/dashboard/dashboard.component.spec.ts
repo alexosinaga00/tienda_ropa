@@ -7,9 +7,16 @@ import { DashboardComponent } from './dashboard.component';
 
 const API = environment.apiUrl;
 
-function ventaDeHoy(id: number, estado: string, total: number, hora: string) {
-  const hoy = new Date();
-  const dia = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+/** Un instante de HOY a la `hora` local del navegador ("23:12"), como lo manda el servidor: UTC con "Z". */
+function instanteDeHoy(hora: string, diasAtras = 0): string {
+  const [h, m] = hora.split(':').map(Number);
+  const instante = new Date();
+  instante.setDate(instante.getDate() - diasAtras);
+  instante.setHours(h, m, 0, 0);
+  return instante.toISOString();
+}
+
+function ventaDeHoy(id: number, estado: string, total: number, hora: string, diasAtras = 0) {
   return {
     id,
     codigo: `V-00${id}`,
@@ -19,7 +26,7 @@ function ventaDeHoy(id: number, estado: string, total: number, hora: string) {
     cajero_id: 2,
     reserva_id: null,
     estado,
-    fecha: `${dia}T${hora}:00`,
+    fecha: instanteDeHoy(hora, diasAtras),
     subtotal: total,
     descuento: 0,
     costo_envio: 0,
@@ -156,6 +163,28 @@ describe('DashboardComponent', () => {
     // El estado sigue siendo "Pagada" y la venta sigue sumando (la devolución no resta ingresos).
     expect(el.querySelector('.dash-tabla .fs-chip')?.textContent?.trim()).toBe('Pagada');
     expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 150.00');
+  });
+
+  it('"hoy" se decide por el día LOCAL: una venta nocturna (23:12) y una de madrugada (00:30) cuentan, la de ayer no', () => {
+    iniciarSesion(['cajero'], ['ventas.gestionar_sucursal']);
+    const { fixture, el } = crear();
+    http.expectOne(`${API}/empleados/yo`).flush({ id: 1, usuario_id: 1, sucursal_id: 1, activo: true });
+    http.expectOne(`${API}/sucursales/1`).flush({ id: 1, nombre: 'Central' });
+    // En una zona al oeste de UTC (Bolivia, UTC-4) las 23:12 son del día siguiente en UTC; al este, las 00:30 son del día
+    // anterior en UTC. Cortar el texto de la fecha falla en una de las dos; el día local las cuenta en cualquier zona.
+    http.expectOne(`${API}/ventas/sucursal/1`).flush([
+      ventaDeHoy(1, 'pagada', 100, '23:12'),
+      ventaDeHoy(2, 'pagada', 40, '00:30'),
+      ventaDeHoy(3, 'pagada', 999, '23:59', 1), // anoche: no es de hoy
+    ]);
+    http.match((r) => r.url.includes('/catalogo/variantes/detalle')).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+
+    expect(el.querySelector('.dash-kpi__valor')?.textContent).toContain('Bs 140.00');
+    expect(el.querySelector('.dash-kpi__nota')?.textContent).toContain('2 tickets');
+    const filas = Array.from(el.querySelectorAll('.dash-tabla tbody tr'));
+    // La más reciente primero: la de las 23:12 va antes que la de las 00:30.
+    expect(filas.map((f) => f.querySelector('td')?.textContent?.trim())).toEqual(['V-001', 'V-002']);
   });
 
   it('una venta anulada no cuenta como vendida: ni total, ni tickets, ni gráfico, ni "Por cobrar"', () => {

@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { fechaLocalIso } from '../../core/date-utils';
+import { diaLocalDe, fechaLocalIso, instanteServidor } from '../../core/date-utils';
 import { AuthService } from '../../core/auth.service';
 import { ProductoImagenLookupItem } from '../../core/models/catalogo.models';
 import { FilaConsolidado } from '../../core/models/inventario.models';
@@ -168,13 +168,17 @@ export class DashboardComponent implements OnInit {
 
   private procesarVentas(ventas: Venta[]): void {
     const hoy = fechaLocalIso(new Date());
-    const ventasHoy = ventas.filter((v) => v.fecha.slice(0, 10) === hoy);
+    // `fecha` es un instante UTC: "hoy" se decide por el día LOCAL de quien mira (una venta de las 23:12 en Bolivia
+    // es del día siguiente en UTC y cortar el texto la sacaría de hoy).
+    const ventasHoy = ventas.filter((v) => diaLocalDe(v.fecha) === hoy);
     const vendidas = ventasHoy.filter((v) => ESTADOS_VENDIDA.has(v.estado));
     const porCobrar = ventasHoy.filter((v) => v.estado === 'pendiente_pago');
 
     // "Últimas ventas" muestra todas, con su estado: ahí interesa ver también las anuladas y las pendientes.
     this.ventasRecientes.set(
-      [...ventasHoy].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, VENTAS_RECIENTES),
+      [...ventasHoy]
+        .sort((a, b) => instanteServidor(b.fecha).getTime() - instanteServidor(a.fecha).getTime())
+        .slice(0, VENTAS_RECIENTES),
     );
     // Lo vendido (tickets, total y gráfico) cuenta solo las pagadas y entregadas.
     this.ticketsHoy.set(vendidas.length);
@@ -274,7 +278,7 @@ export class DashboardComponent implements OnInit {
 
   /** Hora local de una venta ("14:35"). */
   protected horaDe(fecha: string): string {
-    return new Date(fecha).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return instanteServidor(fecha).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   private formatearFecha(fecha: Date): string {

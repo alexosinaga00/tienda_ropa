@@ -286,7 +286,8 @@ describe('CompraDetalleComponent: una compra que quedó sin pagar', () => {
 describe('CompraDetalleComponent: sucursal y devolución', () => {
   let http: HttpTestingController;
 
-  function montar(extra: object = {}) {
+  /** `conPlazo`: se espera la consulta del plazo (false cuando ya no queda nada por cambiar y no se consulta). */
+  function montar(extra: object = {}, conPlazo = true) {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
@@ -306,17 +307,38 @@ describe('CompraDetalleComponent: sucursal y devolución', () => {
     fixture.detectChanges();
     http.expectOne(`${API}/ventas/42/comprobante`).flush({ ...venta('pagada'), sucursal_id: 2, ...extra });
     http.expectOne((r) => r.url === `${API}/catalogo/variantes/detalle`).flush(LOOKUP);
-    http.expectOne(`${API}/ventas/42/plazo-cambio`).flush({
-      venta_id: 42,
-      fecha_venta: '2026-11-04T10:00:00Z',
-      plazo_horas: 24,
-      vence_en: '2026-11-05T10:00:00Z',
-      vigente: true,
-      estado_venta: 'pagada',
-    });
+    if (conPlazo) {
+      http.expectOne(`${API}/ventas/42/plazo-cambio`).flush({
+        venta_id: 42,
+        fecha_venta: '2026-11-04T10:00:00Z',
+        plazo_horas: 24,
+        vence_en: '2026-11-05T10:00:00Z',
+        vigente: true,
+        estado_venta: 'pagada',
+      });
+    } else {
+      http.expectNone(`${API}/ventas/42/plazo-cambio`);
+    }
     fixture.detectChanges();
     return fixture;
   }
+
+  /** Una compra de 3 unidades en una sola línea (la 5), con `devueltas` ya devueltas. */
+  const tresUnidades = (devueltas: number) => ({
+    unidades_devueltas: devueltas,
+    detalle: [
+      {
+        id: 5,
+        variante_id: 10,
+        cantidad: 3,
+        cantidad_devuelta: devueltas,
+        precio_unitario: 100,
+        descuento_unitario: 0,
+        costo_unitario: null,
+        subtotal: 300,
+      },
+    ],
+  });
 
   const texto = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const sucursales = () => http.expectOne((r) => r.url.endsWith('/sucursales'));
@@ -347,11 +369,97 @@ describe('CompraDetalleComponent: sucursal y devolución', () => {
   });
 
   it('una compra con devolución sigue pagada pero muestra la marca', () => {
-    const fixture = montar({ unidades_devueltas: 1 });
+    // El detalle de la venta de prueba tiene 1 unidad: devolver 1 es devolverla toda.
+    const fixture = montar({ unidades_devueltas: 1 }, false);
     sucursales().flush([]);
     fixture.detectChanges();
 
-    // El detalle de la venta de prueba tiene 1 unidad: devolver 1 es devolverla toda.
     expect(texto((fixture.nativeElement as HTMLElement).querySelector('[data-estado="con-devolucion"]'))).toBe('Devuelta');
+  });
+
+  describe('devolución y cambio de prendas', () => {
+    const el = (fixture: ReturnType<typeof montar>) => fixture.nativeElement as HTMLElement;
+    const maximo = (fixture: ReturnType<typeof montar>) =>
+      texto(el(fixture).querySelector('[data-estado="cantidad"]'));
+
+    function abrirFormulario(fixture: ReturnType<typeof montar>): void {
+      sucursales().flush([]);
+      http.match((r) => r.url.includes('/solicitudes-cambio')).forEach((r) => r.flush([]));
+      fixture.detectChanges();
+      (el(fixture).querySelector('[data-estado="abrir-cambio"]') as HTMLButtonElement).click();
+      // Las tallas del producto: sin otras variantes, lo que importa aquí son las líneas y su máximo.
+      http
+        .match((r) => /\/catalogo\/\d+$/.test(r.url))
+        .forEach((r) => r.flush({ id: Number(r.request.url.split('/').pop()), variantes: [] }));
+      fixture.detectChanges();
+    }
+
+    it('sin devolución ofrece el cambio de todas las prendas y no dice nada de devoluciones', () => {
+      const fixture = montar(tresUnidades(0));
+      abrirFormulario(fixture);
+
+      expect(el(fixture).querySelector('[data-estado="plazo-cambio"]')).not.toBeNull();
+      expect(el(fixture).querySelector('[data-estado="solicitar-cambio"]')).not.toBeNull();
+      expect(el(fixture).querySelector('[data-estado="devolucion-parcial"]')).toBeNull();
+      expect(el(fixture).querySelector('[data-estado="con-devolucion"]')).toBeNull();
+      expect(maximo(fixture)).toBe('0 de 3');
+    });
+
+    it('devuelta toda la compra no muestra el plazo ni la sección de cambio, y no consulta el plazo', () => {
+      const fixture = montar(tresUnidades(3), false);
+      sucursales().flush([]);
+      fixture.detectChanges();
+
+      expect(el(fixture).querySelector('[data-estado="plazo-cambio"]')).toBeNull();
+      expect(el(fixture).querySelector('[data-estado="solicitar-cambio"]')).toBeNull();
+      expect(el(fixture).querySelector('[data-estado="devolucion-parcial"]')).toBeNull();
+      expect(texto(el(fixture))).not.toContain('Puedes cambiar tu prenda');
+      expect(texto(el(fixture).querySelector('[data-estado="con-devolucion"]'))).toBe('Devuelta');
+      http.expectNone((r) => r.url.includes('/solicitudes-cambio'));
+    });
+
+    it('devuelta toda la compra solo con el total (servidor sin cantidad por línea) tampoco ofrece el cambio', () => {
+      const { detalle } = tresUnidades(0);
+      const sinPorLinea = detalle.map(({ cantidad_devuelta: _omitida, ...resto }) => resto);
+      const fixture = montar({ unidades_devueltas: 3, detalle: sinPorLinea }, false);
+      sucursales().flush([]);
+      fixture.detectChanges();
+
+      expect(el(fixture).querySelector('[data-estado="solicitar-cambio"]')).toBeNull();
+    });
+
+    it('devolución parcial: muestra todo pero solo con lo que queda, y lo dice', () => {
+      const fixture = montar(tresUnidades(1));
+      abrirFormulario(fixture);
+
+      expect(texto(el(fixture).querySelector('[data-estado="devolucion-parcial"]'))).toBe(
+        'Ya devolviste 1 de 3 prendas de esta compra. Solo puedes cambiar las que te quedan.',
+      );
+      expect(el(fixture).querySelector('[data-estado="plazo-cambio"]')).not.toBeNull();
+      // El máximo por prenda es lo que queda (3 - 1), no lo comprado.
+      expect(maximo(fixture)).toBe('0 de 2');
+      const mas = el(fixture).querySelector('button[aria-label="Una más"]') as HTMLButtonElement;
+      mas.click();
+      mas.click();
+      fixture.detectChanges();
+      expect(maximo(fixture)).toBe('2 de 2');
+      expect(mas.disabled).toBe(true);
+    });
+
+    it('en una compra con varias líneas se omiten las ya devueltas del todo', () => {
+      const base = tresUnidades(0).detalle[0];
+      const fixture = montar({
+        unidades_devueltas: 3,
+        detalle: [
+          { ...base, id: 5, cantidad: 3, cantidad_devuelta: 3 },
+          { ...base, id: 6, variante_id: 11, cantidad: 2, cantidad_devuelta: 0 },
+        ],
+      });
+      abrirFormulario(fixture);
+
+      expect(el(fixture).querySelectorAll('[data-linea]').length).toBe(1);
+      expect(el(fixture).querySelector('[data-linea="6"]')).not.toBeNull();
+      expect(maximo(fixture)).toBe('0 de 2');
+    });
   });
 });

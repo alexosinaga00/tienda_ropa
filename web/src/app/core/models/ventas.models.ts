@@ -22,6 +22,24 @@ export interface VentaDetalle {
   descuento_unitario: number;
   costo_unitario: number | null;
   subtotal: number;
+  /** Unidades de esta línea ya devueltas (solo cuentan las devoluciones aprobadas). Ausente = 0. */
+  cantidad_devuelta?: number;
+}
+
+/** Lo que aún se puede devolver o cambiar de una línea: lo comprado menos lo ya devuelto (nunca negativo). */
+export function cantidadRestante(linea: Pick<VentaDetalle, 'cantidad' | 'cantidad_devuelta'>): number {
+  return Math.max(0, linea.cantidad - (linea.cantidad_devuelta ?? 0));
+}
+
+/**
+ * Unidades de la venta que aún se pueden devolver o cambiar. Si el servidor no manda `cantidad_devuelta` por línea
+ * (versión anterior), se usa el total `unidades_devueltas`: solo permite saber si ya se devolvió todo.
+ */
+export function unidadesRestantes(venta: Pick<Venta, 'detalle' | 'unidades_devueltas'>): number {
+  const porLinea = venta.detalle.some((linea) => linea.cantidad_devuelta !== undefined);
+  if (porLinea) return venta.detalle.reduce((suma, linea) => suma + cantidadRestante(linea), 0);
+  const vendidas = venta.detalle.reduce((suma, linea) => suma + linea.cantidad, 0);
+  return Math.max(0, vendidas - (venta.unidades_devueltas ?? 0));
 }
 
 export interface Venta {

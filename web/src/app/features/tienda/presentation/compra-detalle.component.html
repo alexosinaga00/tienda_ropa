@@ -121,7 +121,14 @@
           </div>
         }
 
-        @if (plazo(); as plazo) {
+        @if (permiteCambio() && avisoDevolucionParcial(); as aviso) {
+          <p class="fs-aviso fs-aviso--advertencia aviso-compra" role="status" data-estado="devolucion-parcial">
+            <fs-icono nombre="deshacer" [tam]="24" />
+            <span>{{ aviso }}</span>
+          </p>
+        }
+
+        @if (permiteCambio() && plazo(); as plazo) {
           <div class="plazo-cambio" [class.plazo-cambio--vencido]="!plazo.vigente" data-estado="plazo-cambio">
             <fs-icono [nombre]="plazo.vigente ? 'reloj' : 'alerta'" [tam]="32" />
             <div>

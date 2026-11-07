@@ -644,7 +644,7 @@
           </td>
           <td class="num">{{ venta.total | number: '1.2-2' }}</td>
           <td class="num">
-            @if (venta.estado === 'pagada' || venta.estado === 'entregada') {
+            @if (permiteDevolucion(venta)) {
               @let plazoBoton = indicadorPlazo(venta.id);
               <button
                 type="button"
@@ -716,16 +716,21 @@
           </tr>
         </thead>
         <tbody>
-          @for (linea of venta.detalle; track linea.id) {
+          @for (linea of lineasDevolvibles(); track linea.id) {
             @let opciones = opcionesCambio()[linea.id] ?? [];
             <tr>
               <td class="fuerte">{{ nombreVariante(linea.variante_id) }}</td>
-              <td class="num">{{ linea.cantidad }}</td>
+              <td class="num">
+                {{ linea.cantidad }}
+                @if ((linea.cantidad_devuelta ?? 0) > 0) {
+                  <span class="ayuda" data-estado="ya-devuelto">(ya devuelto {{ linea.cantidad_devuelta }})</span>
+                }
+              </td>
               <td class="num">
                 <input
                   type="number"
                   min="0"
-                  [max]="linea.cantidad"
+                  [max]="restante(linea)"
                   [ngModel]="cantidadesDevolucion()[linea.id]"
                   (ngModelChange)="actualizarCantidadDevolucion(linea.id, $event)"
                   class="input-cantidad"

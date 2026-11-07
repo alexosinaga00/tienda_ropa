@@ -3,6 +3,7 @@
  * el servidor, sin filtrar nada en el cliente: el backend ya omite secretos y
  * datos personales (`core/auditoria.py`, `sanear_datos`).
  */
+import { instanteServidor } from '../date-utils';
 
 /** Una fila de `GET /bitacora` o `GET /plataforma/bitacora` (`BitacoraRespuesta`). */
 export interface RegistroBitacora {
@@ -17,7 +18,7 @@ export interface RegistroBitacora {
   accion: string;
   datos: Record<string, unknown> | null;
   ip: string | null;
-  /** Naive en UTC (sin zona): usa `fechaDeBitacora` para mostrarla. */
+  /** UTC con "Z" (antes sin zona): usa `fechaDeBitacora` para leerla. */
   creado_en: string;
 }
 
@@ -117,14 +118,8 @@ export function etiquetaAccion(accion: string): string {
   return ETIQUETA_ACCION.get(accion) ?? accion;
 }
 
-/**
- * `creado_en` llega naive en UTC (sin "Z" ni desfase): sin esta corrección el
- * navegador lo leería como hora local y lo mostraría corrido.
- */
-export function fechaDeBitacora(iso: string): Date {
-  const tieneZona = /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
-  return new Date(tieneZona ? iso : `${iso}Z`);
-}
+/** `creado_en` llega en UTC ("Z"; la forma vieja sin zona también se lee como UTC): ver `instanteServidor`. */
+export const fechaDeBitacora = instanteServidor;
 
 // ---- Resumen ---------------------------------------------------------------
 

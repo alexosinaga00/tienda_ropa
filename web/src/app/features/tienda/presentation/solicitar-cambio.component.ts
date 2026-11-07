@@ -4,6 +4,7 @@ import { Component, OnInit, computed, inject, input, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { forkJoin, map, of, switchMap } from 'rxjs';
 import { ConectividadService } from '../../../core/conectividad.service';
+import { instanteServidor } from '../../../core/date-utils';
 import { CatalogoDetalle, ProductoImagenLookupItem } from '../../../core/models/catalogo.models';
 import {
   EstadoSolicitudCambio,
@@ -21,6 +22,7 @@ export interface LineaParaCambio {
   id: number;
   varianteId: number;
   productoId: number | null;
+  /** Lo que aún se puede cambiar de la línea: lo comprado menos lo ya devuelto (es el máximo por prenda). */
   cantidad: number;
   nombre: string;
   /** "M · Azul". */
@@ -124,10 +126,8 @@ export class SolicitarCambioComponent implements OnInit {
     return ESTADOS[solicitud.estado];
   }
 
-  /** Las fechas del servidor traen zona ("Z"); sin ella se leerían como hora local. */
-  protected fecha(iso: string): Date {
-    return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`);
-  }
+  /** Las fechas del servidor son UTC ("Z"); se muestran en la hora local del navegador. */
+  protected readonly fecha = instanteServidor;
 
   private cargarSolicitudes(): void {
     this.cambios.mias(this.venta().id).subscribe({

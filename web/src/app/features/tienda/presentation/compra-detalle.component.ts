@@ -8,7 +8,15 @@ import { ProductoImagenLookupItem } from '../../../core/models/catalogo.models';
 import { Envio, EstadoEnvio } from '../../../core/models/entregas.models';
 import { SIN_TOAST_ERROR } from '../../../core/http-contexts';
 import { MetodoPagoPasarela } from '../../../core/models/pagos.models';
-import { PlazoCambio, Venta, VentaDetalle, etiquetaDevolucion } from '../../../core/models/ventas.models';
+import { instanteServidor } from '../../../core/date-utils';
+import {
+  PlazoCambio,
+  Venta,
+  VentaDetalle,
+  cantidadRestante,
+  etiquetaDevolucion,
+  unidadesRestantes,
+} from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
 import { CarritoService } from '../data/carrito.service';
 import { DireccionesService } from '../data/direcciones.service';
@@ -32,6 +40,11 @@ const METODOS_REINTENTO: { codigo: MetodoPagoPasarela; etiqueta: string }[] = [
   { codigo: 'qr_online', etiqueta: 'QR' },
   { codigo: 'paypal', etiqueta: 'PayPal' },
 ];
+
+/** Solo una compra pagada o entregada tiene algo que cambiar. */
+function esDeCambio(venta: Venta): boolean {
+  return venta.estado === 'pagada' || venta.estado === 'entregada';
+}
 
 interface LineaComprobante extends VentaDetalle {
   productoId?: number | null;
@@ -84,18 +97,36 @@ export class CompraDetalleComponent implements OnInit {
   protected readonly lineas = signal<LineaComprobante[]>([]);
   /** Las prendas de la compra, como las necesita la solicitud de cambio de talla o color. */
   protected readonly lineasParaCambio = computed<LineaParaCambio[]>(() =>
-    this.lineas().map((linea) => ({
-      id: linea.id,
-      varianteId: linea.variante_id,
-      productoId: linea.productoId ?? null,
-      cantidad: linea.cantidad,
-      nombre: linea.productoNombre ?? 'Prenda',
-      detalle: [linea.tallaCodigo, linea.colorNombre].filter(Boolean).join(' · '),
-    })),
+    this.lineas()
+      // Lo que se puede cambiar es lo comprado menos lo ya devuelto; una línea agotada no se ofrece.
+      .filter((linea) => cantidadRestante(linea) > 0)
+      .map((linea) => ({
+        id: linea.id,
+        varianteId: linea.variante_id,
+        productoId: linea.productoId ?? null,
+        cantidad: cantidadRestante(linea),
+        nombre: linea.productoNombre ?? 'Prenda',
+        detalle: [linea.tallaCodigo, linea.colorNombre].filter(Boolean).join(' · '),
+      })),
   );
+  /** Unidades de la compra que aún se pueden cambiar (se calcula con la venta, antes de cargar los nombres). */
+  protected readonly unidadesCambiables = computed(() => {
+    const venta = this.venta();
+    return venta ? unidadesRestantes(venta) : 0;
+  });
+  /** "Ya devolviste 1 de 3 prendas de esta compra." solo si se devolvió una parte y aún queda algo por cambiar. */
+  protected readonly avisoDevolucionParcial = computed(() => {
+    const venta = this.venta();
+    if (!venta) return null;
+    const vendidas = venta.detalle.reduce((suma, linea) => suma + linea.cantidad, 0);
+    const devueltas = vendidas - this.unidadesCambiables();
+    if (devueltas <= 0 || this.unidadesCambiables() <= 0) return null;
+    return `Ya devolviste ${devueltas} de ${vendidas} ${vendidas === 1 ? 'prenda' : 'prendas'} de esta compra. Solo puedes cambiar las que te quedan.`;
+  });
+  /** Una compra pagada o entregada con prendas por cambiar; una totalmente devuelta ya no ofrece nada. */
   protected readonly permiteCambio = computed(() => {
-    const estado = this.venta()?.estado;
-    return estado === 'pagada' || estado === 'entregada';
+    const venta = this.venta();
+    return venta !== null && esDeCambio(venta) && this.unidadesCambiables() > 0;
   });
   protected readonly cargando = signal(true);
   protected readonly error = signal(false);
@@ -214,11 +245,8 @@ export class CompraDetalleComponent implements OnInit {
     return ETIQUETAS_ENVIO[estado];
   }
 
-  /** El backend manda las fechas en UTC sin zona ("2026-09-20T16:52:29"): sin la 'Z' se leerían como hora local. */
-  protected fechaLocal(iso: string): Date {
-    const tieneZona = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
-    return new Date(tieneZona ? iso : `${iso}Z`);
-  }
+  /** El servidor manda los instantes en UTC ("Z"); el `date` pipe los muestra en la hora local del navegador. */
+  protected readonly fechaLocal = instanteServidor;
 
   /** El nombre de la sucursal sale de la lista pública de la tienda. Si falla, la pantalla queda como siempre. */
   private cargarSucursal(venta: Venta): void {
@@ -233,7 +261,8 @@ export class CompraDetalleComponent implements OnInit {
    * que cambiar). Si la consulta falla, el comprobante igual se muestra, sin aviso ni mensaje de error.
    */
   private cargarPlazo(venta: Venta): void {
-    if (venta.estado !== 'pagada' && venta.estado !== 'entregada') return;
+    // Sin prendas por cambiar (todo devuelto) no hay plazo que mostrar ni se consulta.
+    if (!esDeCambio(venta) || unidadesRestantes(venta) <= 0) return;
     this.http
       .get<PlazoCambio>(`${environment.apiUrl}/ventas/${venta.id}/plazo-cambio`, {
         context: new HttpContext().set(SIN_TOAST_ERROR, true),

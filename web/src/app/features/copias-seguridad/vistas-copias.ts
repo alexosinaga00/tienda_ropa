@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { instanteServidor } from '../../core/date-utils';
 import { ErrorLeido, leerTextoBlob } from '../../core/utils/http-blob';
 import { NombreIcono } from '../../shared/icono/iconos';
 
@@ -50,14 +51,8 @@ export function formatearTamano(bytes: number | null | undefined): string {
   return `${decimal(bytes / (1024 * 1024 * 1024))} GB`;
 }
 
-/**
- * Las fechas del servidor son UTC y vienen sin zona (`2026-10-30T14:05:00`): sin la `Z`, el navegador las leería como hora
- * local y se verían corridas. Con la `Z`, el `date` pipe las muestra en la hora local de quien mira.
- */
-export function fechaDeUtc(iso: string): Date {
-  const conZona = /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
-  return new Date(conZona ? iso : `${iso}Z`);
-}
+/** Las fechas del servidor son UTC ("Z"); el `date` pipe las muestra en la hora local de quien mira. Ver `instanteServidor`. */
+export const fechaDeUtc = instanteServidor;
 
 export const LARGO_CHECKSUM_CORTO = 12;
 

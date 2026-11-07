@@ -9,7 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { TableLazyLoadEvent, TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { AuthService } from '../../core/auth.service';
-import { fechaLocalIso } from '../../core/date-utils';
+import { fechaLocalIso, instanteServidor } from '../../core/date-utils';
 import { codigoFuncional } from '../../core/errores-funcionales';
 import { mensajeFuncional } from '../../core/mensajes-error-funcional';
 import { ProductoImagenLookupItem } from '../../core/models/catalogo.models';
@@ -72,7 +72,7 @@ export const ETIQUETA_TIPO_SYNC: Record<string, string> = {
  * Es la diferencia entre "recibida" y la fecha real de la operación.
  */
 export function horasDeRetraso(recibidaEn: string, fechaOperacion: string): number | null {
-  const diferencia = Date.parse(recibidaEn) - Date.parse(fechaOperacion);
+  const diferencia = instanteServidor(recibidaEn).getTime() - instanteServidor(fechaOperacion).getTime();
   if (!Number.isFinite(diferencia) || diferencia <= UMBRAL_RETRASO_MS) return null;
   return Math.max(1, Math.round(diferencia / MS_POR_HORA));
 }
