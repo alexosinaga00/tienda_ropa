@@ -47,16 +47,10 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
 
   Venta get _venta => widget.venta;
 
-  /// Toda la compra ya se devolvió: no queda nada que cambiar.
-  bool get _todoDevuelto {
-    final vendidas = _venta.detalle.fold<int>(0, (suma, l) => suma + l.cantidad);
-    return _venta.unidadesDevueltas >= vendidas;
-  }
-
   Future<void> _enviar(Map<int, List<OpcionCambio>> porLinea) async {
     final lineas = <LineaSolicitudCambio>[];
-    for (final linea in _venta.detalle) {
-      final cantidad = _cantidades[linea.id] ?? 0;
+    for (final linea in _venta.lineasCambiables) {
+      final cantidad = (_cantidades[linea.id] ?? 0).clamp(0, linea.cantidadRestante);
       if (cantidad <= 0) continue;
       final nombre = linea.productoNombre ?? 'la prenda';
       final nueva = _elegidas[linea.id];
@@ -144,6 +138,8 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
 
   @override
   Widget build(BuildContext context) {
+    // Toda la compra ya se devolvió: no hay nada que cambiar, así que ni siquiera se pide el plazo al servidor.
+    if (!_venta.hayPrendasCambiables) return const SizedBox.shrink();
     final plazo = ref.watch(plazoCambioProvider(_venta.id)).valueOrNull;
     final solicitudes = ref.watch(misSolicitudesCambioProvider(_venta.id));
     final enLinea = ref.watch(enLineaProvider).valueOrNull ?? true;
@@ -153,7 +149,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
     };
 
     final hijos = <Widget>[
-      if (plazo != null && plazo.vigente && !_todoDevuelto) _formulario(pendientes, enLinea),
+      if (plazo != null && plazo.vigente) _formulario(pendientes, enLinea),
       if (_exito != null) _MensajeExito(texto: _exito!),
       ...solicitudes.when(
         loading: () => const <Widget>[],
@@ -193,6 +189,14 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
               'aprueben el pedido.',
               style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
             ),
+            if (_venta.avisoDevolucionParcial != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                _venta.avisoDevolucionParcial!,
+                key: const Key('aviso-devolucion-parcial'),
+                style: const TextStyle(color: AppColors.advertencia, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: AppSpacing.sm),
             opciones.when(
               loading: () => const Padding(
@@ -223,7 +227,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
 
   Widget _lineas(Map<int, List<OpcionCambio>> porLinea, Set<int> bloqueadas, bool enLinea) {
     final lineas = [
-      for (final l in _venta.detalle)
+      for (final l in _venta.lineasCambiables)
         if ((porLinea[l.id] ?? const <OpcionCambio>[]).isNotEmpty) l,
     ];
     if (lineas.isEmpty) {
@@ -272,6 +276,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
       if (linea.tallaCodigo != null) linea.tallaCodigo!,
       if (linea.colorNombre != null) linea.colorNombre!,
       'compraste ${linea.cantidad}',
+      if (linea.cantidadDevuelta > 0) 'devolviste ${linea.cantidadDevuelta}',
     ].join(' · ');
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -307,7 +312,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
                   key: Key('mas-${linea.id}'),
                   tooltip: 'Agregar una unidad',
                   icon: const Icon(Icons.add_circle_outline),
-                  onPressed: cantidad < linea.cantidad
+                  onPressed: cantidad < linea.cantidadRestante
                       ? () => setState(() => _cantidades[linea.id] = cantidad + 1)
                       : null,
                 ),

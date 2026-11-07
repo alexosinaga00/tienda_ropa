@@ -19,12 +19,14 @@ String? rutaDeTipoNotificacion(String? tipo, int? referenciaId) {
 /// "ahora", "hace 5 min", "hace 3 h", "hace 2 d" o la fecha si pasó más de una semana. Una fecha futura (reloj
 /// desfasado) se muestra como "ahora".
 String tiempoRelativo(DateTime fecha, {DateTime? ahora}) {
+  // La diferencia es de instantes (da igual la zona); la fecha larga se muestra en hora local.
   final diferencia = (ahora ?? DateTime.now()).difference(fecha);
   if (diferencia.inMinutes < 1) return 'ahora';
   if (diferencia.inHours < 1) return 'hace ${diferencia.inMinutes} min';
   if (diferencia.inDays < 1) return 'hace ${diferencia.inHours} h';
   if (diferencia.inDays < 7) return 'hace ${diferencia.inDays} d';
-  final dia = fecha.day.toString().padLeft(2, '0');
-  final mes = fecha.month.toString().padLeft(2, '0');
-  return '$dia/$mes/${fecha.year}';
+  final local = fecha.toLocal();
+  final dia = local.day.toString().padLeft(2, '0');
+  final mes = local.month.toString().padLeft(2, '0');
+  return '$dia/$mes/${local.year}';
 }

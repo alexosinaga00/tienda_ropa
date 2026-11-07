@@ -77,8 +77,9 @@ class CompraDetalleScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.md),
               ],
 
-              // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo.
-              if (venta.estado == 'pagada' || venta.estado == 'entregada') ...[
+              // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo. Si todas las prendas ya se
+              // devolvieron no queda nada que cambiar: ni el plazo ni la sección (ni se pide el plazo al servidor).
+              if ((venta.estado == 'pagada' || venta.estado == 'entregada') && venta.hayPrendasCambiables) ...[
                 _PlazoDeCambio(ventaId: venta.id, sucursalId: venta.sucursalId),
                 // Pedir el cambio de talla o color desde la app y ver cómo van las solicitudes.
                 SolicitarCambioSeccion(venta: venta),

@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../../../core/utils/fecha_servidor.dart';
 import '../../../core/utils/texto.dart';
 import '../models/categoria_local.dart';
 import '../models/producto_local.dart';
@@ -243,4 +244,4 @@ List<String> _palabras(String? texto) {
 /// Escapa los comodines de LIKE (`\`, `%`, `_`) para buscarlos como texto literal con `ESCAPE '\'`.
 String _escaparLike(String s) => s.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
 
-DateTime? _fecha(String? iso) => iso == null ? null : DateTime.tryParse(iso)?.toUtc();
+DateTime? _fecha(String? iso) => leerInstanteUtc(iso);

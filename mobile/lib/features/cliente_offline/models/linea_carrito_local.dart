@@ -1,3 +1,5 @@
+import '../../../core/utils/fecha_servidor.dart';
+
 /// Con quién se guarda todo lo del cliente: la empresa (tienda) y la persona de la sesión. Nada de otra empresa u otra
 /// persona se ve.
 class AlcanceCliente {
@@ -46,7 +48,7 @@ class LineaCarritoLocal {
     imagen: fila['imagen'] as String?,
     sucursalId: fila['sucursal_id'] as int?,
     sucursalNombre: fila['sucursal_nombre'] as String?,
-    agregadoEn: DateTime.parse(fila['agregado_en']! as String).toUtc(),
+    agregadoEn: instanteUtcDelServidor(fila['agregado_en']! as String),
   );
 
   final int varianteId;

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../../core/utils/fecha_servidor.dart';
+
 /// `pendiente`: esperando salir; `enviando`: la petición está en el aire; `cobrado` y `rechazado`: decisión final del
 /// servidor; `vencido`: pasaron más de 7 días sin enviarse (decisión local, no se envía nunca).
 enum EstadoPedidoLocal {
@@ -113,7 +115,7 @@ class PedidoSinConexion {
     ],
     totalMaximoCentavos: fila['total_maximo_centavos']! as int,
     fechaPedido: fila['fecha_pedido']! as String,
-    creadoEn: DateTime.parse(fila['creado_en']! as String).toUtc(),
+    creadoEn: instanteUtcDelServidor(fila['creado_en']! as String),
     intentos: fila['intentos']! as int,
     ultimoIntentoEn: _fecha(fila['ultimo_intento_en']),
     proximoIntentoEn: _fecha(fila['proximo_intento_en']),
@@ -189,4 +191,4 @@ class PedidoSinConexion {
   };
 }
 
-DateTime? _fecha(Object? valor) => valor is String ? DateTime.tryParse(valor)?.toUtc() : null;
+DateTime? _fecha(Object? valor) => leerInstanteUtc(valor);

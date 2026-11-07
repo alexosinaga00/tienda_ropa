@@ -52,8 +52,8 @@ class MetodoPagoRecordado {
   factory MetodoPagoRecordado.fromJson(Map<String, dynamic> json) => MetodoPagoRecordado(
     guardado: json['guardado'] as bool,
     correoPaypal: json['correo_paypal'] as String?,
-    guardadoEn: DateTime.tryParse(json['guardado_en'] as String? ?? ''),
-    verificadoEn: DateTime.parse(json['verificado_en'] as String),
+    guardadoEn: leerInstanteUtc(json['guardado_en']),
+    verificadoEn: instanteUtcDelServidor(json['verificado_en'] as String),
   );
 
   /// Lee lo guardado en `cli_meta`; algo dañado se descarta (null) en vez de romper la pantalla.

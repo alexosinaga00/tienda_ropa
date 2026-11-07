@@ -1,5 +1,6 @@
 import '../../../core/network/error_app.dart';
 import '../../../core/utils/dinero.dart';
+import '../../../core/utils/fecha_servidor.dart';
 
 /// La versión MAYOR del contrato del paquete de descarga que esta app sabe leer. El servidor manda `version_contrato` como
 /// texto ("1.0"): solo cuenta el número mayor. Si el servidor sube de versión, la app avisa en vez de leer mal.
@@ -32,13 +33,7 @@ String aIsoUtc(DateTime fecha) {
 }
 
 /// Lee una fecha del servidor; sin zona (o con 'Z') la toma como UTC. `null` si falta o no se entiende.
-DateTime? leerFechaUtc(Object? valor) {
-  if (valor is! String || valor.trim().isEmpty) return null;
-  var texto = valor.trim();
-  final tieneZona = texto.endsWith('Z') || RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(texto);
-  if (!tieneZona) texto = '${texto}Z';
-  return DateTime.tryParse(texto)?.toUtc();
-}
+DateTime? leerFechaUtc(Object? valor) => leerInstanteUtc(valor);
 
 // ---- Lectores tolerantes ----
 

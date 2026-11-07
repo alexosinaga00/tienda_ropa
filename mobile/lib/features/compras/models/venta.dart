@@ -11,6 +11,7 @@ class VentaLinea implements LineaConExhibicion<VentaLinea> {
     required this.cantidad,
     required this.precioUnitario,
     required this.subtotal,
+    this.cantidadDevuelta = 0,
     this.productoNombre,
     this.imagenPrincipal,
     this.tallaCodigo,
@@ -23,6 +24,8 @@ class VentaLinea implements LineaConExhibicion<VentaLinea> {
     cantidad: json['cantidad'] as int,
     precioUnitario: double.parse(json['precio_unitario'].toString()),
     subtotal: double.parse(json['subtotal'].toString()),
+    // Solo cuentan las devoluciones aprobadas. Si el servidor no lo manda (versión anterior), se toma 0.
+    cantidadDevuelta: (json['cantidad_devuelta'] as num?)?.toInt() ?? 0,
   );
 
   final int id;
@@ -31,10 +34,16 @@ class VentaLinea implements LineaConExhibicion<VentaLinea> {
   final int cantidad;
   final double precioUnitario;
   final double subtotal;
+
+  /// Unidades de esta línea que ya se devolvieron (devoluciones aprobadas).
+  final int cantidadDevuelta;
   final String? productoNombre;
   final String? imagenPrincipal;
   final String? tallaCodigo;
   final String? colorNombre;
+
+  /// Lo que queda por cambiar o devolver de esta línea (nunca negativo).
+  int get cantidadRestante => (cantidad - cantidadDevuelta).clamp(0, cantidad);
 
   @override
   VentaLinea conExhibicion({
@@ -49,6 +58,7 @@ class VentaLinea implements LineaConExhibicion<VentaLinea> {
       cantidad: cantidad,
       precioUnitario: precioUnitario,
       subtotal: subtotal,
+      cantidadDevuelta: cantidadDevuelta,
       productoNombre: productoNombre,
       imagenPrincipal: imagenPrincipal,
       tallaCodigo: tallaCodigo,
@@ -109,6 +119,36 @@ class Venta {
     if (unidadesDevueltas <= 0) return null;
     final vendidas = detalle.fold<int>(0, (suma, linea) => suma + linea.cantidad);
     return unidadesDevueltas >= vendidas ? 'Devuelta' : 'Con devolución ($unidadesDevueltas de $vendidas)';
+  }
+
+  /// Unidades vendidas en total.
+  int get unidadesVendidas => detalle.fold<int>(0, (suma, linea) => suma + linea.cantidad);
+
+  /// Unidades ya devueltas: lo que dice el servidor para la compra o, si es más, la suma de sus líneas.
+  int get unidadesYaDevueltas {
+    final porLinea = detalle.fold<int>(0, (suma, linea) => suma + linea.cantidadDevuelta);
+    return porLinea > unidadesDevueltas ? porLinea : unidadesDevueltas;
+  }
+
+  /// Las líneas a las que todavía les queda alguna unidad por cambiar.
+  List<VentaLinea> get lineasCambiables => [
+    for (final linea in detalle)
+      if (linea.cantidadRestante > 0) linea,
+  ];
+
+  /// Falso cuando todas las prendas ya se devolvieron: no hay nada que cambiar. Si el servidor no dice cuánto se
+  /// devolvió por línea (versión anterior), se calcula con el total devuelto de la compra.
+  bool get hayPrendasCambiables {
+    final porLinea = detalle.fold<int>(0, (suma, linea) => suma + linea.cantidadDevuelta);
+    if (porLinea == 0 && unidadesDevueltas > 0) return unidadesDevueltas < unidadesVendidas;
+    return lineasCambiables.isNotEmpty;
+  }
+
+  /// "Ya devolviste 1 de 4 prendas de esta compra"; null si no se devolvió nada.
+  String? get avisoDevolucionParcial {
+    final devueltas = unidadesYaDevueltas;
+    if (devueltas <= 0) return null;
+    return 'Ya devolviste $devueltas de $unidadesVendidas prendas de esta compra.';
   }
 
   Venta conDetalle(List<VentaLinea> nuevoDetalle) => Venta(

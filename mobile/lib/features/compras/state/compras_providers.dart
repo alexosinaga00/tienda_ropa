@@ -176,7 +176,8 @@ final opcionesCambioProvider = FutureProvider.autoDispose.family<Map<int, List<O
   ]);
 
   final resultado = <int, List<OpcionCambio>>{};
-  for (final linea in venta.detalle) {
+  // Una línea que ya se devolvió por completo no se ofrece.
+  for (final linea in venta.lineasCambiables) {
     final producto = porProducto[propias[linea.varianteId]?.productoId];
     if (producto == null) continue;
     final original = producto.variantes.where((v) => v.id == linea.varianteId).firstOrNull;

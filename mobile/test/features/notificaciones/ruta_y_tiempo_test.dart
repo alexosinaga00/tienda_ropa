@@ -39,6 +39,14 @@ void main() {
     test('pasada una semana muestra la fecha', () {
       expect(tiempoRelativo(DateTime(2026, 9, 3, 8), ahora: ahora), '03/09/2026');
     });
+
+    test('la fecha de un instante UTC se muestra en hora local', () {
+      final utc = DateTime.utc(2026, 9, 3, 2);
+      final local = utc.toLocal();
+      String dos(int n) => n.toString().padLeft(2, '0');
+
+      expect(tiempoRelativo(utc, ahora: ahora), '${dos(local.day)}/${dos(local.month)}/${local.year}');
+    });
   });
 
   group('fechaDelServidor', () {
