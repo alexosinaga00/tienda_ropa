@@ -29,6 +29,7 @@ CONSULTA_BASE = {
     ("GET", "/api/v1/inventario/movimientos"): lambda u: {"variante_id": u.ids["variante"], "sucursal_id": u.ids["sucursal"]},
     ("GET", "/api/v1/probador/assets"): lambda u: {"variante_id": u.ids["variante"]},
     ("GET", "/api/v1/sincronizacion/paquete/stock"): lambda u: {"sucursal_id": u.ids["sucursal"]},
+    ("GET", "/api/v1/caja/turnos/actual"): lambda u: {"sucursal_id": u.ids["sucursal"]},
 }
 
 # Listados que leen una vista que solo existe en PostgreSQL: los cubre el perfil PostgreSQL.
@@ -54,6 +55,8 @@ SIN_MARCA = {
     ("GET", "/api/v1/inventario/valuacion"): "solo cifras",
     ("GET", "/api/v1/inventario/consolidado"): "nombre del producto sin marca en la vista",
     ("GET", "/api/v1/sincronizacion/paquete/stock"): "solo ids y cifras de stock",
+    ("GET", "/api/v1/caja/turnos/actual"): "sin turno abierto solo trae ids y el monto sugerido",
+    ("GET", "/api/v1/caja/turnos/estado"): "una tarjeta por sucursal; el nombre de la sucursal del universo no lleva marca en esta lista",
     ("GET", "/api/v1/sincronizacion/paquete/clientes"): "nombre y apellido del cliente del universo sin marca; el aislamiento se prueba en tests/sincronizacion/test_paquete_seguridad.py",
 }
 

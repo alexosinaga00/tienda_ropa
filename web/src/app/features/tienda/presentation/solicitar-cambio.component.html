@@ -6,7 +6,7 @@
         <div class="cambio__titulo">Cambiar talla o color</div>
         <div class="cambio__texto">
           Pídelo aquí y lleva la prenda a {{ sucursalNombre() ? 'la sucursal ' + sucursalNombre() : 'la tienda' }}. Solo se
-          cambia por otra talla o color de la misma prenda.
+          cambia por otra talla o color de la misma prenda. Si prefieres, también puedes pedir que te devolvamos tu dinero.
         </div>
       </div>
     </div>
@@ -98,7 +98,7 @@
                   class="fs-input fila__select"
                   [attr.aria-label]="'Cambiar ' + linea.nombre + ' por'"
                   data-estado="cambiar-por"
-                  [disabled]="cantidadDe(linea) === 0"
+                  [disabled]="cantidadDe(linea) === 0 || devuelveDe(linea)"
                   [ngModel]="elegidaDe(linea)"
                   (ngModelChange)="elegir(linea, $event)"
                 >
@@ -110,6 +110,18 @@
                   }
                 </select>
               }
+
+              <label class="fila__devolver" [class.fila__devolver--inactiva]="cantidadDe(linea) === 0">
+                <input
+                  type="checkbox"
+                  class="fila__casilla"
+                  data-estado="devolver-dinero"
+                  [disabled]="cantidadDe(linea) === 0"
+                  [checked]="devuelveDe(linea)"
+                  (change)="alternarDevolver(linea, $any($event.target).checked)"
+                />
+                Devolver y recibir mi dinero
+              </label>
 
               @if (faltaStock(linea)) {
                 <p class="fs-error-texto fila__error" role="alert" data-estado="falta-stock">
@@ -142,6 +154,12 @@
           <p class="cambio__nota">
             No reservamos la prenda nueva: la tienda la confirma cuando revisa la prenda que llevas.
           </p>
+          @if (hayDevolucion()) {
+            <p class="cambio__nota" data-estado="nota-devolucion">
+              Para recibir tu dinero lleva la prenda a la tienda: te lo devolvemos cuando la revisa, por el mismo medio con
+              que pagaste.
+            </p>
+          }
         }
 
         <div class="cambio__acciones">
@@ -180,8 +198,15 @@
             <ul class="solicitud__lineas">
               @for (linea of solicitud.detalle; track linea.venta_detalle_id) {
                 <li>
-                  {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span> →
-                  {{ linea.prenda_nueva }}
+                  @if (esDevolucion(linea)) {
+                    <span data-estado="linea-devolucion">
+                      Devuelves: {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span> · Quieres:
+                      que te devolvamos tu dinero
+                    </span>
+                  } @else {
+                    {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span> →
+                    {{ linea.prenda_nueva }}
+                  }
                 </li>
               }
             </ul>
@@ -221,9 +246,14 @@
             } @else if (solicitud.estado === 'rechazada' && solicitud.motivo_rechazo) {
               <p class="cambio__nota" data-estado="motivo-rechazo">Motivo: {{ solicitud.motivo_rechazo }}</p>
             } @else if (solicitud.estado === 'aprobada') {
-              <p class="cambio__nota">Cambio hecho. Te enviamos el comprobante a tu correo.</p>
+              <p class="cambio__nota">
+                {{ soloDevolucion(solicitud) ? 'Devolución hecha.' : 'Cambio hecho.' }} Te enviamos el comprobante a tu correo.
+              </p>
             } @else if (solicitud.estado === 'vencida') {
               <p class="cambio__nota">No llevaste la prenda a tiempo. Si aún estás dentro del plazo, pide otra.</p>
+            }
+            @if (solicitud.estado === 'aprobada' && hayReembolsos(solicitud)) {
+              <app-reembolsos [reembolsos]="solicitud.reembolsos!" vista="cliente" data-estado="reembolso-solicitud" />
             }
           </div>
         }

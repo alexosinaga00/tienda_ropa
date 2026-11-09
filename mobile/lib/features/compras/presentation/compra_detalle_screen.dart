@@ -12,6 +12,7 @@ import '../models/venta.dart';
 import '../state/checkout_controller.dart';
 import '../state/compras_providers.dart';
 import 'comprobante_tarjeta.dart';
+import 'reembolso_fila.dart';
 import 'solicitar_cambio_seccion.dart';
 
 class CompraDetalleScreen extends ConsumerWidget {
@@ -35,6 +36,7 @@ class CompraDetalleScreen extends ConsumerWidget {
             ref.invalidate(envioDeCompraProvider(ventaId));
             ref.invalidate(plazoCambioProvider(ventaId));
             ref.invalidate(misSolicitudesCambioProvider(ventaId));
+            ref.invalidate(reembolsosDeCompraProvider(ventaId));
             ref.invalidate(opcionesCambioProvider(ventaId));
             ref.invalidate(compraDetalleProvider(ventaId));
             await ref.read(compraDetalleProvider(ventaId).future);
@@ -80,6 +82,9 @@ class CompraDetalleScreen extends ConsumerWidget {
                 _SeguimientoEnvio(ventaId: venta.id),
                 const SizedBox(height: AppSpacing.md),
               ],
+
+              // El dinero que la tienda ya devolvió (o está por devolver): solo aparece si hay algún reembolso.
+              if (venta.estado != 'pendiente_pago') _ReembolsosDeCompra(ventaId: venta.id),
 
               // Solo una compra pagada o entregada se puede cambiar: dice hasta cuándo. Si todas las prendas ya se
               // devolvieron no queda nada que cambiar: ni el plazo ni la sección (ni se pide el plazo al servidor).
@@ -177,6 +182,37 @@ class _SeguimientoEnvio extends ConsumerWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// El dinero que se le devolvió al cliente por esta compra (devoluciones sin cambio de prenda y pagos anulados): monto,
+/// por dónde vuelve, fecha y si ya se completó o está en proceso. Sin reembolsos, sin conexión o si falla la consulta,
+/// no se muestra nada.
+class _ReembolsosDeCompra extends ConsumerWidget {
+  const _ReembolsosDeCompra({required this.ventaId});
+
+  final int ventaId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reembolsos = ref.watch(reembolsosDeCompraProvider(ventaId)).valueOrNull ?? const [];
+    if (reembolsos.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Card(
+        key: const Key('reembolsos-compra'),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Dinero devuelto', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              for (final r in reembolsos) FilaReembolso(reembolso: r),
+            ],
+          ),
         ),
       ),
     );

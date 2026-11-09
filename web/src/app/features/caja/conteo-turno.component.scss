@@ -1,0 +1,55 @@
+.ayuda {
+  margin: 0 0 var(--fs-espacio-3);
+  font-size: 14px;
+  color: var(--fs-texto-tenue);
+}
+
+.esperado {
+  margin: 0 0 var(--fs-espacio-3);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--fs-espacio-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fs-aviso {
+  margin-bottom: var(--fs-espacio-3);
+}
+
+.acciones {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: var(--fs-espacio-4);
+}
+
+.cifras {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--fs-espacio-3);
+  margin-bottom: var(--fs-espacio-4);
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  strong {
+    font-size: 18px;
+  }
+}
+
+.etiqueta {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fs-texto-tenue);
+}

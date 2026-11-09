@@ -13,6 +13,7 @@ String? rutaDeTipoNotificacion(String? tipo, int? referenciaId) {
     'envio' => '/compras/$id', // referencia_id es el id de la compra
     'pedido_diferido' => '/compras/$id', // un pedido sin conexión cobrado: referencia_id es la venta
     'compra_confirmada' => '/compras/$id', // una compra pagada: referencia_id es la venta
+    'reembolso' => '/compras/$id', // dinero devuelto: referencia_id es la venta (otro hecho que la compra pagada)
     _ => null,
   };
 }

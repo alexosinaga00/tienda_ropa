@@ -26,10 +26,10 @@ def test_g1_cada_tabla_esta_en_exactamente_una_categoria():
 
 
 def test_g1_los_conteos_y_las_listas_no_tienen_repetidos():
-    assert len(set(copias.TABLAS_INCLUIDAS)) == len(copias.TABLAS_INCLUIDAS) == 54
+    assert len(set(copias.TABLAS_INCLUIDAS)) == len(copias.TABLAS_INCLUIDAS) == 56
     assert len(set(copias.TABLAS_REFERENCIA)) == len(copias.TABLAS_REFERENCIA) == 7
     assert set(copias.TABLAS_EXCLUIDAS) == ESPERADAS_EXCLUIDAS
-    assert 54 + 7 + 9 == len(Base.metadata.tables) == 70
+    assert 56 + 7 + 9 == len(Base.metadata.tables) == 72
 
 
 def test_g1_el_detector_ve_una_tabla_sin_clasificar(monkeypatch):

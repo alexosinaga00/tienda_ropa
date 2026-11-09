@@ -86,6 +86,7 @@ class _FilaNotificacion extends StatelessWidget {
     'reserva_preparada' => Icons.event_available_outlined,
     'envio' => Icons.local_shipping_outlined,
     'compra_confirmada' => Icons.receipt_long_outlined,
+    'reembolso' => Icons.currency_exchange,
     _ => Icons.notifications_none,
   };
 

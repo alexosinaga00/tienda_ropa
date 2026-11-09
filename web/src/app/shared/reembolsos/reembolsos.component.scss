@@ -1,0 +1,46 @@
+:host {
+  display: block;
+}
+
+.reembolsos {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reembolso {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.reembolso__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reembolso__monto {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fs-texto);
+}
+
+.reembolso__texto {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fs-texto-tenue);
+}
+
+.reembolso__acciones {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}

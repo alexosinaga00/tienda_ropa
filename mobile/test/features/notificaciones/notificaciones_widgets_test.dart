@@ -107,6 +107,22 @@ void main() {
       expect(find.text('COMPRA 31'), findsOneWidget);
     });
 
+    testWidgets('un reembolso tiene su ícono y al tocarlo abre la compra', (tester) async {
+      final repositorio = RepositorioNotificacionesFalso([
+        notificacion(1, titulo: 'Te devolvimos tu dinero', tipo: 'reembolso', referenciaId: 31),
+      ]);
+      await _abrir(tester, repositorio);
+
+      expect(find.byIcon(Icons.currency_exchange), findsOneWidget);
+      expect(find.byIcon(Icons.notifications_none), findsNothing);
+
+      await tester.tap(find.text('Te devolvimos tu dinero'));
+      await tester.pumpAndSettle();
+
+      expect(repositorio.marcadas, [1]);
+      expect(find.text('COMPRA 31'), findsOneWidget);
+    });
+
     testWidgets('un tipo desconocido se marca como leído pero no abre nada', (tester) async {
       final repositorio = RepositorioNotificacionesFalso([notificacion(1, titulo: 'Novedad', tipo: 'promocion')]);
       await _abrir(tester, repositorio);

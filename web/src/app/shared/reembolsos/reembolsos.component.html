@@ -1,0 +1,37 @@
+<ul class="reembolsos" data-estado="reembolsos">
+  @for (reembolso of items(); track reembolso.id) {
+    <li class="reembolso" [attr.data-reembolso]="reembolso.id">
+      <div class="reembolso__cabecera">
+        <span class="reembolso__monto fs-num" data-estado="monto-reembolso">Bs {{ monto(reembolso) | number: '1.2-2' }}</span>
+        <span [class]="'fs-chip ' + estado(reembolso).clase" data-estado="estado-reembolso">{{ estado(reembolso).texto }}</span>
+      </div>
+      <p class="reembolso__texto" data-estado="como-reembolso">Devolución {{ como(reembolso) }}</p>
+      <p class="reembolso__texto" data-estado="fecha-reembolso">
+        @if (reembolso.estado === 'reembolsado' && reembolso.completado_en) {
+          Reembolsado el {{ fecha(reembolso.completado_en) | date: 'dd/MM/yyyy HH:mm' }}
+        } @else {
+          Pedido el {{ fecha(reembolso.creado_en) | date: 'dd/MM/yyyy HH:mm' }}
+        }
+      </p>
+      @if (vista() === 'personal' && reembolso.estado === 'fallido' && reembolso.motivo_fallo) {
+        <p class="reembolso__texto" data-estado="motivo-fallo">Motivo: {{ reembolso.motivo_fallo }}</p>
+      }
+      @if (errores()[reembolso.id]; as mensaje) {
+        <p class="fs-error-texto" role="alert" data-estado="error-reembolso">{{ mensaje }}</p>
+      }
+      @if (admiteReintento(reembolso)) {
+        <div class="reembolso__acciones">
+          <button
+            type="button"
+            class="fs-btn fs-btn--secundario fs-btn--sm"
+            data-estado="reintentar-reembolso"
+            [disabled]="reintentando() !== null"
+            (click)="reintentar(reembolso)"
+          >
+            {{ reintentando() === reembolso.id ? 'Reintentando…' : 'Reintentar' }}
+          </button>
+        </div>
+      }
+    </li>
+  }
+</ul>

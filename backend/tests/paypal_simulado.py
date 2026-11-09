@@ -56,6 +56,16 @@ class SimuladorPayPal:
         self.estado_http_cobro_vault: int = 422  # el estado con que se rechaza
         self.perder_respuestas_de_cobro = 0  # veces que el cobro SE HACE pero la respuesta se pierde (error de red)
         self._respuestas_de_cobro: dict[str, tuple[dict, dict]] = {}  # PayPal-Request-Id -> (cuerpo, respuesta)
+        # -- Reembolsos de una captura (POST /v2/payments/captures/{id}/refund), idempotentes por PayPal-Request-Id --
+        self.cuerpos_de_reembolso: list[dict] = []
+        self.cabeceras_de_reembolso: list[dict] = []
+        self.reembolsos_hechos = 0  # reembolsos que de verdad devolvieron dinero (un reintento idéntico no cuenta)
+        self.monto_reembolsado: dict[str, Decimal] = {}  # id de la captura -> dólares devueltos
+        self.estado_reembolso = "COMPLETED"  # lo que PayPal responde: COMPLETED, PENDING o FAILED
+        self.rechazar_reembolso: str | None = None  # p. ej. "TRANSACTION_REFUSED": 422 con ese issue
+        self.estado_http_reembolso: int = 422
+        self.perder_respuestas_de_reembolso = 0  # veces que el reembolso SE HACE pero la respuesta se pierde
+        self._respuestas_de_reembolso: dict[str, dict] = {}  # PayPal-Request-Id -> respuesta
         self._numero = 0
         self._cerrojo = threading.Lock()
         if con_credenciales:
@@ -152,6 +162,9 @@ class SimuladorPayPal:
                 ],
             }
             return httpx.Response(201, json={"id": order_id, "status": "CREATED", "links": self.ordenes[order_id]["links"]})
+
+        if ruta.startswith("/v2/payments/captures/") and ruta.endswith("/refund") and metodo == "POST":
+            return self._reembolsar(peticion, ruta[len("/v2/payments/captures/") : -len("/refund")])
 
         prefijo = "/v2/checkout/orders/"
         if not ruta.startswith(prefijo):
@@ -277,6 +290,40 @@ class SimuladorPayPal:
                 self.perder_respuestas_de_cobro -= 1
         if perder:
             raise httpx.ConnectError("PayPal simulado: se perdió la respuesta del cobro", request=peticion)
+        return httpx.Response(201, json=respuesta)
+
+    def _reembolsar(self, peticion: httpx.Request, captura_id: str) -> httpx.Response:
+        """Reembolso de una captura. Respeta `PayPal-Request-Id` como PayPal: repetir la MISMA petición devuelve el
+        reembolso original sin devolver el dinero otra vez. `perder_respuestas_de_reembolso` lo hace y pierde la respuesta."""
+        if "reembolsar" in self.caer_en:
+            raise httpx.ConnectError("PayPal simulado caído al reembolsar", request=peticion)
+        cuerpo = json.loads(peticion.content)
+        clave = peticion.headers.get("PayPal-Request-Id")
+        with self._cerrojo:
+            self.cuerpos_de_reembolso.append(cuerpo)
+            self.cabeceras_de_reembolso.append(dict(peticion.headers))
+            if clave and clave in self._respuestas_de_reembolso:
+                return httpx.Response(200, json=self._respuestas_de_reembolso[clave])
+            orden = next(
+                (o for o in self.ordenes.values() if f"CAP-{o['id']}" == captura_id and o["status"] == "COMPLETED"), None
+            )
+            if orden is None:
+                return httpx.Response(404, json={"name": "RESOURCE_NOT_FOUND", "details": [{"issue": "INVALID_RESOURCE_ID"}]})
+            if self.rechazar_reembolso:
+                return self._error(self.estado_http_reembolso, self.rechazar_reembolso)
+            self._numero += 1
+            respuesta = {"id": f"REF-SIM-{self._numero:04d}", "status": self.estado_reembolso}
+            if self.estado_reembolso == "COMPLETED":
+                self.reembolsos_hechos += 1
+                devuelto = self.monto_reembolsado.get(captura_id, Decimal("0")) + Decimal(cuerpo["amount"]["value"])
+                self.monto_reembolsado[captura_id] = devuelto
+            if clave:
+                self._respuestas_de_reembolso[clave] = respuesta
+            perder = self.perder_respuestas_de_reembolso > 0
+            if perder:
+                self.perder_respuestas_de_reembolso -= 1
+        if perder:
+            raise httpx.ConnectError("PayPal simulado: se perdió la respuesta del reembolso", request=peticion)
         return httpx.Response(201, json=respuesta)
 
     def _capturar(self, peticion: httpx.Request, order_id: str) -> httpx.Response:

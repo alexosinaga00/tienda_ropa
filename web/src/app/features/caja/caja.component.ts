@@ -37,6 +37,7 @@ import {
   Devolucion,
   DevolucionCrear,
   PlazoCambio,
+  Reembolso,
   Venta,
   VentaDetalle,
   VentaPresencialCrear,
@@ -56,7 +57,9 @@ import {
 } from '../../core/offline/operaciones-offline.service';
 import { IconoComponent } from '../../shared/icono/icono.component';
 import { NombreIcono } from '../../shared/icono/iconos';
+import { ReembolsosComponent } from '../../shared/reembolsos/reembolsos.component';
 import { SolicitudesCambioComponent } from './solicitudes-cambio.component';
+import { TurnoCajaComponent } from './turno-caja.component';
 
 /** Una talla o color por la que se puede cambiar una línea devuelta (mismo producto y mismo precio). */
 interface OpcionCambio {
@@ -142,7 +145,9 @@ const OPCIONES_METODO_PAGO: { label: string; value: MetodoPagoCaja; icono: Nombr
     DialogModule,
     IconoComponent,
     SolicitudesCambioComponent,
+    ReembolsosComponent,
     TableModule,
+    TurnoCajaComponent,
   ],
   templateUrl: './caja.component.html',
   styleUrl: './caja.component.scss',
@@ -337,6 +342,9 @@ export class CajaComponent implements OnInit, OnDestroy {
   protected readonly solicitudesVisible = signal(false);
   protected readonly solicitudesPendientes = signal(0);
 
+  /** Un diálogo del turno (abrir o cerrar) está abierto: los atajos de teclado de la Caja no se atienden. */
+  protected readonly turnoDialogoAbierto = signal(false);
+
   // ---- Devoluciones --------------------------------------------------------------
 
   protected readonly devolucionVisible = signal(false);
@@ -347,6 +355,8 @@ export class CajaComponent implements OnInit, OnDestroy {
   protected readonly errorDevolucion = signal<string | null>(null);
   /** Se registró una devolución: el historial muestra el paso siguiente del CAMBIO (la nueva venta). */
   protected readonly cambioPendiente = signal(false);
+  /** El dinero que salió de la devolución recién registrada (vacío en un cambio); se ve en el historial. */
+  protected readonly reembolsosRegistrados = signal<Reembolso[]>([]);
   /** Por línea de la venta (id del detalle): las tallas o colores por los que se puede cambiar. */
   protected readonly opcionesCambio = signal<Record<number, OpcionCambio[]>>({});
   /** Por línea de la venta: la variante nueva elegida (null o ausente = solo devolver). */
@@ -399,7 +409,10 @@ export class CajaComponent implements OnInit, OnDestroy {
       untracked(() => {
         this.programarTic();
         // El aviso del cambio vive en el historial: al cerrarlo (con la X o con "Nueva venta") se va.
-        if (!historial) this.cambioPendiente.set(false);
+        if (!historial) {
+          this.cambioPendiente.set(false);
+          this.reembolsosRegistrados.set([]);
+        }
       });
     });
     // Al conocer la sucursal se cuenta cuántas solicitudes de cambio esperan (el número junto al botón).
@@ -601,7 +614,8 @@ export class CajaComponent implements OnInit, OnDestroy {
       this.historialVisible() ||
       this.devolucionVisible() ||
       this.solicitudesVisible() ||
-      this.sinStockVisible()
+      this.sinStockVisible() ||
+      this.turnoDialogoAbierto()
     ) {
       return;
     }
@@ -1150,6 +1164,24 @@ export class CajaComponent implements OnInit, OnDestroy {
     return cantidadRestante(linea);
   }
 
+  /**
+   * Cuánto dinero se devolverá con lo que está marcado: el precio neto (ya con descuento) de las unidades devueltas SIN
+   * «Cambiar por». Es una estimación: el servidor calcula el monto real y descuenta lo ya reembolsado. 0 = no se devuelve
+   * dinero (nada marcado, o todo es un cambio de talla o color).
+   */
+  protected readonly reembolsoEstimado = computed(() => {
+    const venta = this.ventaParaDevolucion();
+    if (!venta) return 0;
+    const cantidades = this.cantidadesDevolucion();
+    const cambios = this.cambiosElegidos();
+    const total = venta.detalle.reduce((suma, linea) => {
+      const unidades = Math.min(cantidades[linea.id] ?? 0, cantidadRestante(linea));
+      if (unidades <= 0 || cambios[linea.id] || linea.cantidad <= 0) return suma;
+      return suma + (linea.subtotal / linea.cantidad) * unidades;
+    }, 0);
+    return redondear(total);
+  });
+
   // ---- Plazo para devolver o cambiar ---------------------------------------------
 
   /** Lo que se dice del plazo de una venta; null si no se conoce (consulta pendiente, fallida o fuera del tope). */
@@ -1268,6 +1300,7 @@ export class CajaComponent implements OnInit, OnDestroy {
     );
     this.cambiosElegidos.set({});
     this.opcionesCambio.set({});
+    this.reembolsosRegistrados.set([]);
     this.errorDevolucion.set(null);
     this.devolucionVisible.set(true);
     // El dato fresco manda: el de la fila pudo quedar viejo mientras el cajero atendía.
@@ -1371,6 +1404,8 @@ export class CajaComponent implements OnInit, OnDestroy {
       next: (respuesta) => {
         this.registrandoDevolucion.set(false);
         this.devolucionVisible.set(false);
+        // Lo devuelto SIN cambio de prenda movió dinero: el historial (que se abre enseguida) muestra cómo quedó.
+        this.reembolsosRegistrados.set(respuesta?.reembolsos ?? []);
         if ((respuesta?.reposiciones ?? []).length > 0) {
           // Un cambio de talla o color ya está completo: la talla devuelta volvió al stock y la nueva salió.
           this.messageService.add({

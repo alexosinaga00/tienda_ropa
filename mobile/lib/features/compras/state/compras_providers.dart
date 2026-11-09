@@ -20,6 +20,7 @@ import '../models/direccion_cliente.dart';
 import '../models/envio.dart';
 import '../models/linea_con_exhibicion.dart';
 import '../models/plazo_cambio.dart';
+import '../models/reembolso.dart';
 import '../models/solicitud_cambio.dart';
 import '../models/venta.dart';
 import '../models/zona_envio.dart';
@@ -128,6 +129,16 @@ final plazoCambioProvider = FutureProvider.autoDispose.family<PlazoCambio?, int>
   }
 });
 
+/// El dinero que se le devolvió al cliente por una compra (vacío si nada). Si no se pudo consultar (sin conexión, error
+/// del servidor) queda vacío: la sección simplemente no aparece y el resto del comprobante se ve igual.
+final reembolsosDeCompraProvider = FutureProvider.autoDispose.family<List<Reembolso>, int>((ref, ventaId) async {
+  try {
+    return await ref.watch(ventasRepositoryProvider).reembolsos(ventaId);
+  } catch (_) {
+    return const <Reembolso>[];
+  }
+});
+
 final solicitudesCambioRepositoryProvider = Provider<SolicitudesCambioRepository>(
   (ref) => SolicitudesCambioRepository(ref.watch(apiClientProvider)),
 );
@@ -226,6 +237,7 @@ void refrescarDespuesDeCompra(WidgetRef ref) {
   ref.invalidate(envioDeCompraProvider);
   ref.invalidate(plazoCambioProvider);
   ref.invalidate(misSolicitudesCambioProvider);
+  ref.invalidate(reembolsosDeCompraProvider);
   ref.invalidate(opcionesCambioProvider);
   ref.invalidate(comprasConCambioPendienteProvider);
   ref.read(carritoControllerProvider.notifier).cargar();

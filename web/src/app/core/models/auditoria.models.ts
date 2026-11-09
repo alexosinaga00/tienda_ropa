@@ -73,6 +73,7 @@ export const ENTIDADES_AUDITORIA: readonly OpcionAuditoria[] = [
   { value: 'copia_seguridad', label: 'Copia de seguridad' },
   { value: 'cierre_caja', label: 'Cierre de caja' },
   { value: 'modelo_ml', label: 'Modelo de analítica' },
+  { value: 'reembolso', label: 'Reembolso' },
 ];
 
 /** Nombres reales de `ACCION_*` en `backend/app/core/auditoria.py`. */
@@ -101,9 +102,13 @@ export const ACCIONES_AUDITORIA: readonly OpcionAuditoria[] = [
   { value: 'cambiar_plazo_cambio', label: 'Cambiar plazo de cambio' },
   { value: 'descargar', label: 'Descargar' },
   { value: 'eliminar', label: 'Eliminar' },
-  { value: 'abrir', label: 'Abrir' },
-  { value: 'cerrar', label: 'Cerrar' },
+  { value: 'abrir', label: 'Abrir turno' },
+  { value: 'cerrar', label: 'Cerrar turno' },
+  { value: 'cierre_automatico', label: 'Cierre automático' },
+  { value: 'completar_conteo', label: 'Completar conteo' },
   { value: 'entrenar', label: 'Entrenar modelo' },
+  { value: 'reembolsar', label: 'Reembolsar' },
+  { value: 'fallar', label: 'Falló' },
 ];
 
 const ETIQUETA_ENTIDAD = new Map(ENTIDADES_AUDITORIA.map((o) => [o.value, o.label]));

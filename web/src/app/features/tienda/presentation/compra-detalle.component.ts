@@ -11,13 +11,16 @@ import { MetodoPagoPasarela } from '../../../core/models/pagos.models';
 import { instanteServidor } from '../../../core/date-utils';
 import {
   PlazoCambio,
+  Reembolso,
   Venta,
   VentaDetalle,
   cantidadRestante,
   etiquetaDevolucion,
   unidadesRestantes,
 } from '../../../core/models/ventas.models';
+import { ReembolsosService } from '../../../core/reembolsos.service';
 import { IconoComponent } from '../../../shared/icono/icono.component';
+import { ReembolsosComponent } from '../../../shared/reembolsos/reembolsos.component';
 import { CarritoService } from '../data/carrito.service';
 import { DireccionesService } from '../data/direcciones.service';
 import { DisponibilidadService } from '../data/disponibilidad.service';
@@ -66,6 +69,7 @@ interface LineaComprobante extends VentaDetalle {
     ComprobanteCompraComponent,
     ResumenCompraComponent,
     SolicitarCambioComponent,
+    ReembolsosComponent,
   ],
   templateUrl: './compra-detalle.component.html',
   styleUrl: './compra-detalle.component.scss',
@@ -81,6 +85,10 @@ export class CompraDetalleComponent implements OnInit {
   private readonly checkoutService = inject(CheckoutService);
   private readonly carritoService = inject(CarritoService);
   private readonly router = inject(Router);
+  private readonly reembolsosService = inject(ReembolsosService);
+
+  /** El dinero que se le devolvió por esta compra. Sin red o sin reembolsos queda vacío y no se muestra nada. */
+  protected readonly reembolsos = signal<Reembolso[]>([]);
 
   // ---- Una compra que quedó sin pagar: se puede pagar o cancelar desde aquí ----
   protected readonly metodos = METODOS_REINTENTO;
@@ -160,6 +168,7 @@ export class CompraDetalleComponent implements OnInit {
           this.cargarSeguimiento(venta);
           this.cargarPlazo(venta);
           this.cargarSucursal(venta);
+          this.cargarReembolsos(venta);
           const params = new HttpParams().set('variante_ids', venta.detalle.map((d) => d.variante_id).join(','));
           return this.http.get<ProductoImagenLookupItem[]>(`${environment.apiUrl}/catalogo/variantes/detalle`, {
             params,
@@ -272,6 +281,18 @@ export class CompraDetalleComponent implements OnInit {
     this.disponibilidadService.sucursales().subscribe({
       next: (sucursales) => this.sucursalNombre.set(sucursales.find((s) => s.id === venta.sucursal_id)?.nombre ?? null),
       error: () => this.sucursalNombre.set(null),
+    });
+  }
+
+  /**
+   * Los reembolsos de la compra, solo si ya se pagó (una pendiente no tiene dinero que devolver). Es un extra: si falla
+   * (por ejemplo sin conexión) no se muestra nada y la pantalla queda como siempre, sin aviso ni mensaje de error.
+   */
+  private cargarReembolsos(venta: Venta): void {
+    if (venta.estado === 'pendiente_pago') return;
+    this.reembolsosService.deVenta(venta.id).subscribe({
+      next: (lista) => this.reembolsos.set(Array.isArray(lista) ? lista : []),
+      error: () => this.reembolsos.set([]),
     });
   }
 

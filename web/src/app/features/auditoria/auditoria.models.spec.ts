@@ -15,6 +15,14 @@ describe('auditoria.models', () => {
       expect(etiquetaAccion('resolver_conflicto')).toBe('Resolver conflicto');
       expect(etiquetaAccion('sincronizar_lote')).toBe('Sincronizar lote');
       expect(etiquetaAccion('entrenar')).toBe('Entrenar modelo');
+      expect(etiquetaEntidad('reembolso')).toBe('Reembolso');
+      expect(etiquetaAccion('reembolsar')).toBe('Reembolsar');
+      expect(etiquetaAccion('fallar')).toBe('Falló');
+      expect(etiquetaEntidad('cierre_caja')).toBe('Cierre de caja');
+      expect(etiquetaAccion('abrir')).toBe('Abrir turno');
+      expect(etiquetaAccion('cerrar')).toBe('Cerrar turno');
+      expect(etiquetaAccion('cierre_automatico')).toBe('Cierre automático');
+      expect(etiquetaAccion('completar_conteo')).toBe('Completar conteo');
       expect(etiquetaEntidad('suscripcion')).toBe('Suscripción');
       expect(etiquetaEntidad('operacion_sync')).toBe('Operación sincronizada');
       expect(etiquetaEntidad('lote_sync')).toBe('Lote sincronizado');

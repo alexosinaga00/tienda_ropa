@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../models/plazo_cambio.dart';
+import '../models/reembolso.dart';
 import '../models/venta.dart';
 
 class VentasRepository {
@@ -29,5 +30,15 @@ class VentasRepository {
   Future<PlazoCambio> plazoCambio(int ventaId) async {
     final respuesta = await _dio.get<Map<String, dynamic>>('/ventas/$ventaId/plazo-cambio');
     return PlazoCambio.fromJson(respuesta.data!);
+  }
+
+  /// El dinero que se le devolvió al cliente por esta compra (devoluciones sin cambio de prenda y pagos anulados), el
+  /// más reciente primero. Lista vacía si no se devolvió nada. Solo lo consulta quien la compró.
+  Future<List<Reembolso>> reembolsos(int ventaId) async {
+    final respuesta = await _dio.get<List<dynamic>>('/ventas/$ventaId/reembolsos');
+    return [
+      for (final e in respuesta.data ?? const [])
+        if (e is Map<String, dynamic>) Reembolso.fromJson(e),
+    ];
   }
 }

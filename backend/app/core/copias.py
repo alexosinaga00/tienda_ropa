@@ -51,12 +51,12 @@ FORMATO = "fashionstore-copia-1"
 
 # Datos de la empresa, filtrados por `empresa_id` (salvo `empresa`, por id, y `usuario_rol`, por su usuario).
 TABLAS_INCLUIDAS: tuple[str, ...] = (
-    "activo_probador", "bitacora", "carrito", "carrito_detalle", "categoria", "ciudad", "cliente", "coleccion",
+    "activo_probador", "bitacora", "caja_turno", "carrito", "carrito_detalle", "categoria", "ciudad", "cliente", "coleccion",
     "color", "consulta_voz", "devolucion", "devolucion_detalle", "direccion_cliente", "empleado", "empresa",
     "envio", "favorito", "historial_navegacion", "horario_sucursal", "material", "movimiento_inventario",
     "notificacion", "operacion_sync", "orden_compra", "orden_compra_detalle", "pago", "pedido_diferido", "producto",
     "producto_imagen", "producto_proveedor", "producto_variante", "promocion", "promocion_alcance", "proveedor",
-    "recepcion", "recepcion_detalle", "recomendacion", "regla_tarifa_envio", "reserva", "reserva_detalle",
+    "recepcion", "recepcion_detalle", "recomendacion", "reembolso", "regla_tarifa_envio", "reserva", "reserva_detalle",
     "reserva_historial", "stock", "sucursal", "suscripcion", "tabla_medida", "talla", "temporada",
     "transferencia", "transferencia_detalle", "usuario", "usuario_rol", "venta", "venta_detalle", "zona_envio",
 )  # fmt: skip

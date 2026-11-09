@@ -344,6 +344,31 @@ class VentaRespuesta(BaseModel):
 # ---- Devoluciones ----------------------------------------------------------------
 
 
+EstadoReembolso = Literal["pendiente", "reembolsado", "fallido"]
+
+
+class ReembolsoRespuesta(BaseModel):
+    """El dinero que se le devuelve a quien compró (CU-17 / CU-18). `metodo` es el del pago original. `pendiente`: la
+    pasarela todavía no lo confirmó; `fallido`: la pasarela lo rechazó (el personal puede reintentar). Nunca trae el cuerpo
+    de la pasarela: `motivo_fallo` es un código corto."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    devolucion_id: int | None
+    pago_id: int
+    venta_id: int
+    sucursal_id: int
+    metodo: str
+    monto: Decimal
+    monto_usd: Decimal | None
+    estado: EstadoReembolso
+    referencia_externa: str | None
+    motivo_fallo: str | None
+    creado_en: FechaUTC
+    completado_en: FechaUTC | None
+
+
 class DevolucionDetalleCrear(BaseModel):
     venta_detalle_id: int
     cantidad: int = Field(gt=0)
@@ -391,6 +416,9 @@ class DevolucionRespuesta(BaseModel):
     # Lo que salió del stock en un cambio; vacío en una devolución simple. No se guarda en la devolución (el kardex
     # lo registra con la referencia de la devolución): lo arma el registro y solo viaja en esa respuesta.
     reposiciones: list[ReposicionCambioRespuesta] = Field(default_factory=list)
+    # El dinero devuelto por una devolución sin cambio de prenda (vacío en un cambio). Igual que `reposiciones`, lo arma
+    # el registro y solo viaja en esa respuesta; el listado completo está en `GET /ventas/{id}/reembolsos`.
+    reembolsos: list[ReembolsoRespuesta] = Field(default_factory=list)
     # Verdadero si el comprobante quedó programado por correo (el comprador tiene correo y el envío está
     # configurado). No garantiza que Brevo lo entregue: el envío es en segundo plano.
     correo_programado: bool = False
@@ -405,8 +433,9 @@ EstadoSolicitudCambio = Literal["pendiente", "aprobada", "rechazada", "cancelada
 class SolicitudCambioLineaCrear(BaseModel):
     venta_detalle_id: int
     cantidad: int = Field(gt=0)
-    # La talla o el color que el cliente quiere en su lugar (del MISMO producto y precio).
-    variante_nueva_id: int
+    # La talla o el color que el cliente quiere en su lugar (del MISMO producto y precio). Sin ella la línea es
+    # "devolver y recibir mi dinero": al aprobarla se reingresa la prenda y se reembolsa lo que costó.
+    variante_nueva_id: int | None = None
 
 
 class SolicitudCambioCrear(BaseModel):
@@ -446,6 +475,8 @@ class SolicitudCambioRespuesta(BaseModel):
     # solicitud pendiente vence sola.
     atender_hasta: FechaUTC
     detalle: list[SolicitudCambioLineaRespuesta]
+    # El dinero devuelto al aprobarla (solo si alguna línea era "devolver y reembolsar").
+    reembolsos: list[ReembolsoRespuesta] = Field(default_factory=list)
     # Verdadero si el correo (recibida, comprobante o rechazo) quedó programado; no garantiza que Brevo lo entregue.
     correo_programado: bool = False
 
@@ -460,6 +491,111 @@ class PlazoCambioRespuesta(BaseModel):
     vence_en: FechaUTC
     vigente: bool
     estado_venta: str
+
+
+# ---- Caja: turnos y cierres (E21) --------------------------------------------------------------
+
+
+EstadoTurno = Literal["abierta", "cerrada", "cerrada_auto"]
+
+
+class TurnoAbrir(BaseModel):
+    """Abre el turno del cajón de una sucursal. `sucursal_id` solo hace falta para quien opera todas las sucursales (el
+    administrador); el resto abre el de la suya."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sucursal_id: int | None = None
+    monto_inicial: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    observacion: str | None = Field(default=None, max_length=300)
+
+
+class TurnoCerrar(BaseModel):
+    """El conteo del efectivo del cajón. `pendientes_sin_sincronizar` es lo que el cliente tiene en su cola sin conexión
+    (no cuenta en el esperado). La observación es obligatoria si la diferencia no es cero."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    efectivo_contado: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    observacion: str | None = Field(default=None, max_length=300)
+    pendientes_sin_sincronizar: int = Field(default=0, ge=0, le=100000)
+
+
+class TurnoCompletarConteo(BaseModel):
+    """El conteo de un turno cerrado automáticamente (lo completa un supervisor, una sola vez)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    efectivo_contado: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    observacion: str = Field(min_length=3, max_length=300)
+
+
+class ResumenTurnoRespuesta(BaseModel):
+    """Lo que el sistema sabe del dinero del turno. `monto_esperado` = monto inicial + `ventas_efectivo` -
+    `reembolsos_efectivo`. `ventas_otros_metodos` y `ventas_online` son solo informativos (no pasan por el cajón)."""
+
+    ventas_efectivo: Decimal
+    cantidad_ventas: int
+    reembolsos_efectivo: Decimal
+    ventas_otros_metodos: Decimal
+    ventas_online: Decimal
+    cantidad_ventas_online: int
+    monto_esperado: Decimal
+
+
+class TurnoRespuesta(BaseModel):
+    """Un turno. CIERRE CIEGO: `monto_esperado` y `resumen` solo salen para quien supervisa la caja o para quien ya cerró
+    el turno; un cajero con el turno abierto no los ve (así no cuenta el cajón para que cuadre)."""
+
+    id: int
+    sucursal_id: int
+    sucursal_nombre: str | None
+    estado: EstadoTurno
+    apertura_en: FechaUTC
+    abierto_por_id: int
+    abierto_por_nombre: str | None
+    monto_inicial: Decimal
+    observacion_apertura: str | None
+    cierre_en: FechaUTC | None
+    cerrado_por_id: int | None
+    cerrado_por_nombre: str | None
+    cierre_automatico: bool
+    efectivo_contado: Decimal | None
+    diferencia: Decimal | None
+    pendientes_declarados: int
+    observacion_cierre: str | None
+    conteo_en: FechaUTC | None
+    conteo_por_nombre: str | None
+    observacion_conteo: str | None
+    # Hasta cuándo un supervisor puede completar el conteo de un turno cerrado automáticamente (solo en ese caso).
+    conteo_hasta: FechaUTC | None = None
+    monto_esperado: Decimal | None = None
+    resumen: ResumenTurnoRespuesta | None = None
+
+
+class TurnoDetalleRespuesta(TurnoRespuesta):
+    """El detalle de un turno para el supervisor: `ajuste_posterior` es el esperado recalculado hoy menos el que se
+    guardó al cerrar (positivo = llegaron ventas sincronizadas tarde; negativo = algo se devolvió o anuló después)."""
+
+    ajuste_posterior: Decimal | None = None
+    reembolsos: list[ReembolsoRespuesta] = Field(default_factory=list)
+
+
+class TurnoActualRespuesta(BaseModel):
+    """El turno abierto de una sucursal (o `null`) y, para abrir el siguiente, el monto inicial que se sugiere: lo que se
+    contó al cerrar el anterior."""
+
+    sucursal_id: int
+    turno: TurnoRespuesta | None
+    monto_inicial_sugerido: Decimal | None
+
+
+class CajaDeSucursalRespuesta(BaseModel):
+    """Una tarjeta de "Cajas de hoy": una sucursal con su turno abierto (si lo hay)."""
+
+    sucursal_id: int
+    sucursal_nombre: str
+    turno: TurnoRespuesta | None
 
 
 # ---- Pagos ----

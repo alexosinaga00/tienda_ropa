@@ -96,6 +96,8 @@ export const ICONOS = {
   campana: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
   movil: 'M9 2h6a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
   libelula: 'M12 3v18M4 8c4-3 12-3 16 0M5 14c4-2 10-2 14 0',
+  // Cierres de caja: caja registradora (pantalla arriba, cuerpo con cajón abajo).
+  'caja-registradora': 'M7 3h10v6H7zM4 9h16v11H4zM8 14h8M8 17h4',
 } as const;
 
 export type NombreIcono = keyof typeof ICONOS;

@@ -92,6 +92,32 @@ export interface PlazoCambio {
   estado_venta: string;
 }
 
+/** Cómo va el dinero devuelto: `pendiente` = la pasarela aún no respondió; `fallido` = dijo que no (se puede reintentar). */
+export type EstadoReembolso = 'pendiente' | 'reembolsado' | 'fallido';
+
+/**
+ * El dinero que se le devuelve a quien compró (CU-17 y CU-18): nace de una devolución SIN cambio de prenda o de anular
+ * un pago. Un cambio de talla o color no mueve dinero. `monto` va como texto (decimal, Bs), igual que los demás montos.
+ */
+export interface Reembolso {
+  id: number;
+  devolucion_id: number | null;
+  pago_id: number;
+  venta_id: number;
+  sucursal_id: number;
+  /** Código del método del pago original: efectivo, qr, tarjeta, transferencia, paypal, qr_online, libelula... */
+  metodo: string;
+  monto: string;
+  monto_usd: string | null;
+  estado: EstadoReembolso;
+  referencia_externa: string | null;
+  /** Código corto del fallo; solo el personal lo ve (al cliente un fallido se le muestra como "En proceso"). */
+  motivo_fallo: string | null;
+  /** UTC con "Z". */
+  creado_en: string;
+  completado_en: string | null;
+}
+
 export interface DevolucionDetalleCrear {
   venta_detalle_id: number;
   cantidad: number;
@@ -152,13 +178,18 @@ export interface SolicitudCambio {
   atender_hasta: string;
   detalle: SolicitudCambioLinea[];
   correo_programado?: boolean;
+  /** El dinero devuelto al aprobarla (vacío si no hubo devolución de dinero o aún no se aprobó). Ausente = ninguno. */
+  reembolsos?: Reembolso[];
 }
 
-/** Una prenda que el cliente quiere cambiar y la talla o el color que quiere en su lugar (`POST /solicitudes-cambio`). */
+/**
+ * Una prenda que el cliente quiere cambiar y la talla o el color que quiere en su lugar (`POST /solicitudes-cambio`).
+ * Sin `variante_nueva_id` (o null) la línea es "devolver y recibir mi dinero".
+ */
 export interface SolicitudCambioLineaCrear {
   venta_detalle_id: number;
   cantidad: number;
-  variante_nueva_id: number;
+  variante_nueva_id?: number | null;
 }
 
 export interface SolicitudCambioCrear {
@@ -180,6 +211,8 @@ export interface Devolucion {
   reposiciones?: Reposicion[];
   /** El comprobante quedó programado por correo (el comprador tiene correo). */
   correo_programado?: boolean;
+  /** El dinero devuelto por las líneas SIN cambio; vacío en un cambio. Ausente = ninguno. */
+  reembolsos?: Reembolso[];
 }
 
 export interface PromocionAlcance {

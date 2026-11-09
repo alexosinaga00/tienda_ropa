@@ -33,6 +33,7 @@ VALORES_ESPERADOS = {
     "PERMISO_STAFF_VENTAS": "ventas.gestionar_sucursal",
     "PERMISO_VENTAS_GESTIONAR": "ventas.gestionar",
     "PERMISO_PAGOS": "pagos.gestionar",
+    "PERMISO_CAJA_SUPERVISAR": "caja.supervisar",
     "PERMISO_ENTREGAS": "entregas.gestionar",
     "PERMISO_REPORTES_VER": "reportes.ver",
 }

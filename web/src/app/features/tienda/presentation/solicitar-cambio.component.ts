@@ -11,9 +11,11 @@ import {
   PlazoCambio,
   SolicitudCambio,
   SolicitudCambioCrear,
+  SolicitudCambioLinea,
   Venta,
 } from '../../../core/models/ventas.models';
 import { IconoComponent } from '../../../shared/icono/icono.component';
+import { ReembolsosComponent } from '../../../shared/reembolsos/reembolsos.component';
 import { CambiosService } from '../data/cambios.service';
 
 /** Una prenda de la compra, con lo necesario para ofrecer su cambio. */
@@ -62,7 +64,7 @@ function mensajeDeError(error: HttpErrorResponse): string {
 @Component({
   selector: 'app-solicitar-cambio',
   standalone: true,
-  imports: [DatePipe, FormsModule, IconoComponent],
+  imports: [DatePipe, FormsModule, IconoComponent, ReembolsosComponent],
   templateUrl: './solicitar-cambio.component.html',
   styleUrl: './solicitar-cambio.component.scss',
 })
@@ -83,6 +85,8 @@ export class SolicitarCambioComponent implements OnInit {
   protected readonly opciones = signal<Record<number, OpcionCambio[]>>({});
   protected readonly cantidades = signal<Record<number, number>>({});
   protected readonly elegidas = signal<Record<number, number | null>>({});
+  /** Por línea: true = "Devolver y recibir mi dinero" (la línea se manda sin talla nueva). */
+  protected readonly devueltas = signal<Record<number, boolean>>({});
   protected readonly motivo = signal('');
   protected readonly enviando = signal(false);
   protected readonly errorEnvio = signal<string | null>(null);
@@ -126,6 +130,20 @@ export class SolicitarCambioComponent implements OnInit {
     return ESTADOS[solicitud.estado];
   }
 
+  /** Una línea de la solicitud sin talla o color nuevo: el cliente pidió que le devuelvan su dinero. */
+  protected esDevolucion(linea: SolicitudCambioLinea): boolean {
+    return linea.variante_nueva_id === null || linea.variante_nueva_id === undefined;
+  }
+
+  /** Ninguna línea cambia de talla o color: toda la solicitud es devolver el dinero. */
+  protected soloDevolucion(solicitud: SolicitudCambio): boolean {
+    return solicitud.detalle.length > 0 && solicitud.detalle.every((l) => this.esDevolucion(l));
+  }
+
+  protected hayReembolsos(solicitud: SolicitudCambio): boolean {
+    return (solicitud.reembolsos ?? []).length > 0;
+  }
+
   /** Las fechas del servidor son UTC ("Z"); se muestran en la hora local del navegador. */
   protected readonly fecha = instanteServidor;
 
@@ -145,6 +163,7 @@ export class SolicitarCambioComponent implements OnInit {
     this.errorEnvio.set(null);
     this.cantidades.set({});
     this.elegidas.set({});
+    this.devueltas.set({});
     this.motivo.set('');
     this.cargarOpciones();
   }
@@ -220,7 +239,9 @@ export class SolicitarCambioComponent implements OnInit {
     this.cantidades.update((actual) => ({ ...actual, [linea.id]: nueva }));
     // Con una sola talla posible no hace falta elegir: queda marcada.
     const unica = this.opcionesDe(linea);
-    if (nueva > 0 && this.elegidas()[linea.id] == null && unica.length === 1) this.elegir(linea, unica[0].varianteId);
+    if (nueva > 0 && !this.devuelveDe(linea) && this.elegidas()[linea.id] == null && unica.length === 1) {
+      this.elegir(linea, unica[0].varianteId);
+    }
   }
 
   protected elegir(linea: LineaParaCambio, varianteId: number | null): void {
@@ -231,18 +252,37 @@ export class SolicitarCambioComponent implements OnInit {
     return this.elegidas()[linea.id] ?? null;
   }
 
-  /** La talla elegida tiene menos unidades de las que se piden cambiar. */
+  protected devuelveDe(linea: LineaParaCambio): boolean {
+    return this.devueltas()[linea.id] === true;
+  }
+
+  /** Marca o desmarca "Devolver y recibir mi dinero": devolver y cambiar por otra talla son cosas distintas. */
+  protected alternarDevolver(linea: LineaParaCambio, marcada: boolean): void {
+    this.devueltas.update((actual) => ({ ...actual, [linea.id]: marcada }));
+    if (marcada) {
+      this.elegir(linea, null);
+      return;
+    }
+    const unica = this.opcionesDe(linea);
+    if (this.cantidadDe(linea) > 0 && unica.length === 1) this.elegir(linea, unica[0].varianteId);
+  }
+
+  /** La talla elegida tiene menos unidades de las que se piden cambiar (devolver el dinero no necesita stock). */
   protected faltaStock(linea: LineaParaCambio): boolean {
+    if (this.devuelveDe(linea)) return false;
     const elegida = this.opcionesDe(linea).find((o) => o.varianteId === this.elegidaDe(linea));
     return !!elegida && elegida.disponible < this.cantidadDe(linea);
   }
 
-  /** Se puede enviar: hay prendas marcadas, cada una con su talla o color nuevo y con stock suficiente. */
+  /** Alguna de las prendas marcadas se devuelve por dinero: el formulario explica cuándo se reembolsa. */
+  protected readonly hayDevolucion = computed(() => this.seleccion().some((l) => this.devuelveDe(l)));
+
+  /** Se puede enviar: hay prendas marcadas, cada una con su talla o color nuevo (con stock) o para devolver su dinero. */
   protected readonly puedeEnviar = computed(() => {
     const marcadas = this.seleccion();
     return (
       marcadas.length > 0 &&
-      marcadas.every((l) => this.elegidaDe(l) !== null && !this.faltaStock(l)) &&
+      marcadas.every((l) => this.devuelveDe(l) || (this.elegidaDe(l) !== null && !this.faltaStock(l))) &&
       !this.enviando() &&
       !this.sinConexion()
     );
@@ -253,10 +293,11 @@ export class SolicitarCambioComponent implements OnInit {
     const datos: SolicitudCambioCrear = {
       venta_id: this.venta().id,
       motivo: this.motivo().trim() || null,
+      // Una línea para devolver el dinero va SIN `variante_nueva_id`; una de cambio, con la talla o el color nuevo.
       detalle: this.seleccion().map((l) => ({
         venta_detalle_id: l.id,
         cantidad: this.cantidadDe(l),
-        variante_nueva_id: this.elegidaDe(l)!,
+        ...(this.devuelveDe(l) ? {} : { variante_nueva_id: this.elegidaDe(l)! }),
       })),
     };
     this.enviando.set(true);

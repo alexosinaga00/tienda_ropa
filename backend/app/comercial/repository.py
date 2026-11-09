@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 
 from sqlalchemy import Select, bindparam, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.comercial.models import (
+    CajaTurno,
     MetodoPagoGuardado,
     PedidoDiferido,
     Carrito,
@@ -22,6 +24,7 @@ from app.comercial.models import (
     Pago,
     Promocion,
     PromocionAlcance,
+    Reembolso,
     ReglaTarifaEnvio,
     Reserva,
     TransaccionPasarela,
@@ -949,6 +952,208 @@ class TransaccionPasarelaRepository:
             .order_by(TransaccionPasarela.creado_en.asc())
             .limit(1)
         )
+
+
+# ---- Reembolsos ----
+
+
+class ReembolsoRepository:
+    """No hereda `CRUDBase`: un reembolso no se edita ni se borra (solo cambia de estado). El filtro automático por
+    empresa aplica a todas las consultas."""
+
+    def crear(self, db: Session, fila: Reembolso) -> Reembolso:
+        db.add(fila)
+        db.flush()
+        return fila
+
+    def obtener(self, db: Session, reembolso_id: int) -> Reembolso:
+        fila = db.get(Reembolso, reembolso_id)
+        if fila is None:
+            raise NoEncontradoError("Reembolso no encontrado")
+        return fila
+
+    def obtener_bloqueado(self, db: Session, reembolso_id: int) -> Reembolso:
+        """Con SELECT FOR UPDATE (PostgreSQL): dos reintentos del mismo reembolso se ponen en fila y el segundo ve el
+        resultado del primero en vez de llamar otra vez a la pasarela."""
+        consulta = _bloquear_en_postgresql(db, select(Reembolso).where(Reembolso.id == reembolso_id))
+        fila = db.scalars(consulta).one_or_none()
+        if fila is None:
+            raise NoEncontradoError("Reembolso no encontrado")
+        return fila
+
+    def listar_por_venta(self, db: Session, venta_id: int) -> list[Reembolso]:
+        return list(
+            db.scalars(select(Reembolso).where(Reembolso.venta_id == venta_id).order_by(Reembolso.creado_en, Reembolso.id))
+        )
+
+    def listar_por_pago(self, db: Session, pago_id: int) -> list[Reembolso]:
+        return list(db.scalars(select(Reembolso).where(Reembolso.pago_id == pago_id).order_by(Reembolso.id)))
+
+    def total_activo(self, db: Session, pago_id: int) -> tuple[Decimal, Decimal]:
+        """(bolivianos, dólares) ya devueltos o en camino de ese pago: los reembolsos `pendiente` y `reembolsado` (un
+        `fallido` no sacó dinero). Sirve para que la suma de los reembolsos nunca pase de lo pagado."""
+        bs, usd = db.execute(
+            select(func.coalesce(func.sum(Reembolso.monto), 0), func.coalesce(func.sum(Reembolso.monto_usd), 0)).where(
+                Reembolso.pago_id == pago_id, Reembolso.estado.in_(("pendiente", "reembolsado"))
+            )
+        ).one()
+        return Decimal(str(bs)), Decimal(str(usd))
+
+    def total_reembolsado(self, db: Session, pago_id: int) -> Decimal:
+        """Bolivianos de ese pago que ya salieron de verdad (solo `reembolsado`)."""
+        total = db.scalar(
+            select(func.coalesce(func.sum(Reembolso.monto), 0)).where(
+                Reembolso.pago_id == pago_id, Reembolso.estado == "reembolsado"
+            )
+        )
+        return Decimal(str(total or 0))
+
+
+# ---- Caja ----
+
+
+class CajaTurnoRepository:
+    """No hereda `CRUDBase`: un turno no se edita desde la API ni se borra (solo se abre, se cierra y se completa su
+    conteo). El filtro automático por empresa aplica a todas las consultas; las sumas del dinero filtran ADEMÁS por la
+    empresa del turno de forma explícita (defensa en profundidad)."""
+
+    def crear(self, db: Session, fila: CajaTurno) -> CajaTurno:
+        db.add(fila)
+        db.flush()
+        return fila
+
+    def obtener(self, db: Session, turno_id: int) -> CajaTurno:
+        fila = db.get(CajaTurno, turno_id)
+        if fila is None:
+            raise NoEncontradoError("Turno de caja no encontrado")
+        return fila
+
+    def obtener_bloqueado(self, db: Session, turno_id: int) -> CajaTurno:
+        """Con SELECT FOR UPDATE (PostgreSQL): dos cierres del mismo turno se ponen en fila y el segundo lo ve cerrado."""
+        consulta = _bloquear_en_postgresql(db, select(CajaTurno).where(CajaTurno.id == turno_id))
+        fila = db.scalars(consulta).one_or_none()
+        if fila is None:
+            raise NoEncontradoError("Turno de caja no encontrado")
+        return fila
+
+    def obtener_abierto_de_sucursal(self, db: Session, sucursal_id: int, *, bloquear: bool = False) -> CajaTurno | None:
+        consulta = select(CajaTurno).where(CajaTurno.sucursal_id == sucursal_id, CajaTurno.estado == "abierta")
+        if bloquear:
+            consulta = _bloquear_en_postgresql(db, consulta)
+        return db.scalar(consulta)
+
+    def listar_abiertos(self, db: Session, sucursal_ids: list[int] | None = None) -> list[CajaTurno]:
+        consulta = select(CajaTurno).where(CajaTurno.estado == "abierta")
+        if sucursal_ids is not None:
+            consulta = consulta.where(CajaTurno.sucursal_id.in_(sucursal_ids))
+        return list(db.scalars(consulta.order_by(CajaTurno.sucursal_id)))
+
+    def ultimo_cerrado_de_sucursal(self, db: Session, sucursal_id: int) -> CajaTurno | None:
+        """El último turno que ya se cerró en esa sucursal (para sugerir el monto inicial del siguiente)."""
+        return db.scalar(
+            select(CajaTurno)
+            .where(CajaTurno.sucursal_id == sucursal_id, CajaTurno.estado != "abierta")
+            .order_by(CajaTurno.cierre_en.desc(), CajaTurno.id.desc())
+            .limit(1)
+        )
+
+    def listar(
+        self,
+        db: Session,
+        *,
+        sucursal_ids: list[int] | None,
+        estado: str | None,
+        desde: dt.datetime | None,
+        hasta: dt.datetime | None,
+        paginacion: ParametrosPaginacion,
+    ) -> list[CajaTurno]:
+        """Los turnos, el más reciente primero. `desde`/`hasta` (UTC) filtran por la apertura, `hasta` excluido."""
+        consulta = select(CajaTurno)
+        if sucursal_ids is not None:
+            consulta = consulta.where(CajaTurno.sucursal_id.in_(sucursal_ids))
+        if estado is not None:
+            consulta = consulta.where(CajaTurno.estado == estado)
+        if desde is not None:
+            consulta = consulta.where(CajaTurno.apertura_en >= desde)
+        if hasta is not None:
+            consulta = consulta.where(CajaTurno.apertura_en < hasta)
+        consulta = consulta.order_by(CajaTurno.apertura_en.desc(), CajaTurno.id.desc())
+        return list(db.scalars(consulta.offset(paginacion.offset).limit(paginacion.tamanio)))
+
+    # -- Las sumas del dinero de una ventana [desde, hasta] de una sucursal --
+
+    @staticmethod
+    def _pagos_de_la_ventana(empresa_id: int, sucursal_id: int, desde: dt.datetime, hasta: dt.datetime):
+        """Pagos COBRADOS en esa sucursal y ventana. Cuentan los `aprobado` y también los `reembolsado`: el dinero entró
+        al cajón aunque después se haya devuelto (la devolución resta en el turno en que ocurre, ver `Reembolso`)."""
+        return (
+            select(Pago)
+            .join(Venta, Venta.id == Pago.venta_id)
+            .join(MetodoPago, MetodoPago.id == Pago.metodo_pago_id)
+            .join(EstadoPago, EstadoPago.id == Pago.estado_id)
+            .where(
+                Pago.empresa_id == empresa_id,
+                Venta.empresa_id == empresa_id,
+                Venta.sucursal_id == sucursal_id,
+                EstadoPago.codigo.in_(("aprobado", "reembolsado")),
+                Pago.fecha >= desde,
+                Pago.fecha <= hasta,
+            )
+        )
+
+    def efectivo_cobrado(self, db: Session, empresa_id: int, sucursal_id: int, desde: dt.datetime, hasta: dt.datetime):
+        """(suma, cantidad de pagos) del efectivo cobrado: se filtra por el MÉTODO, no por el canal de la venta."""
+        pagos = self._pagos_de_la_ventana(empresa_id, sucursal_id, desde, hasta).where(MetodoPago.codigo == "efectivo")
+        subconsulta = pagos.subquery()
+        suma, cantidad = db.execute(
+            select(func.coalesce(func.sum(subconsulta.c.monto), 0), func.count(subconsulta.c.id))
+        ).one()
+        return Decimal(str(suma)), int(cantidad)
+
+    def cobrado_en_otros_metodos(
+        self, db: Session, empresa_id: int, sucursal_id: int, desde: dt.datetime, hasta: dt.datetime
+    ) -> Decimal:
+        """QR, tarjeta y transferencia cobrados en la tienda: no pasan por el cajón, son solo informativos."""
+        pagos = (
+            self._pagos_de_la_ventana(empresa_id, sucursal_id, desde, hasta)
+            .where(MetodoPago.codigo != "efectivo", MetodoPago.requiere_pasarela.is_(False))
+            .subquery()
+        )
+        return Decimal(str(db.scalar(select(func.coalesce(func.sum(pagos.c.monto), 0))) or 0))
+
+    def reembolsos_en_efectivo(
+        self, db: Session, empresa_id: int, sucursal_id: int, desde: dt.datetime, hasta: dt.datetime
+    ) -> Decimal:
+        """El efectivo que SALIÓ del cajón en la ventana: reembolsos en efectivo ya completados."""
+        total = db.scalar(
+            select(func.coalesce(func.sum(Reembolso.monto), 0)).where(
+                Reembolso.empresa_id == empresa_id,
+                Reembolso.sucursal_id == sucursal_id,
+                Reembolso.metodo == "efectivo",
+                Reembolso.estado == "reembolsado",
+                Reembolso.completado_en >= desde,
+                Reembolso.completado_en <= hasta,
+            )
+        )
+        return Decimal(str(total or 0))
+
+    def ventas_online(
+        self, db: Session, empresa_id: int, sucursal_id: int, desde: dt.datetime, hasta: dt.datetime
+    ) -> tuple[Decimal, int]:
+        """(total, cantidad) de las compras online pagadas de esa sucursal en la ventana. Solo informativo: no tocan el cajón."""
+        suma, cantidad = db.execute(
+            select(func.coalesce(func.sum(Venta.total), 0), func.count(Venta.id))
+            .join(EstadoVenta, EstadoVenta.id == Venta.estado_id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.sucursal_id == sucursal_id,
+                Venta.canal == "digital",
+                EstadoVenta.codigo.in_(("pagada", "entregada")),
+                Venta.fecha >= desde,
+                Venta.fecha <= hasta,
+            )
+        ).one()
+        return Decimal(str(suma)), int(cantidad)
 
 
 # ---- PayPal guardado y pedido sin conexión ----

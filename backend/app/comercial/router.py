@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, status
@@ -16,8 +17,17 @@ from app.comercial.casos_uso.cu13_gestionar_carrito_compra_digital import (
     RealizarCompraDigital,
     RealizarPedidoDiferido,
 )
-from app.comercial.casos_uso.cu14_registrar_venta_presencial import RegistrarVentaPresencial
-from app.comercial.casos_uso.cu15_consultar_ventas import ConsultarHistorialCompras, ConsultarVentasSucursal
+from app.comercial.casos_uso.cu14_registrar_venta_presencial import (
+    AbrirTurnoCaja,
+    CerrarTurnoCaja,
+    CompletarConteoTurno,
+    RegistrarVentaPresencial,
+)
+from app.comercial.casos_uso.cu15_consultar_ventas import (
+    ConsultarHistorialCompras,
+    ConsultarTurnosCaja,
+    ConsultarVentasSucursal,
+)
 from app.comercial.casos_uso.cu16_gestionar_promociones import GestionarPromociones
 from app.comercial.casos_uso.cu17_gestionar_devoluciones_cambios import (
     ConsultarPlazoCambio,
@@ -29,6 +39,7 @@ from app.comercial.casos_uso.cu17_gestionar_devoluciones_cambios import (
 from app.comercial.casos_uso.cu18_procesar_pagos import (
     ConfirmarRechazarTransaccion,
     GestionarMetodoPagoGuardado,
+    GestionarReembolsos,
     PagarPasarelaDigital,
     ProcesarPagoCaja,
 )
@@ -47,6 +58,7 @@ from app.comercial.politicas import (
     devuelto_por_venta_y_linea,
 )
 from app.comercial.schemas import (
+    CajaDeSucursalRespuesta,
     CarritoDetalleActualizar,
     CarritoDetalleCrear,
     CarritoRespuesta,
@@ -77,12 +89,19 @@ from app.comercial.schemas import (
     PromocionActualizar,
     PromocionCrear,
     PromocionRespuesta,
+    ReembolsoRespuesta,
     ReservaCrear,
     ReservaRespuesta,
     SeleccionActualizar,
     SolicitudCambioCrear,
     SolicitudCambioRechazar,
     SolicitudCambioRespuesta,
+    TurnoAbrir,
+    TurnoActualRespuesta,
+    TurnoCerrar,
+    TurnoCompletarConteo,
+    TurnoDetalleRespuesta,
+    TurnoRespuesta,
     VentaDigitalCrear,
     VentaPresencialCrear,
     VentaRespuesta,
@@ -94,6 +113,7 @@ from app.core.auditoria import ContextoAuditoria, obtener_contexto_auditoria
 from app.core.database import get_db
 from app.core.deps import ParametrosPaginacion, parametros_paginacion
 from app.core.permisos import (
+    PERMISO_CAJA_SUPERVISAR,
     PERMISO_ENTREGAS,
     PERMISO_PAGOS,
     PERMISO_RESERVAS_CREAR,
@@ -356,6 +376,14 @@ def obtener_plazo_cambio(
     return PlazoCambioRespuesta(**cu_plazo_cambio.ejecutar(db, venta_id, usuario.id))
 
 
+@ventas_router.get("/{venta_id}/reembolsos", response_model=list[ReembolsoRespuesta])
+def listar_reembolsos_de_venta(
+    venta_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[ReembolsoRespuesta]:
+    """El dinero devuelto de esa compra: lo ve quien compró o el personal de su sucursal (otra persona, 404)."""
+    return cu_gestionar_reembolsos.listar_de_venta(db, usuario.id, venta_id)
+
+
 # ---- /api/v1/devoluciones ------------------------------------------------------------
 
 devoluciones_router = APIRouter(
@@ -561,10 +589,96 @@ def enviar_pedido_diferido(
     return cu_pedido_diferido.ejecutar(db, usuario.id, datos, contexto, segundo_plano.add_task)
 
 
+# ---- /api/v1/caja --------------------------------------------------------------------
+# Turnos de caja (aporte propio, D24): el cajero abre y cierra el turno de su sucursal contando el efectivo; el encargado y
+# el administrador (`caja.supervisar`) revisan los cierres y pueden cerrar el turno de otra persona. Las rutas fijas
+# (`actual`, `estado`) van ANTES que `/{turno_id}`.
+
+supervisar_caja_requerido = Depends(require_permission(PERMISO_CAJA_SUPERVISAR))
+
+cu_abrir_turno = AbrirTurnoCaja()
+cu_cerrar_turno = CerrarTurnoCaja()
+cu_completar_conteo = CompletarConteoTurno()
+cu_consultar_turnos = ConsultarTurnosCaja()
+
+caja_router = APIRouter(prefix="/api/v1/caja", tags=["caja"], dependencies=[plan_gestion_ventas])
+
+
+@caja_router.post(
+    "/turnos", response_model=TurnoRespuesta, status_code=status.HTTP_201_CREATED, dependencies=[presencial_requerido]
+)
+def abrir_turno_de_caja(
+    datos: TurnoAbrir,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> TurnoRespuesta:
+    return cu_abrir_turno.ejecutar(db, usuario.id, datos, contexto)
+
+
+@caja_router.get("/turnos/actual", response_model=TurnoActualRespuesta, dependencies=[presencial_requerido])
+def turno_actual_de_caja(
+    sucursal_id: int | None = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> TurnoActualRespuesta:
+    return cu_consultar_turnos.actual(db, usuario.id, sucursal_id)
+
+
+@caja_router.get("/turnos/estado", response_model=list[CajaDeSucursalRespuesta], dependencies=[supervisar_caja_requerido])
+def estado_de_las_cajas(usuario=Depends(get_current_user), db: Session = Depends(get_db)) -> list[CajaDeSucursalRespuesta]:
+    return cu_consultar_turnos.estado_de_cajas(db, usuario.id)
+
+
+@caja_router.get("/turnos", response_model=list[TurnoRespuesta], dependencies=[supervisar_caja_requerido])
+def listar_turnos_de_caja(
+    sucursal_id: int | None = None,
+    estado: Literal["abierta", "cerrada", "cerrada_auto"] | None = None,
+    desde: dt.date | None = None,
+    hasta: dt.date | None = None,
+    paginacion: ParametrosPaginacion = Depends(parametros_paginacion),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[TurnoRespuesta]:
+    return cu_consultar_turnos.listar(db, usuario.id, sucursal_id, estado, desde, hasta, paginacion)
+
+
+# Sin permiso en la ruta: lo cierra quien lo abrió (`ventas.presencial`) o un supervisor (`caja.supervisar`), y esa regla
+# la aplica el caso de uso (un permiso u otro).
+@caja_router.post("/turnos/{turno_id}/cerrar", response_model=TurnoRespuesta)
+def cerrar_turno_de_caja(
+    turno_id: int,
+    datos: TurnoCerrar,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> TurnoRespuesta:
+    return cu_cerrar_turno.ejecutar(db, usuario.id, turno_id, datos, contexto)
+
+
+@caja_router.post(
+    "/turnos/{turno_id}/completar-conteo", response_model=TurnoRespuesta, dependencies=[supervisar_caja_requerido]
+)
+def completar_conteo_del_turno(
+    turno_id: int,
+    datos: TurnoCompletarConteo,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> TurnoRespuesta:
+    return cu_completar_conteo.ejecutar(db, usuario.id, turno_id, datos, contexto)
+
+
+@caja_router.get("/turnos/{turno_id}", response_model=TurnoDetalleRespuesta, dependencies=[supervisar_caja_requerido])
+def detalle_del_turno_de_caja(
+    turno_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+) -> TurnoDetalleRespuesta:
+    return cu_consultar_turnos.detalle(db, usuario.id, turno_id)
+
+
 _routers_ventas = [
     carrito_router,
     ventas_router,
     devoluciones_router,
+    caja_router,
     solicitudes_cambio_router,
     metodos_pago_router,
     pedidos_diferidos_router,
@@ -580,6 +694,7 @@ gestionar_pagos_requerido = Depends(require_permission(PERMISO_PAGOS))
 cu_pagar_pasarela = PagarPasarelaDigital()
 cu_procesar_caja = ProcesarPagoCaja()
 cu_confirmar_rechazar = ConfirmarRechazarTransaccion()
+cu_gestionar_reembolsos = GestionarReembolsos()
 
 
 def _pago_respuesta(db: Session, pago) -> PagoRespuesta:
@@ -635,12 +750,36 @@ def cancelar_compra(venta_id: int, usuario=Depends(get_current_user), db: Sessio
 )
 def anular_pago(
     pago_id: int,
+    segundo_plano: BackgroundTasks,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
     contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
 ) -> PagoRespuesta:
-    pago = cu_confirmar_rechazar.anular(db, usuario.id, pago_id, contexto)
+    # Anular devuelve el dinero de verdad; la constancia al comprador (correo) sale después de responder.
+    pago = cu_confirmar_rechazar.anular(db, usuario.id, pago_id, contexto, segundo_plano.add_task)
     return _pago_respuesta(db, pago)
+
+
+# ---- /api/v1/reembolsos --------------------------------------------------------------
+# El dinero devuelto nace en las devoluciones (CU-17) y al anular un pago; aquí el personal reintenta el que la pasarela
+# no pudo hacer. Se consulta por venta: `GET /ventas/{venta_id}/reembolsos`.
+
+reembolsos_router = APIRouter(
+    prefix="/api/v1/reembolsos",
+    tags=["reembolsos"],
+    dependencies=[plan_gestion_ventas, gestionar_pagos_requerido],
+)
+
+
+@reembolsos_router.post("/{reembolso_id}/reintentar", response_model=ReembolsoRespuesta)
+def reintentar_reembolso(
+    reembolso_id: int,
+    segundo_plano: BackgroundTasks,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    contexto: ContextoAuditoria = Depends(obtener_contexto_auditoria),
+) -> ReembolsoRespuesta:
+    return cu_gestionar_reembolsos.reintentar(db, usuario.id, reembolso_id, contexto, segundo_plano.add_task)
 
 
 # Pantalla pública de la pasarela simulada "qr_online" (ver
@@ -687,7 +826,7 @@ def expirar_ventas_pendientes_endpoint(db: Session = Depends(get_db)) -> dict:
     return expirar_ventas_de_todas_las_empresas(db)
 
 
-_routers_pagos = [pagos_router, tareas_pagos_router]
+_routers_pagos = [pagos_router, reembolsos_router, tareas_pagos_router]
 
 
 # ---- Entregas ----

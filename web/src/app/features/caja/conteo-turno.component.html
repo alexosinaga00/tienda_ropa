@@ -1,0 +1,117 @@
+<p-dialog
+  [header]="resultado() ? (esCompletar() ? 'Conteo registrado' : 'Turno cerrado') : titulo()"
+  [visible]="true"
+  (visibleChange)="$event || terminar()"
+  [modal]="true"
+  [closable]="!enviando()"
+  [closeOnEscape]="!enviando()"
+  [style]="{ width: '460px', maxWidth: '96vw' }"
+>
+  @if (resultado(); as r) {
+    <div class="resultado" data-estado="resultado-cierre">
+      <div class="cifras">
+        <div>
+          <span class="etiqueta">Esperado</span>
+          <strong class="fs-num" data-estado="cifra-esperado">Bs {{ num(r.monto_esperado) | number: '1.2-2' }}</strong>
+        </div>
+        <div>
+          <span class="etiqueta">Contado</span>
+          <strong class="fs-num" data-estado="cifra-contado">Bs {{ num(r.efectivo_contado) | number: '1.2-2' }}</strong>
+        </div>
+        <div>
+          <span class="etiqueta">Diferencia</span>
+          <span [class]="'fs-chip ' + claseDiferencia(r.diferencia)" data-estado="cifra-diferencia">
+            {{ textoDiferencia(r.diferencia) }}
+          </span>
+        </div>
+      </div>
+      <app-resumen-turno [turno]="r" />
+      @if (r.pendientes_declarados > 0) {
+        <p class="fs-aviso" role="status" data-estado="aviso-pendientes-declarados">
+          <fs-icono nombre="advertencia" [tam]="24" />
+          Declaraste {{ plural(r.pendientes_declarados) }} en el esperado.
+        </p>
+      }
+    </div>
+    <div class="acciones">
+      <button type="button" class="fs-btn fs-btn--primario" data-estado="listo" (click)="terminar()">Listo</button>
+    </div>
+  } @else {
+    @if (esCompletar()) {
+      <p class="ayuda">
+        Este turno se cerró solo al terminar el día, sin contar el cajón. Cuenta el efectivo y escribe el total.
+        @if (turno().conteo_hasta; as limite) {
+          Puedes completarlo hasta el {{ fecha(limite) | date: 'dd/MM HH:mm' }}.
+        }
+      </p>
+    } @else if (mostrarEsperado()) {
+      <p class="ayuda">Cuenta el efectivo del cajón (con el monto inicial) y escribe el total.</p>
+    } @else {
+      <p class="ayuda">
+        Cuenta el efectivo que hay en el cajón, con el monto inicial incluido, y escribe el total. Al cerrar verás cuánto
+        debía haber.
+      </p>
+    }
+
+    @if (mostrarEsperado() && turno().monto_esperado !== null) {
+      <p class="esperado" data-estado="esperado-visible">
+        Esperado en el cajón: <strong class="fs-num">Bs {{ num(turno().monto_esperado) | number: '1.2-2' }}</strong>
+      </p>
+    }
+
+    @if (!esCompletar() && pendientes() > 0) {
+      <p class="fs-aviso" role="status" data-estado="aviso-pendientes">
+        <fs-icono nombre="advertencia" [tam]="24" />
+        Hay {{ plural(pendientes()) }} en el esperado.
+      </p>
+    }
+
+    <label class="campo" for="conteo-efectivo">
+      Efectivo contado (Bs)
+      <input
+        id="conteo-efectivo"
+        class="fs-input"
+        type="number"
+        inputmode="decimal"
+        min="0"
+        step="0.01"
+        autocomplete="off"
+        data-estado="efectivo-contado"
+        [ngModel]="contado()"
+        (ngModelChange)="contado.set($event)"
+        (keydown.enter)="confirmar()"
+      />
+    </label>
+
+    @if (mostrarObservacion()) {
+      <label class="campo" for="conteo-observacion">
+        {{ esCompletar() ? 'Observación (obligatoria)' : pideObservacion() ? 'Observación (obligatoria si hay diferencia)' : 'Observación (opcional)' }}
+        <textarea
+          id="conteo-observacion"
+          class="fs-input"
+          rows="2"
+          maxlength="300"
+          data-estado="observacion"
+          [ngModel]="observacion()"
+          (ngModelChange)="observacion.set($event)"
+        ></textarea>
+      </label>
+    }
+
+    @if (error(); as mensaje) {
+      <p class="fs-aviso fs-aviso--error" role="alert" data-estado="error-conteo">
+        <fs-icono nombre="alerta" [tam]="24" />
+        {{ mensaje }}
+      </p>
+    }
+
+    <div class="acciones">
+      <button type="button" class="fs-btn fs-btn--secundario" data-estado="cancelar" [disabled]="enviando()" (click)="terminar()">
+        Cancelar
+      </button>
+      <button type="button" class="fs-btn fs-btn--primario" data-estado="confirmar" [disabled]="!puedeEnviar()" (click)="confirmar()">
+        {{ enviando() ? 'Guardando…' : esCompletar() ? 'Guardar conteo' : 'Cerrar turno' }}
+      </button>
+    </div>
+  }
+</p-dialog>

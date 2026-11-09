@@ -52,6 +52,10 @@ PERMISO_VENTAS_PRESENCIAL = "ventas.presencial"
 PERMISO_STAFF_VENTAS = "ventas.gestionar_sucursal"
 PERMISO_VENTAS_GESTIONAR = "ventas.gestionar"
 PERMISO_PAGOS = "pagos.gestionar"
+# Supervisar la caja: ver los turnos y sus cierres (el esperado incluido), cerrar el turno de otra persona y completar el
+# conteo de uno cerrado automáticamente. Lo tienen el encargado de sucursal y el administrador. Abrir y cerrar el propio
+# turno usa PERMISO_VENTAS_PRESENCIAL.
+PERMISO_CAJA_SUPERVISAR = "caja.supervisar"
 PERMISO_ENTREGAS = "entregas.gestionar"
 
 # ---- inteligencia ----

@@ -1,7 +1,7 @@
 import { rutaDeAviso } from './push-rutas';
 
 describe('rutaDeAviso', () => {
-  it.each(['compra_confirmada', 'envio', 'pedido_diferido'])('%s abre la compra en la tienda', (tipo) => {
+  it.each(['compra_confirmada', 'envio', 'pedido_diferido', 'reembolso'])('%s abre la compra en la tienda', (tipo) => {
     expect(rutaDeAviso(tipo, 42, 'acme')).toBe('/t/acme/mis-compras/42');
     expect(rutaDeAviso(tipo, '42', 'acme')).toBe('/t/acme/mis-compras/42');
   });

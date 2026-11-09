@@ -20,6 +20,8 @@ Map<String, dynamic> _json({
   int ventaDetalleId = 1,
   String? motivoRechazo,
   String? motivo = 'Me queda grande',
+  bool soloDevolucion = false,
+  List<Map<String, dynamic>> reembolsos = const [],
 }) => {
   'id': id,
   'codigo': 'SOL-00$id',
@@ -39,11 +41,33 @@ Map<String, dynamic> _json({
       'cantidad': 1,
       'variante_devuelta_id': 3,
       'prenda_devuelta': 'Polera Nike · talla M · Blanco',
-      'variante_nueva_id': 4,
-      'prenda_nueva': 'Polera Nike · talla L · Blanco',
-      'disponible_nueva': 5,
+      'variante_nueva_id': soloDevolucion ? null : 4,
+      'prenda_nueva': soloDevolucion ? null : 'Polera Nike · talla L · Blanco',
+      'disponible_nueva': soloDevolucion ? null : 5,
     },
   ],
+  'reembolsos': reembolsos,
+};
+
+Map<String, dynamic> _reembolsoJson({
+  int id = 70,
+  String metodo = 'efectivo',
+  String monto = '25.50',
+  String estado = 'reembolsado',
+}) => {
+  'id': id,
+  'devolucion_id': 5,
+  'pago_id': 3,
+  'venta_id': 7,
+  'sucursal_id': 2,
+  'metodo': metodo,
+  'monto': monto,
+  'monto_usd': null,
+  'estado': estado,
+  'referencia_externa': null,
+  'motivo_fallo': null,
+  'creado_en': '2026-11-05T15:00:00Z',
+  'completado_en': estado == 'reembolsado' ? '2026-11-05T15:10:00Z' : null,
 };
 
 SolicitudCambio _solicitud({
@@ -52,8 +76,18 @@ SolicitudCambio _solicitud({
   int ventaDetalleId = 1,
   String? motivoRechazo,
   String? motivo = 'Me queda grande',
+  bool soloDevolucion = false,
+  List<Map<String, dynamic>> reembolsos = const [],
 }) => SolicitudCambio.fromJson(
-  _json(id: id, estado: estado, ventaDetalleId: ventaDetalleId, motivoRechazo: motivoRechazo, motivo: motivo),
+  _json(
+    id: id,
+    estado: estado,
+    ventaDetalleId: ventaDetalleId,
+    motivoRechazo: motivoRechazo,
+    motivo: motivo,
+    soloDevolucion: soloDevolucion,
+    reembolsos: reembolsos,
+  ),
 );
 
 /// Una compra de dos prendas distintas (la polera, que se compró 3 veces, y un pantalón).
@@ -180,46 +214,51 @@ void main() {
     testWidgets('una compra pagada dentro del plazo ofrece cambiar talla o color, prenda por prenda', (tester) async {
       await _abrir(tester, repo: _RepoFalso());
 
-      expect(find.text('Cambiar talla o color'), findsOneWidget);
+      expect(find.text('Cambiar o devolver'), findsOneWidget);
       // Cada prenda sale dos veces: en el comprobante y en el formulario.
       expect(find.text('Polera Nike'), findsNWidgets(2));
       expect(find.text('Pantalón Adidas'), findsNWidgets(2));
       expect(find.byKey(const Key('cambiar-por-1')), findsOneWidget);
       expect(find.byKey(const Key('cambiar-por-2')), findsOneWidget);
-      expect(find.text('Solicitar cambio'), findsOneWidget);
+      expect(find.text('Enviar solicitud'), findsOneWidget);
     });
 
     testWidgets('pasado el plazo no se ofrece pedir el cambio', (tester) async {
       await _abrir(tester, repo: _RepoFalso(), plazo: _plazo(vigente: false));
 
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
       expect(find.byKey(const Key('enviar-solicitud-cambio')), findsNothing);
     });
 
     testWidgets('una compra pendiente de pago no se puede cambiar', (tester) async {
       await _abrir(tester, repo: _RepoFalso(), venta: _venta(estado: 'pendiente_pago'));
 
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
     });
 
     testWidgets('si ya se devolvió toda la compra no queda nada que cambiar', (tester) async {
       await _abrir(tester, repo: _RepoFalso(), venta: _venta(devueltas: 4));
 
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
     });
 
-    testWidgets('sin otra talla o color con stock lo dice y no deja enviar', (tester) async {
+    testWidgets('sin otra talla o color con stock igual se puede pedir el dinero de vuelta', (tester) async {
       await _abrir(tester, repo: _RepoFalso(), opciones: const {});
 
-      expect(find.text('No hay otra talla o color con stock para esta compra.'), findsOneWidget);
-      expect(find.byKey(const Key('enviar-solicitud-cambio')), findsNothing);
+      expect(find.byKey(const Key('cambiar-por-1')), findsOneWidget);
+      expect(find.byKey(const Key('enviar-solicitud-cambio')), findsOneWidget);
     });
 
-    testWidgets('solo ofrece las prendas que tienen otra talla disponible', (tester) async {
+    testWidgets('toda prenda se ofrece; la que no tiene otra talla solo deja devolver', (tester) async {
       await _abrir(tester, repo: _RepoFalso(), opciones: {1: _opciones[1]!});
 
       expect(find.byKey(const Key('cambiar-por-1')), findsOneWidget);
-      expect(find.byKey(const Key('cambiar-por-2')), findsNothing);
+      expect(find.byKey(const Key('cambiar-por-2')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('cambiar-por-2')));
+      await tester.pumpAndSettle();
+      expect(find.text('Devolver y recibir mi dinero'), findsWidgets);
+      expect(find.textContaining('quedan'), findsNothing);
     });
 
     testWidgets('sin conexión el botón queda deshabilitado y dice "Requiere conexión"', (tester) async {
@@ -315,8 +354,41 @@ void main() {
       await tester.pump();
       await _enviar(tester);
 
-      expect(_error(tester), 'Elige la talla o el color nuevo de Polera Nike.');
+      expect(_error(tester), 'Elige qué quieres hacer con Polera Nike: cambiar la talla o el color, o devolverla.');
       expect(repo.pedidos, isEmpty);
+    });
+
+    testWidgets('devolver y recibir mi dinero se manda sin variante nueva, y se puede mezclar con un cambio', (
+      tester,
+    ) async {
+      final repo = _RepoFalso();
+      await _abrir(tester, repo: repo);
+
+      await _elegir(tester, 1, 'Devolver y recibir mi dinero');
+      expect(find.byKey(const Key('aviso-devolver-1')), findsOneWidget);
+      expect(find.text('Te devolvemos tu dinero cuando la tienda revise la prenda.'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mas-1')));
+      await tester.pump();
+      await _elegir(tester, 2, '34 · Negro · quedan 2');
+      expect(find.byKey(const Key('aviso-devolver-2')), findsNothing);
+      await _enviar(tester);
+
+      expect(repo.pedidos, hasLength(1));
+      expect(repo.pedidos.single.lineas.map((l) => l.toJson()), [
+        {'venta_detalle_id': 1, 'cantidad': 2},
+        {'venta_detalle_id': 2, 'cantidad': 1, 'variante_nueva_id': 9},
+      ]);
+      expect(find.byKey(const Key('solicitud-enviada')), findsOneWidget);
+    });
+
+    testWidgets('devolver una prenda no pide verificar el stock de otras tallas', (tester) async {
+      final repo = _RepoFalso();
+      await _abrir(tester, repo: repo, opciones: const {});
+
+      await _elegir(tester, 1, 'Devolver y recibir mi dinero');
+      await _enviar(tester);
+
+      expect(repo.pedidos.single.lineas.single.toJson(), {'venta_detalle_id': 1, 'cantidad': 1});
     });
 
     testWidgets('una prenda con una solicitud pendiente no se puede pedir otra vez', (tester) async {
@@ -471,9 +543,49 @@ void main() {
         solicitudes: [_solicitud(id: 12, estado: 'rechazada', motivoRechazo: 'La prenda llegó usada')],
       );
 
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
       expect(find.text('Tus solicitudes'), findsOneWidget);
       expect(find.text('Motivo del rechazo: La prenda llegó usada'), findsOneWidget);
+    });
+
+    testWidgets('una solicitud de devolución de dinero lo dice y avisa cuándo llega el dinero', (tester) async {
+      await _abrir(
+        tester,
+        repo: _RepoFalso(),
+        solicitudes: [_solicitud(id: 11, ventaDetalleId: 2, soloDevolucion: true)],
+      );
+
+      expect(
+        find.text(
+          'Devuelves: Polera Nike · talla M · Blanco (x1) · Quieres: que te devolvamos tu dinero',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('→'), findsNothing);
+      expect(find.text('Te devolvemos tu dinero cuando la tienda revise la prenda.'), findsOneWidget);
+    });
+
+    testWidgets('la solicitud aprobada muestra el reembolso resultante', (tester) async {
+      await _abrir(
+        tester,
+        repo: _RepoFalso(),
+        solicitudes: [
+          _solicitud(id: 11, estado: 'aprobada', soloDevolucion: true, reembolsos: [_reembolsoJson()]),
+        ],
+      );
+
+      expect(find.text('Dinero devuelto'), findsOneWidget);
+      expect(find.text('Bs 25.50'), findsOneWidget);
+      expect(find.text('Te lo devolvimos en efectivo, en la tienda'), findsOneWidget);
+      expect(find.text('Reembolsado'), findsOneWidget);
+      // Ya no hay nada que esperar: el aviso de "cuando la tienda revise" es solo de la pendiente.
+      expect(find.text('Te devolvemos tu dinero cuando la tienda revise la prenda.'), findsNothing);
+    });
+
+    testWidgets('un cambio de talla aprobado no muestra dinero devuelto', (tester) async {
+      await _abrir(tester, repo: _RepoFalso(), solicitudes: [_solicitud(id: 13, estado: 'aprobada')]);
+
+      expect(find.text('Dinero devuelto'), findsNothing);
     });
 
     testWidgets('si no se pudieron cargar lo dice y deja reintentar, sin tapar el comprobante', (tester) async {

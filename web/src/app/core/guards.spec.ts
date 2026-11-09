@@ -1,8 +1,18 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRouteSnapshot, CanActivateFn, Router, RouterStateSnapshot, UrlTree, provideRouter } from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  CanActivateFn,
+  Route,
+  Router,
+  RouterStateSnapshot,
+  Routes,
+  UrlTree,
+  provideRouter,
+} from '@angular/router';
 import { MessageService } from 'primeng/api';
+import { routes } from '../app.routes';
 import { CLAVE_ULTIMA_TIENDA, TiendaActualService } from '../features/tienda/state/tienda-actual.service';
 import { AuthService } from './auth.service';
 import { UsuarioYo } from './models/seguridad.models';
@@ -273,6 +283,42 @@ describe('guards', () => {
     it('sin sesión conserva la query del destino (la Caja del QR)', () => {
       const resultado = ejecutar(permisoGuard('ventas.presencial'), '/caja?venta=VTA-0001');
       expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fcaja%3Fventa%3DVTA-0001');
+    });
+  });
+
+  describe('ruta /cierres-caja (caja.supervisar)', () => {
+    /** La guarda tal como la declara la ruta, no una copia: si alguien cambia el permiso de la ruta, esta prueba lo nota. */
+    function guardaDeLaRuta(): CanActivateFn {
+      const buscar = (rutas: Routes): Route | undefined => {
+        for (const ruta of rutas) {
+          if (ruta.path === 'cierres-caja') return ruta;
+          const hija = buscar(ruta.children ?? []);
+          if (hija) return hija;
+        }
+        return undefined;
+      };
+      const ruta = buscar(routes);
+      expect(ruta, 'la ruta cierres-caja no existe').toBeDefined();
+      expect(ruta!.canActivate).toHaveLength(1);
+      return ruta!.canActivate![0] as CanActivateFn;
+    }
+
+    it('un cajero (sin caja.supervisar) vuelve al dashboard', () => {
+      iniciarSesion({ ...usuario(['cajero'], 'acme'), permisos: ['ventas.presencial'] });
+
+      const resultado = ejecutar(guardaDeLaRuta(), '/cierres-caja');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/dashboard');
+    });
+
+    it('un encargado con caja.supervisar entra', () => {
+      iniciarSesion({ ...usuario(['encargado'], 'acme'), permisos: ['caja.supervisar'] });
+
+      expect(ejecutar(guardaDeLaRuta(), '/cierres-caja')).toBe(true);
+    });
+
+    it('sin sesión va a /admin/login con returnTo', () => {
+      const resultado = ejecutar(guardaDeLaRuta(), '/cierres-caja');
+      expect(router.serializeUrl(resultado as UrlTree)).toBe('/admin/login?returnTo=%2Fcierres-caja');
     });
   });
 
