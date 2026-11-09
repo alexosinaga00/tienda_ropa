@@ -413,6 +413,117 @@ class PedidoDiferido(EmpresaMixin, Base):
     creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
 
+# ---- Reembolsos ----
+
+
+class Reembolso(EmpresaMixin, Base):
+    """Dinero que se le devuelve a quien compró: de una devolución sin cambio (CU-17) o de anular un pago (CU-18).
+    Libro de SOLO anexar en la práctica: no se borra ni se edita su monto; solo cambia de estado.
+
+    Estados: `pendiente` (la pasarela todavía no confirmó; solo PayPal), `reembolsado` (el dinero salió: en efectivo desde
+    el cajón, por el método manual de la tienda o por la pasarela) y `fallido` (la pasarela lo rechazó; se puede reintentar).
+    `metodo` es el código del método del pago original (efectivo, qr, tarjeta, transferencia, paypal, qr_online...).
+    `monto_usd` solo existe cuando la pasarela cobró en dólares. `completado_en` es el instante en que el dinero salió: lo
+    que el cierre de caja resta del efectivo del turno. `motivo_fallo` es un código corto, nunca el cuerpo de la pasarela."""
+
+    __tablename__ = "reembolso"
+    __table_args__ = (
+        CheckConstraint("monto > 0", name="ck_reembolso_monto"),
+        CheckConstraint("estado IN ('pendiente','reembolsado','fallido')", name="ck_reembolso_estado"),
+        Index("ix_reembolso_pago", "pago_id"),
+        Index("ix_reembolso_venta", "venta_id"),
+        # El cierre de caja suma los reembolsos en efectivo de una sucursal dentro de la ventana de un turno.
+        Index("ix_reembolso_caja", "empresa_id", "sucursal_id", "metodo", "completado_en"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    devolucion_id: Mapped[int | None] = mapped_column(ForeignKey("devolucion.id"))
+    pago_id: Mapped[int] = mapped_column(ForeignKey("pago.id"), nullable=False)
+    venta_id: Mapped[int] = mapped_column(ForeignKey("venta.id"), nullable=False)
+    sucursal_id: Mapped[int] = mapped_column(ForeignKey("sucursal.id"), nullable=False)
+    metodo: Mapped[str] = mapped_column(String(25), nullable=False)
+    monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    monto_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    estado: Mapped[str] = mapped_column(String(15), nullable=False, default="pendiente")
+    referencia_externa: Mapped[str | None] = mapped_column(String(120))
+    motivo_fallo: Mapped[str | None] = mapped_column(String(60))
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    creado_en: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    completado_en: Mapped[dt.datetime | None] = mapped_column()
+
+
+# ---- Caja ----
+
+
+class CajaTurno(EmpresaMixin, Base):
+    """Un turno del cajón de una sucursal: se abre con un monto inicial, se vende y cobra durante el turno y se cierra
+    contando el efectivo. La caja es de la SUCURSAL (a lo sumo un turno abierto por sucursal a la vez); `abierto_por_id` y
+    `cerrado_por_id` dicen quién. Solo cuenta el efectivo que pasa por el cajón: lo cobrado con QR, tarjeta o transferencia
+    en la tienda y las ventas online son informativas.
+
+    Estados: `abierta`; `cerrada` (alguien contó el efectivo y quedó la diferencia); `cerrada_auto` (el sistema lo cerró al
+    terminar el día en hora de Bolivia, SIN conteo: `efectivo_contado` y `diferencia` quedan NULL hasta que un supervisor
+    complete el conteo, una vez y dentro del plazo). Los montos de "foto al cerrar" (`ventas_efectivo`,
+    `reembolsos_efectivo`, `monto_esperado`...) se guardan para que un cierre pasado no cambie si después llega una venta
+    sincronizada tarde; el detalle muestra esa diferencia como `ajuste_posterior`. No se borra ni se edita un cierre."""
+
+    __tablename__ = "caja_turno"
+    __table_args__ = (
+        CheckConstraint("estado IN ('abierta','cerrada','cerrada_auto')", name="ck_caja_turno_estado"),
+        CheckConstraint("monto_inicial >= 0", name="ck_caja_turno_monto_inicial"),
+        CheckConstraint("efectivo_contado IS NULL OR efectivo_contado >= 0", name="ck_caja_turno_contado"),
+        CheckConstraint("pendientes_declarados >= 0", name="ck_caja_turno_pendientes"),
+        # Coherencia por estado: abierta no tiene cierre ni conteo; las cerradas tienen su cierre; una cerrada con conteo
+        # tiene su esperado y su diferencia.
+        CheckConstraint(
+            "(estado = 'abierta' AND cierre_en IS NULL AND efectivo_contado IS NULL) "
+            "OR (estado <> 'abierta' AND cierre_en IS NOT NULL AND monto_esperado IS NOT NULL)",
+            name="ck_caja_turno_coherencia",
+        ),
+        CheckConstraint(
+            "estado <> 'cerrada' OR (efectivo_contado IS NOT NULL AND diferencia IS NOT NULL)",
+            name="ck_caja_turno_cerrada_con_conteo",
+        ),
+        Index("ix_caja_turno_sucursal", "empresa_id", "sucursal_id", "apertura_en"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sucursal_id: Mapped[int] = mapped_column(ForeignKey("sucursal.id"), nullable=False)
+    abierto_por_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False)
+    estado: Mapped[str] = mapped_column(String(15), nullable=False, default="abierta")
+    apertura_en: Mapped[dt.datetime] = mapped_column(nullable=False)
+    monto_inicial: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    observacion_apertura: Mapped[str | None] = mapped_column(String(300))
+    cierre_en: Mapped[dt.datetime | None] = mapped_column()
+    cerrado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))  # NULL = cierre automático
+    efectivo_contado: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # La "foto" al cerrar (NULL mientras el turno está abierto).
+    ventas_efectivo: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    reembolsos_efectivo: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    monto_esperado: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    diferencia: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # contado - esperado
+    cantidad_ventas: Mapped[int | None] = mapped_column(Integer)
+    ventas_otros_metodos: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    pendientes_declarados: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    observacion_cierre: Mapped[str | None] = mapped_column(String(300))
+    # El conteo que un supervisor completa en un turno `cerrada_auto`.
+    conteo_en: Mapped[dt.datetime | None] = mapped_column()
+    conteo_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    observacion_conteo: Mapped[str | None] = mapped_column(String(300))
+
+
+# A lo sumo UN turno abierto por sucursal. Se declara con la expresión de la columna (no con SQL en texto: una prueba
+# prohíbe `text(` fuera de los sitios conocidos).
+Index(
+    "ux_caja_turno_abierta",
+    CajaTurno.empresa_id,
+    CajaTurno.sucursal_id,
+    unique=True,
+    postgresql_where=CajaTurno.estado == "abierta",
+    sqlite_where=CajaTurno.estado == "abierta",
+)
+
+
 # ---- Entregas ----
 
 

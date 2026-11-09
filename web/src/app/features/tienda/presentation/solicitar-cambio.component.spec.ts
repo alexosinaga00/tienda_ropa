@@ -96,7 +96,15 @@ describe('SolicitarCambioComponent', () => {
   let el: HTMLElement;
   let conexion: ReturnType<typeof signal<EstadoConexion>>;
 
-  function montar(opciones: { estado?: string; plazo?: PlazoCambio | null; mias?: SolicitudCambio[]; conexion?: EstadoConexion } = {}): void {
+  function montar(
+    opciones: {
+      estado?: string;
+      plazo?: PlazoCambio | null;
+      mias?: SolicitudCambio[];
+      conexion?: EstadoConexion;
+      lineas?: LineaParaCambio[];
+    } = {},
+  ): void {
     conexion = signal<EstadoConexion>(opciones.conexion ?? 'en_linea');
     TestBed.configureTestingModule({
       providers: [
@@ -115,7 +123,7 @@ describe('SolicitarCambioComponent', () => {
     http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(SolicitarCambioComponent);
     fixture.componentRef.setInput('venta', { ...VENTA, estado: opciones.estado ?? 'pagada' });
-    fixture.componentRef.setInput('lineas', LINEAS);
+    fixture.componentRef.setInput('lineas', opciones.lineas ?? LINEAS);
     fixture.componentRef.setInput('plazo', opciones.plazo === undefined ? PLAZO : opciones.plazo);
     fixture.componentRef.setInput('sucursalNombre', 'Centro');
     el = fixture.nativeElement as HTMLElement;
@@ -315,6 +323,169 @@ describe('SolicitarCambioComponent', () => {
 
     expect(boton('abrir-cambio')!.disabled).toBe(true);
     expect(texto()).toContain('Ya pediste el cambio de todas las prendas');
+  });
+
+  describe('devolver y recibir mi dinero', () => {
+    const casilla = (linea = 5) =>
+      el.querySelector<HTMLInputElement>(`[data-linea="${linea}"] [data-estado="devolver-dinero"]`)!;
+    const marcarDevolver = (linea = 5) => {
+      casilla(linea).click(); // el clic alterna la casilla y dispara `change`
+      fixture.detectChanges();
+    };
+    const sinCambio = (extra: Partial<SolicitudCambio> = {}) =>
+      solicitud({
+        detalle: [
+          { ...solicitud().detalle[0], variante_nueva_id: null, prenda_nueva: null, disponible_nueva: null },
+        ],
+        ...extra,
+      });
+
+    it('cada prenda ofrece la casilla, deshabilitada hasta marcar una cantidad', () => {
+      montar();
+      abrirFormulario();
+
+      expect(casilla()).not.toBeNull();
+      expect(casilla().disabled).toBe(true);
+      expect(texto()).toContain('Devolver y recibir mi dinero');
+
+      masUno().click();
+      fixture.detectChanges();
+      expect(casilla().disabled).toBe(false);
+    });
+
+    it('una prenda para devolver se envía SIN variante_nueva_id y no pide elegir talla', async () => {
+      montar();
+      abrirFormulario();
+      masUno().click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      marcarDevolver();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(select().disabled).toBe(true);
+      expect(texto()).toContain('te lo devolvemos cuando la revisa');
+      expect(boton('enviar-cambio')!.disabled).toBe(false);
+
+      boton('enviar-cambio')!.click();
+      const peticion = http.expectOne(`${API}/solicitudes-cambio`);
+      expect(peticion.request.body).toEqual({
+        venta_id: 42,
+        motivo: null,
+        detalle: [{ venta_detalle_id: 5, cantidad: 1 }],
+      });
+      expect('variante_nueva_id' in peticion.request.body.detalle[0]).toBe(false);
+      peticion.flush(sinCambio());
+      http.expectOne((r) => r.url === `${API}/solicitudes-cambio/mias`).flush([sinCambio()]);
+    });
+
+    it('sin otra talla disponible se puede devolver igual', () => {
+      montar();
+      abrirFormulario({ id: 1, variantes: [PRODUCTO.variantes[0]] });
+
+      expect(q('sin-opciones')).not.toBeNull();
+      masUno().click();
+      fixture.detectChanges();
+      expect(boton('enviar-cambio')!.disabled).toBe(true); // sin elegir qué hacer no se envía
+      marcarDevolver();
+      expect(boton('enviar-cambio')!.disabled).toBe(false);
+    });
+
+    it('devolver no exige stock de ninguna talla, y desmarcar vuelve a pedir la talla', async () => {
+      montar();
+      // De la L quedan 1 y se compraron 2: cambiar 2 no alcanza, pero devolver 2 sí.
+      abrirFormulario({
+        ...PRODUCTO,
+        variantes: PRODUCTO.variantes.map((v) => (v.id === 11 ? { ...v, cantidad_disponible: 1 } : v)),
+      });
+      masUno().click();
+      masUno().click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(q('falta-stock')).not.toBeNull();
+
+      marcarDevolver();
+      expect(q('falta-stock')).toBeNull();
+      expect(boton('enviar-cambio')!.disabled).toBe(false);
+
+      marcarDevolver(); // desmarca: otra vez hay que cambiar por una talla
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(casilla().checked).toBe(false);
+      expect(q('falta-stock')).not.toBeNull();
+      expect(boton('enviar-cambio')!.disabled).toBe(true);
+    });
+
+    it('una solicitud puede mezclar una prenda de cambio y otra de devolución', async () => {
+      const otraLinea: LineaParaCambio = { id: 6, varianteId: 10, productoId: 1, cantidad: 1, nombre: 'Polera Nike', detalle: 'M · Azul' };
+      montar({ lineas: [...LINEAS, otraLinea] });
+      abrirFormulario();
+      el.querySelectorAll<HTMLButtonElement>('[aria-label="Una más"]').forEach((b) => b.click());
+      fixture.detectChanges();
+      await fixture.whenStable();
+      marcarDevolver(6);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      boton('enviar-cambio')!.click();
+      const peticion = http.expectOne(`${API}/solicitudes-cambio`);
+      expect(peticion.request.body.detalle).toEqual([
+        { venta_detalle_id: 5, cantidad: 1, variante_nueva_id: 11 },
+        { venta_detalle_id: 6, cantidad: 1 },
+      ]);
+    });
+
+    it('"Tus solicitudes" dice "Devuelves: X · Quieres: que te devolvamos tu dinero" cuando no hay cambio', () => {
+      montar({ mias: [sinCambio()] });
+
+      const linea = q('linea-devolucion');
+      expect(linea).not.toBeNull();
+      const t = (linea!.textContent ?? '').replace(/\s+/g, ' ').trim();
+      expect(t).toContain('Devuelves: Polera Nike · talla M · Azul (x1)');
+      expect(t).toContain('Quieres: que te devolvamos tu dinero');
+    });
+
+    it('una solicitud de cambio se sigue mostrando con la flecha', () => {
+      montar({ mias: [solicitud()] });
+
+      expect(q('linea-devolucion')).toBeNull();
+      expect(el.querySelector('[data-solicitud="SOL-0009"]')?.textContent).toContain('Polera Nike · talla L · Azul');
+    });
+
+    it('al aprobarse muestra el reembolso resultante en hora local, con su estado', () => {
+      montar({
+        mias: [
+          sinCambio({
+            estado: 'aprobada',
+            reembolsos: [
+              {
+                id: 31,
+                devolucion_id: 5,
+                pago_id: 12,
+                venta_id: 42,
+                sucursal_id: 3,
+                metodo: 'paypal',
+                monto: '100.00',
+                monto_usd: '14.37',
+                estado: 'reembolsado',
+                referencia_externa: 'REF-1',
+                motivo_fallo: null,
+                creado_en: '2026-11-08T15:00:00Z',
+                completado_en: '2026-11-08T15:00:03Z',
+              },
+            ],
+          }),
+        ],
+      });
+
+      const t = texto();
+      expect(t).toContain('Devolución hecha.');
+      const bloque = q('reembolso-solicitud')!;
+      expect(bloque.textContent).toContain('Bs 100.00');
+      expect(bloque.textContent).toContain('a tu PayPal');
+      expect(bloque.textContent).toContain('Reembolsado');
+      expect(bloque.querySelector('[data-estado="reintentar-reembolso"]')).toBeNull(); // el cliente no reintenta
+    });
   });
 
   it('muestra el estado de cada solicitud y el motivo del rechazo', () => {

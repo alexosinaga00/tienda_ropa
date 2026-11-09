@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
 import { ConectividadService, EstadoConexion } from '../../core/conectividad.service';
 import { SIN_TOAST_ERROR } from '../../core/http-contexts';
-import type { PlazoCambio } from '../../core/models/ventas.models';
+import type { PlazoCambio, Reembolso } from '../../core/models/ventas.models';
 import { ColaSincronizacionService } from '../../core/offline/cola-sincronizacion.service';
 import { BaseOffline } from '../../core/offline/db-offline';
 import { metaSucursalCaja } from '../../core/offline/offline.config';
@@ -1292,6 +1292,10 @@ describe('CajaComponent', () => {
         .flush(respuestaPlazo(VENTA.id, 5 * HORA_MS));
       // Y el conteo de solicitudes de cambio que se pide al conocer la sucursal (CU-17, Etapa 2).
       http.match((r) => r.url.includes('/solicitudes-cambio/')).forEach((peticion) => peticion.flush([]));
+      // Y el turno de caja de la sucursal (la barra de turno lo pide al conocerla).
+      http
+        .match((r) => r.url === `${API}/caja/turnos/actual`)
+        .forEach((peticion) => peticion.flush({ sucursal_id: SUCURSAL, turno: null, monto_inicial_sugerido: null }));
       fixture.detectChanges();
       const devolucion = () => botonDe('Devolución') as HTMLButtonElement;
       expect(devolucion().disabled).toBe(false);
@@ -2121,6 +2125,129 @@ describe('CajaComponent', () => {
       });
     });
 
+    describe('el reembolso de una devolución sin cambio', () => {
+      const reembolso = (extra: Partial<Reembolso> = {}): Reembolso => ({
+        id: 31,
+        devolucion_id: 5,
+        pago_id: 12,
+        venta_id: 55,
+        sucursal_id: 1,
+        metodo: 'paypal',
+        monto: '90.00',
+        monto_usd: '12.93',
+        estado: 'pendiente',
+        referencia_externa: null,
+        motivo_fallo: null,
+        creado_en: '2026-11-08T15:00:00Z',
+        completado_en: null,
+        ...extra,
+      });
+      const aviso = () => document.body.querySelector('[data-estado="aviso-reembolso"]');
+      const bloque = () => document.body.querySelector('[data-estado="reembolso-registrado"]');
+      const botonReintentar = () =>
+        document.body.querySelector<HTMLButtonElement>('[data-estado="reintentar-reembolso"]');
+
+      function abrirDialogoVenta55(pantalla: Pantalla): void {
+        historialConPlazos(pantalla, { 55: 3 * HORA_MS });
+        abrirDialogoDeLaFila(pantalla);
+        http.expectOne(urlPlazo(55)).flush(respuestaPlazo(55, 3 * HORA_MS));
+      }
+
+      function marcarUnaUnidad(pantalla: Pantalla): void {
+        const cantidad = document.body.querySelector('input.input-cantidad') as HTMLInputElement;
+        cantidad.value = '1';
+        cantidad.dispatchEvent(new Event('input'));
+        pantalla.fixture.detectChanges();
+      }
+
+      /** Registra la devolución de 1 unidad de la venta 55 y responde con los reembolsos dados. */
+      function registrar(pantalla: Pantalla, reembolsos: Reembolso[]): void {
+        abrirDialogoVenta55(pantalla);
+        marcarUnaUnidad(pantalla);
+        botonConfirmar().click();
+        http.expectOne((r) => r.method === 'POST' && r.url === `${API}/devoluciones`).flush({ reembolsos });
+        http.expectOne(`${API}/ventas/sucursal/1`).flush([pagada(55)]);
+        http.expectOne(urlPlazo(55)).flush(respuestaPlazo(55, 3 * HORA_MS));
+        pantalla.fixture.detectChanges();
+      }
+
+      it('antes de registrar aclara que se devolverá el dinero, con el precio neto de lo marcado', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        abrirDialogoVenta55(pantalla);
+        expect(aviso()).toBeNull(); // nada marcado: nada que devolver
+
+        marcarUnaUnidad(pantalla);
+
+        // La línea cuesta Bs 180 por 2 unidades (ya con descuento): 1 unidad = Bs 90.
+        expect(limpio(aviso()?.textContent)).toContain('Bs 90.00');
+        expect(limpio(aviso()?.textContent)).toContain('mismo medio con que pagó');
+      });
+
+      it('muestra el reembolso que salió: monto, cómo y estado', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        registrar(pantalla, [reembolso({ estado: 'reembolsado', completado_en: '2026-11-08T15:00:05Z' })]);
+
+        const texto = limpio(bloque()?.textContent);
+        expect(texto).toContain('Bs 90.00');
+        expect(texto).toContain('al PayPal del cliente');
+        expect(texto).toContain('Reembolsado');
+        expect(botonReintentar()).toBeNull();
+      });
+
+      it('un reembolso en proceso ofrece Reintentar y refresca el estado', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        registrar(pantalla, [reembolso()]);
+        expect(limpio(bloque()?.textContent)).toContain('En proceso');
+
+        botonReintentar()!.click();
+        const peticion = http.expectOne(`${API}/reembolsos/31/reintentar`);
+        expect(peticion.request.method).toBe('POST');
+        expect(peticion.request.context.get(SIN_TOAST_ERROR)).toBe(true);
+        peticion.flush(reembolso({ estado: 'reembolsado', completado_en: '2026-11-08T15:02:00Z' }));
+        pantalla.fixture.detectChanges();
+
+        expect(limpio(bloque()?.textContent)).toContain('Reembolsado');
+        expect(botonReintentar()).toBeNull();
+      });
+
+      it('un reembolso fallido lo dice, muestra el motivo y se puede reintentar', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        registrar(pantalla, [reembolso({ estado: 'fallido', motivo_fallo: 'pasarela_rechazo' })]);
+
+        const texto = limpio(bloque()?.textContent);
+        expect(texto).toContain('No se pudo reembolsar');
+        expect(texto).toContain('pasarela_rechazo');
+        expect(botonReintentar()).not.toBeNull();
+      });
+
+      it('si el reintento falla muestra el motivo del servidor y deja volver a intentar', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        registrar(pantalla, [reembolso()]);
+
+        botonReintentar()!.click();
+        http
+          .expectOne(`${API}/reembolsos/31/reintentar`)
+          .flush({ detail: 'El reembolso ya se hizo' }, { status: 409, statusText: 'Conflict' });
+        pantalla.fixture.detectChanges();
+
+        expect(limpio(document.body.querySelector('[data-estado="error-reembolso"]')?.textContent)).toContain('ya se hizo');
+        expect(botonReintentar()!.disabled).toBe(false);
+      });
+
+      it('un cambio (sin reembolsos) no muestra el bloque', () => {
+        configurar(['cajero']);
+        const pantalla = abrir(1);
+        registrar(pantalla, []);
+
+        expect(bloque()).toBeNull();
+      });
+    });
+
     describe('sin conexión', () => {
       let estado: WritableSignal<EstadoConexion>;
 
@@ -2417,6 +2544,118 @@ describe('CajaComponent', () => {
       estado.set('en_linea');
       pantalla.fixture.detectChanges();
       http.expectNone(`${API}/ventas/sucursal/1`);
+    });
+  });
+
+  // ---- Turno de caja (barra de turno) ----
+
+  describe('turno de caja', () => {
+    const URL_TURNO = `${API}/caja/turnos/actual`;
+    const turnoVacio = { sucursal_id: 1, turno: null, monto_inicial_sugerido: null };
+
+    it('muestra la barra de turno de la sucursal del cajero, sin mandar sucursal_id', () => {
+      configurar(['cajero']);
+      const { fixture, el } = abrir(1);
+
+      const consulta = http.expectOne((r) => r.url === URL_TURNO);
+      expect(consulta.request.params.has('sucursal_id')).toBe(false);
+      consulta.flush(turnoVacio);
+      fixture.detectChanges();
+
+      expect(el.querySelector('app-turno-caja [data-estado="sin-turno"]')?.textContent).toContain(
+        'No tienes un turno abierto: lo que cobres no entra a ninguna caja.',
+      );
+    });
+
+    it('F9 y F2 no se atienden mientras un diálogo del turno está abierto, y vuelven al cerrarlo', () => {
+      configurar(['cajero']);
+      const pantalla = abrir(1);
+      const { fixture, el } = pantalla;
+      http.expectOne((r) => r.url === URL_TURNO).flush(turnoVacio);
+      buscarYAgregar(pantalla);
+
+      (el.querySelector('[data-estado="abrir-turno"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      fixture.detectChanges(); // la Caja se entera del diálogo abierto
+      expect(el.querySelector('[data-estado="monto-inicial"]')).not.toBeNull();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
+      http.expectNone((r) => r.method === 'POST' && r.url === `${API}/ventas/presencial`);
+      expect(document.activeElement?.id).not.toBe('reserva');
+
+      (el.querySelector('[data-estado="cancelar-apertura"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      fixture.detectChanges();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+      http.expectOne((r) => r.method === 'POST' && r.url === `${API}/ventas/presencial`);
+    });
+
+    it('tampoco se atienden mientras se cuenta el efectivo para cerrar el turno', async () => {
+      // La cola de envío real necesita el servicio de sesión completo: aquí solo importa el contador de pendientes.
+      configurar(['cajero'], 'Boutique Andina', [
+        {
+          provide: ColaSincronizacionService,
+          useValue: { refrescarConteos: () => Promise.resolve(), pendientes: () => 0, pendientesDeOtros: () => 0 },
+        },
+      ]);
+      const pantalla = abrir(1);
+      const { fixture, el } = pantalla;
+      http.expectOne((r) => r.url === URL_TURNO).flush({
+        sucursal_id: 1,
+        monto_inicial_sugerido: null,
+        turno: {
+          id: 4,
+          sucursal_id: 1,
+          sucursal_nombre: 'Central',
+          estado: 'abierta',
+          apertura_en: '2026-11-08T14:05:00Z',
+          abierto_por_id: 1,
+          abierto_por_nombre: 'Ana',
+          monto_inicial: '100.00',
+          monto_esperado: null,
+          resumen: null,
+        },
+      });
+      buscarYAgregar(pantalla);
+
+      (el.querySelector('[data-estado="cerrar-turno"]') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      fixture.detectChanges();
+      expect(el.querySelector('[data-estado="efectivo-contado"]')).not.toBeNull();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+      http.expectNone((r) => r.method === 'POST' && r.url === `${API}/ventas/presencial`);
+    });
+
+    it('si la consulta del turno falla, la caja sigue cobrando y la barra avisa en voz baja', () => {
+      configurar(['cajero']);
+      const pantalla = abrir(1);
+      const { fixture, el } = pantalla;
+      http.expectOne((r) => r.url === URL_TURNO).flush(null, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(el.querySelector('[data-estado="turno-error"]')?.textContent).toContain('Puedes seguir cobrando');
+      buscarYAgregar(pantalla);
+      cobrar(pantalla);
+      expect(el.querySelector('#monto-recibido')).not.toBeNull();
+    });
+
+    it('el administrador consulta el turno de la sucursal que eligió y manda su sucursal_id', () => {
+      const pantalla = abrirComoAdministrador();
+      http.expectNone((r) => r.url === URL_TURNO);
+
+      elegirSucursal(pantalla, 2);
+      const consulta = http.expectOne((r) => r.url === URL_TURNO);
+      expect(consulta.request.params.get('sucursal_id')).toBe('2');
+      consulta.flush({ ...turnoVacio, sucursal_id: 2 });
+      pantalla.fixture.detectChanges();
+
+      // Cambia de sucursal: la barra vuelve a consultar con la nueva.
+      elegirSucursal(pantalla, 1, '#sucursal-caja-activa');
+      const otra = http.expectOne((r) => r.url === URL_TURNO);
+      expect(otra.request.params.get('sucursal_id')).toBe('1');
     });
   });
 });

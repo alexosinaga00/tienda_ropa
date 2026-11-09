@@ -1,0 +1,65 @@
+:host {
+  display: block;
+}
+
+.turno {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-espacio-3);
+  margin-bottom: var(--fs-espacio-4);
+  padding: var(--fs-espacio-2) var(--fs-espacio-4);
+  min-height: var(--fs-toque);
+  background: var(--fs-superficie);
+  border: 1px solid var(--fs-borde);
+  border-radius: var(--fs-radio-md);
+}
+
+.turno__texto {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-espacio-2);
+  margin: 0;
+  font-size: 14px;
+
+  &--tenue {
+    color: var(--fs-texto-tenue);
+  }
+
+  &--aviso {
+    color: var(--fs-advertencia);
+    font-weight: 500;
+  }
+}
+
+.turno__sin-red {
+  flex: 1 0 100%;
+}
+
+.turno__ayuda {
+  margin: 0 0 var(--fs-espacio-3);
+  font-size: 14px;
+  color: var(--fs-texto-tenue);
+}
+
+.turno__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--fs-espacio-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.turno__error {
+  margin-bottom: var(--fs-espacio-3);
+}
+
+.turno__acciones {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: var(--fs-espacio-4);
+}

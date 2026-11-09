@@ -123,6 +123,13 @@
       }
     </div>
   }
+  <!-- Turno de caja de la sucursal (abrir, cerrar contando el efectivo). Nunca bloquea el cobro. -->
+  <app-turno-caja
+    [sucursalId]="sucursalId()"
+    [enviarSucursal]="vistaResumenGlobal()"
+    [actualizarCon]="ventaConfirmada()"
+    (dialogoAbierto)="turnoDialogoAbierto.set($event)"
+  />
   <div class="caja-layout">
     <!-- ================= Columna izquierda: armado de la venta ================= -->
     <section class="columna-armado">
@@ -595,6 +602,12 @@
       </button>
     </div>
   }
+  @if (reembolsosRegistrados().length > 0) {
+    <div class="reembolso-registrado" data-estado="reembolso-registrado">
+      <p class="ayuda">Dinero devuelto al cliente por esta devolución:</p>
+      <app-reembolsos [reembolsos]="reembolsosRegistrados()" vista="personal" />
+    </div>
+  }
   <label class="buscador-historial">
     <fs-icono nombre="busqueda" [tam]="24" />
     <input
@@ -771,6 +784,13 @@
         </tbody>
       </table>
     </div>
+    @if (reembolsoEstimado() > 0) {
+      <p class="ayuda" role="status" data-estado="aviso-reembolso">
+        Las prendas sin «Cambiar por» se devuelven en dinero: se reembolsarán unos Bs
+        {{ reembolsoEstimado() | number: '1.2-2' }} al cliente por el mismo medio con que pagó. El sistema calcula el monto
+        exacto.
+      </p>
+    }
     @if (cargandoOpcionesCambio()) {
       <p class="ayuda" role="status" data-estado="cargando-cambio">Buscando tallas y colores para el cambio…</p>
     }

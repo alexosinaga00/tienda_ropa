@@ -1,0 +1,326 @@
+<div class="fs-pagina-encabezado">
+  <div>
+    <span class="fs-eyebrow">Ventas</span>
+    <h1>Cierres de caja</h1>
+    <p>Cada sucursal tiene una sola caja. Aquí ves quién la abrió, cuánto debía haber y cómo se cerró.</p>
+  </div>
+</div>
+
+<!-- ================= Cajas de hoy ================= -->
+<section aria-labelledby="cajas-hoy-titulo">
+  <div class="seccion-titulo">
+    <h2 id="cajas-hoy-titulo">Cajas de hoy</h2>
+    <button type="button" class="btn-actualizar" data-estado="actualizar" [disabled]="cargandoCajas() || cargando()" (click)="actualizar()">
+      <fs-icono nombre="refrescar" [tam]="24" [class.giro]="cargandoCajas()" />
+      Actualizar
+    </button>
+  </div>
+
+  @if (errorCajas()) {
+    <div class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="error-cajas">
+      <fs-icono nombre="alerta" [tam]="24" />
+      <span>No pudimos cargar las cajas de hoy.</span>
+      <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="cargarCajas()">Reintentar</button>
+    </div>
+  } @else if (cargandoCajas() && cajas().length === 0) {
+    <div class="tarjetas" data-estado="cargando-cajas" role="status" aria-label="Cargando las cajas de hoy">
+      <div class="esqueleto esqueleto--tarjeta"></div>
+      <div class="esqueleto esqueleto--tarjeta"></div>
+    </div>
+  } @else if (cajas().length === 0) {
+    <p class="fs-estado-vacio" data-estado="sin-cajas">No hay sucursales con caja para mostrar.</p>
+  } @else {
+    <div class="tarjetas">
+      @for (caja of cajas(); track caja.sucursal_id) {
+        <article class="tarjeta" [attr.data-sucursal]="caja.sucursal_id">
+          <div class="tarjeta__cabecera">
+            <h3>{{ caja.sucursal_nombre }}</h3>
+            <span [class]="'fs-chip ' + (caja.turno ? 'fs-chip--exito' : '')" data-estado="estado-caja">
+              {{ caja.turno ? 'Abierta' : 'Sin turno' }}
+            </span>
+          </div>
+          @if (caja.turno; as t) {
+            <p class="tarjeta__linea">
+              Abrió {{ t.abierto_por_nombre }} desde las {{ fecha(t.apertura_en) | date: 'HH:mm' }}
+            </p>
+            @if (t.monto_esperado !== null) {
+              <p class="tarjeta__esperado" data-estado="esperado-en-vivo">
+                <span class="etiqueta">Efectivo esperado</span>
+                <strong class="fs-num">Bs {{ num(t.monto_esperado) | number: '1.2-2' }}</strong>
+              </p>
+            }
+            <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="ver-caja" (click)="verDetalle(t)">
+              Ver turno
+            </button>
+          } @else {
+            <p class="tarjeta__linea tarjeta__linea--tenue">Nadie abrió la caja hoy. Lo que se cobre no entra a ninguna caja.</p>
+          }
+        </article>
+      }
+    </div>
+  }
+</section>
+
+<!-- ================= Historial ================= -->
+<section aria-labelledby="historial-titulo">
+  <div class="seccion-titulo">
+    <h2 id="historial-titulo">Historial de turnos</h2>
+  </div>
+
+  <div class="filtros" role="search" aria-label="Filtros del historial de turnos">
+    <div class="filtros__campo">
+      <label for="cc-desde">Desde</label>
+      <p-datepicker
+        inputId="cc-desde"
+        dateFormat="dd/mm/yy"
+        [showIcon]="true"
+        [maxDate]="hoy"
+        appendTo="body"
+        data-filtro="desde"
+        [ngModel]="desde()"
+        (ngModelChange)="cambiarDesde($event)"
+      />
+    </div>
+    <div class="filtros__campo">
+      <label for="cc-hasta">Hasta</label>
+      <p-datepicker
+        inputId="cc-hasta"
+        dateFormat="dd/mm/yy"
+        [showIcon]="true"
+        [maxDate]="hoy"
+        appendTo="body"
+        data-filtro="hasta"
+        [ngModel]="hasta()"
+        (ngModelChange)="cambiarHasta($event)"
+      />
+    </div>
+    @if (variasSucursales()) {
+      <div class="filtros__campo">
+        <label for="cc-sucursal">Sucursal</label>
+        <p-select
+          inputId="cc-sucursal"
+          [options]="opcionesSucursal()"
+          optionLabel="label"
+          optionValue="value"
+          appendTo="body"
+          data-filtro="sucursal"
+          [ngModel]="filtroSucursal()"
+          (ngModelChange)="cambiarSucursal($event)"
+        />
+      </div>
+    }
+    <div class="filtros__campo">
+      <label for="cc-estado">Estado</label>
+      <p-select
+        inputId="cc-estado"
+        [options]="opcionesEstado"
+        optionLabel="label"
+        optionValue="value"
+        appendTo="body"
+        data-filtro="estado"
+        [ngModel]="filtroEstado()"
+        (ngModelChange)="cambiarEstado($event)"
+      />
+    </div>
+  </div>
+
+  @if (errorRango(); as mensaje) {
+    <p class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="rango">
+      <fs-icono nombre="advertencia" [tam]="24" />
+      <span>{{ mensaje }}</span>
+    </p>
+  } @else if (error()) {
+    <div class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="error">
+      <fs-icono nombre="alerta" [tam]="24" />
+      <span>No pudimos cargar los cierres de caja. Revisa tu conexión e inténtalo otra vez.</span>
+      <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="reintentar" (click)="cargar()">Reintentar</button>
+    </div>
+  } @else if (cargando() && turnos().length === 0) {
+    <div class="esqueletos" data-estado="cargando" role="status" aria-label="Cargando los turnos">
+      @for (i of [1, 2, 3, 4]; track i) {
+        <div class="esqueleto esqueleto--fila"></div>
+      }
+    </div>
+  } @else if (turnos().length === 0) {
+    <p class="fs-estado-vacio" data-estado="vacio">No hay turnos de caja en ese periodo.</p>
+  } @else {
+    <section class="panel">
+      <div class="panel__scroll">
+        <p-table [value]="turnos()" [loading]="cargando()" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '60rem' }">
+          <ng-template #header>
+            <tr>
+              <th>Fecha</th>
+              <th>Sucursal</th>
+              <th>Abrió / Cerró</th>
+              <th class="num">Inicial</th>
+              <th class="num">Esperado</th>
+              <th class="num">Contado</th>
+              <th>Diferencia</th>
+              <th>Estado</th>
+              <th><span class="solo-lectores">Detalle</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-t>
+            <tr class="fila-turno" [attr.data-turno]="t.id">
+              <td class="num-nowrap">{{ fecha(t.apertura_en) | date: 'dd/MM/yyyy HH:mm' }}</td>
+              <td>{{ t.sucursal_nombre }}</td>
+              <td>
+                <span class="persona">Abrió: {{ t.abierto_por_nombre }}</span>
+                <span class="persona persona--tenue">
+                  {{ t.cierre_automatico ? 'Cerró: automático' : t.cerrado_por_nombre ? 'Cerró: ' + t.cerrado_por_nombre : 'Sin cerrar' }}
+                </span>
+              </td>
+              <td class="num">Bs {{ num(t.monto_inicial) | number: '1.2-2' }}</td>
+              <td class="num">{{ t.monto_esperado === null ? '—' : 'Bs ' + (num(t.monto_esperado) | number: '1.2-2') }}</td>
+              <td class="num">{{ t.efectivo_contado === null ? '—' : 'Bs ' + (num(t.efectivo_contado) | number: '1.2-2') }}</td>
+              <td>
+                @if (t.diferencia !== null) {
+                  <span [class]="'fs-chip ' + claseDiferencia(t.diferencia)" data-estado="diferencia">{{ textoDiferencia(t.diferencia) }}</span>
+                } @else {
+                  <span class="tenue">—</span>
+                }
+              </td>
+              <td>
+                <span [class]="'fs-chip ' + claseEstado(t)" data-estado="estado-turno">{{ etiquetaEstado(t) }}</span>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  class="btn-texto"
+                  data-estado="ver-detalle"
+                  [attr.aria-label]="'Ver el detalle del turno de ' + t.sucursal_nombre"
+                  (click)="verDetalle(t)"
+                >
+                  Ver
+                </button>
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
+    </section>
+
+    <div class="paginacion">
+      <span data-estado="resumen-paginacion">Página {{ pagina() }}</span>
+      <p-button icon="pi pi-chevron-left" [text]="true" ariaLabel="Página anterior" [disabled]="pagina() === 1 || cargando()" (onClick)="irAPaginaAnterior()" />
+      <p-button icon="pi pi-chevron-right" [text]="true" ariaLabel="Página siguiente" [disabled]="!hayMas() || cargando()" (onClick)="irAPaginaSiguiente()" />
+    </div>
+  }
+</section>
+
+<!-- ================= Detalle de un turno ================= -->
+<p-dialog
+  [header]="'Turno de ' + (detalleDe()?.sucursal_nombre ?? '')"
+  [visible]="detalleDe() !== null"
+  (visibleChange)="$event || cerrarDetalle()"
+  [modal]="true"
+  [style]="{ width: '560px', maxWidth: '96vw' }"
+>
+  @if (detalleDe(); as t) {
+    <div class="detalle" data-estado="detalle-turno">
+      <p class="detalle__estado">
+        <span [class]="'fs-chip ' + claseEstado(t)">{{ etiquetaEstado(t) }}</span>
+        @if (t.diferencia !== null) {
+          <span [class]="'fs-chip ' + claseDiferencia(t.diferencia)">{{ textoDiferencia(t.diferencia) }}</span>
+        }
+      </p>
+
+      <p class="detalle__linea">
+        Abrió <strong>{{ t.abierto_por_nombre }}</strong> el {{ fecha(t.apertura_en) | date: 'dd/MM HH:mm' }} con
+        <span class="fs-num">Bs {{ num(t.monto_inicial) | number: '1.2-2' }}</span>.
+      </p>
+      @if (t.observacion_apertura) {
+        <p class="detalle__nota"><span class="etiqueta">Observación al abrir</span> {{ t.observacion_apertura }}</p>
+      }
+
+      @if (t.estado === 'abierta') {
+        <p class="detalle__linea">El turno sigue abierto.</p>
+      } @else if (t.cierre_en) {
+        <p class="detalle__linea">
+          @if (t.cierre_automatico) {
+            Se cerró solo al terminar el día ({{ fecha(t.cierre_en) | date: 'dd/MM HH:mm' }}), sin contar el cajón.
+          } @else {
+            Cerró <strong>{{ t.cerrado_por_nombre }}</strong> el {{ fecha(t.cierre_en) | date: 'dd/MM HH:mm' }}.
+          }
+        </p>
+      }
+      @if (t.observacion_cierre) {
+        <p class="detalle__nota"><span class="etiqueta">Observación al cerrar</span> {{ t.observacion_cierre }}</p>
+      }
+      @if (t.conteo_en) {
+        <p class="detalle__linea">
+          {{ t.conteo_por_nombre }} completó el conteo el {{ fecha(t.conteo_en) | date: 'dd/MM HH:mm' }}.
+        </p>
+      }
+      @if (t.observacion_conteo) {
+        <p class="detalle__nota"><span class="etiqueta">Observación del conteo</span> {{ t.observacion_conteo }}</p>
+      }
+      @if (t.efectivo_contado !== null) {
+        <p class="detalle__linea">
+          Efectivo contado: <strong class="fs-num">Bs {{ num(t.efectivo_contado) | number: '1.2-2' }}</strong>
+        </p>
+      }
+      @if (t.pendientes_declarados > 0) {
+        <p class="fs-aviso aviso" data-estado="pendientes-declarados">
+          <fs-icono nombre="advertencia" [tam]="24" />
+          Al cerrar quedaban {{ t.pendientes_declarados }}
+          {{ t.pendientes_declarados === 1 ? 'operación' : 'operaciones' }} sin sincronizar en el equipo del cajero.
+        </p>
+      }
+
+      <app-resumen-turno [turno]="t" />
+
+      @if (detalle(); as d) {
+        @if (explicarAjuste(d.ajuste_posterior); as ajuste) {
+          <p class="fs-aviso aviso" data-estado="ajuste-posterior">
+            <fs-icono nombre="advertencia" [tam]="24" />
+            {{ ajuste.texto }}
+          </p>
+        }
+        @if (d.reembolsos.length > 0) {
+          <h3 class="detalle__subtitulo">Reembolsos del turno</h3>
+          <app-reembolsos [reembolsos]="d.reembolsos" vista="personal" />
+        }
+      } @else if (cargandoDetalle()) {
+        <p class="fs-caption" role="status" data-estado="cargando-detalle">Cargando el detalle…</p>
+      }
+
+      @if (errorDetalle(); as mensaje) {
+        <div class="fs-aviso fs-aviso--error aviso" role="alert" data-estado="error-detalle">
+          <fs-icono nombre="alerta" [tam]="24" />
+          <span>{{ mensaje }}</span>
+          <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" (click)="reintentarDetalle()">Reintentar</button>
+        </div>
+      }
+
+      @if (t.estado === 'abierta') {
+        <div class="acciones">
+          <button type="button" class="fs-btn fs-btn--primario" data-estado="cerrar-turno-ajeno" (click)="abrirConteo(t, 'cerrar')">
+            Cerrar turno
+          </button>
+        </div>
+      } @else if (puedeCompletarConteo(t)) {
+        <p class="fs-caption" data-estado="plazo-conteo">
+          Puedes completar el conteo hasta el {{ fecha(t.conteo_hasta!) | date: 'dd/MM HH:mm' }}.
+        </p>
+        <div class="acciones">
+          <button type="button" class="fs-btn fs-btn--primario" data-estado="completar-conteo" (click)="abrirConteo(t, 'completar')">
+            Completar conteo
+          </button>
+        </div>
+      } @else if (conteoVencido(t)) {
+        <p class="fs-caption" data-estado="conteo-vencido">Pasó el plazo para completar el conteo de este turno.</p>
+      }
+    </div>
+  }
+</p-dialog>
+
+@if (conteo(); as c) {
+  <app-conteo-turno
+    [turno]="c.turno"
+    [modo]="c.modo"
+    [mostrarEsperado]="c.turno.monto_esperado !== null"
+    (cerrado)="alContar($event)"
+    (terminado)="finalizarConteo()"
+  />
+}

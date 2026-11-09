@@ -90,6 +90,68 @@ void main() {
 
       expect(linea.toJson(), {'venta_detalle_id': 1, 'cantidad': 2, 'variante_nueva_id': 4});
     });
+
+    test('una línea sin variante nueva (devolver y recibir mi dinero) no manda variante_nueva_id', () {
+      const linea = LineaSolicitudCambio(ventaDetalleId: 1, cantidad: 2);
+
+      expect(linea.toJson(), {'venta_detalle_id': 1, 'cantidad': 2});
+      expect(linea.toJson().containsKey('variante_nueva_id'), isFalse);
+    });
+
+    test('una línea sin cambio de prenda es una devolución de dinero', () {
+      final devolucion = SolicitudCambio.fromJson({
+        ..._json(),
+        'detalle': [
+          {
+            'venta_detalle_id': 1,
+            'cantidad': 1,
+            'variante_devuelta_id': 3,
+            'prenda_devuelta': 'Polera Nike · talla M · Blanco',
+            'variante_nueva_id': null,
+            'prenda_nueva': null,
+            'disponible_nueva': null,
+          },
+        ],
+      });
+
+      expect(devolucion.detalle.single.esDevolucion, isTrue);
+      expect(devolucion.pideDevolucionDeDinero, isTrue);
+      expect(SolicitudCambio.fromJson(_json()).detalle.single.esDevolucion, isFalse);
+      expect(SolicitudCambio.fromJson(_json()).pideDevolucionDeDinero, isFalse);
+    });
+
+    test('sin "reembolsos" en el JSON (servidor anterior) la lista queda vacía', () {
+      expect(SolicitudCambio.fromJson(_json()).reembolsos, isEmpty);
+      expect(SolicitudCambio.fromJson({..._json(), 'reembolsos': null}).reembolsos, isEmpty);
+    });
+
+    test('lee los reembolsos de una solicitud aprobada', () {
+      final s = SolicitudCambio.fromJson({
+        ..._json(estado: 'aprobada'),
+        'reembolsos': [
+          {
+            'id': 70,
+            'devolucion_id': 5,
+            'pago_id': 3,
+            'venta_id': 7,
+            'sucursal_id': 2,
+            'metodo': 'paypal',
+            'monto': '25.50',
+            'monto_usd': '3.66',
+            'estado': 'pendiente',
+            'referencia_externa': null,
+            'motivo_fallo': null,
+            'creado_en': '2026-11-05T15:00:00Z',
+            'completado_en': null,
+          },
+        ],
+      });
+
+      expect(s.reembolsos, hasLength(1));
+      expect(s.reembolsos.single.metodo, 'paypal');
+      expect(s.reembolsos.single.monto, '25.50');
+      expect(s.reembolsos.single.montoUsd, '3.66');
+    });
   });
 
   group('SolicitudesCambioRepository', () {
@@ -124,6 +186,23 @@ void main() {
           {'venta_detalle_id': 2, 'cantidad': 1, 'variante_nueva_id': 9},
         ],
       });
+    });
+
+    test('solicitar una devolución de dinero manda la línea sin variante_nueva_id', () async {
+      api.responder('POST', '/solicitudes-cambio', _json());
+
+      await repositorio.solicitar(
+        ventaId: 7,
+        lineas: const [
+          LineaSolicitudCambio(ventaDetalleId: 1, cantidad: 1),
+          LineaSolicitudCambio(ventaDetalleId: 2, cantidad: 1, varianteNuevaId: 9),
+        ],
+      );
+
+      expect((api.de('POST', '/solicitudes-cambio').single.cuerpo! as Map)['detalle'], [
+        {'venta_detalle_id': 1, 'cantidad': 1},
+        {'venta_detalle_id': 2, 'cantidad': 1, 'variante_nueva_id': 9},
+      ]);
     });
 
     test('sin motivo no manda el campo', () async {

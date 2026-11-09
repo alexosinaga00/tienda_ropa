@@ -180,6 +180,8 @@ export const GRUPOS_MENU: GrupoMenu[] = [
         permiso: 'sincronizacion.supervisar',
         funcion: 'operacion_offline',
       },
+      // Cierre de caja por turno: lo ve quien supervisa (encargado y administrador).
+      { etiqueta: 'Cierres de caja', icono: 'caja-registradora', ruta: '/cierres-caja', permiso: 'caja.supervisar' },
     ],
   },
   {
@@ -237,7 +239,16 @@ const SECCIONES_MENU: SeccionDef[] = [
     id: 'comercial',
     etiqueta: 'Comercial',
     plegable: true,
-    rutas: ['/reservas', '/envios', '/zonas-envio', '/promociones', '/catalogo-local', RUTA_PENDIENTES, RUTA_SINCRONIZACION],
+    rutas: [
+      '/reservas',
+      '/envios',
+      '/zonas-envio',
+      '/promociones',
+      '/catalogo-local',
+      RUTA_PENDIENTES,
+      RUTA_SINCRONIZACION,
+      '/cierres-caja',
+    ],
   },
   { id: 'analisis', etiqueta: 'Análisis', plegable: true, rutas: ['/reportes', '/reportes-ia', '/analitica'] },
   {

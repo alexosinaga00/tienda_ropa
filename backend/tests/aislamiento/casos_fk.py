@@ -319,6 +319,10 @@ CASOS_FK: list[CasoFK] = [
            token="cliente", espejo=False),
     CasoFK("pedido_diferido.lineas.variante_id", "POST", "/pedidos-diferidos", _pedido_diferido,
            ("lineas", 0, "variante_id"), "variante", token="cliente", espejo=False),
+    # Abrir el turno de caja: la sucursal se resuelve (404) ANTES de escribir nada. La petición positiva no se ejecuta aquí
+    # (dejaría un turno abierto en la sucursal del universo): la prueba tests/comercial/test_caja_turnos.py la hace.
+    CasoFK("caja_turno.sucursal_id", "POST", "/caja/turnos",
+           lambda a: {"sucursal_id": a.ids["sucursal"], "monto_inicial": "10.00"}, ("sucursal_id",), "sucursal", espejo=False),
     CasoFK("pago_caja.venta_id", "POST", "/pagos/caja",
            lambda a: {"venta_id": a.nuevo("venta_pendiente"), "metodo_pago": "efectivo", "monto_recibido": "99999"}, ("venta_id",), "venta"),
     CasoFK("pago_iniciar.venta_id", "POST", "/pagos/iniciar",

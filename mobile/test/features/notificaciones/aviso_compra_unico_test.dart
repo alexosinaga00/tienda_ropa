@@ -14,6 +14,8 @@ import 'package:mobile/features/auth/state/auth_controller.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/catalogo/models/referencia.dart';
 import 'package:mobile/features/catalogo/state/catalogo_providers.dart';
+import 'package:mobile/features/compras/models/reembolso.dart';
+import 'package:mobile/features/compras/state/compras_providers.dart' show reembolsosDeCompraProvider;
 import 'package:mobile/features/cliente_offline/data/metodo_pago_repository.dart';
 import 'package:mobile/features/cliente_offline/models/pedido_sin_conexion.dart';
 import 'package:mobile/features/cliente_offline/presentation/disparador_cola_pedidos.dart';
@@ -93,13 +95,14 @@ class _Mundo {
     String tipo = 'compra_confirmada',
     int ventaId = 55,
     int notificacionId = 20,
+    String titulo = _tituloPush,
   }) async {
     push.recibirEnPrimerPlano(
       AvisoPush(
         tipo: tipo,
         referenciaId: ventaId,
         notificacionId: notificacionId,
-        titulo: _tituloPush,
+        titulo: titulo,
         cuerpo: 'Tu compra V-00$ventaId está pagada.',
       ),
     );
@@ -265,6 +268,92 @@ void main() {
 
       expect(find.byType(SnackBar), findsNothing);
       expect(repositorio.consultas, greaterThan(antes));
+    });
+  });
+
+  group('un reembolso es otro hecho que la compra confirmada', () {
+    const tituloReembolso = 'Te devolvimos tu dinero';
+
+    testWidgets('después de la compra confirmada de la misma venta, el reembolso sí se avisa', (tester) async {
+      final m = await _montar(tester);
+
+      await m.llegaPush(tester);
+      expect(find.text(_tituloPush), findsOneWidget);
+      ScaffoldMessenger.of(tester.element(find.text('INICIO'))).clearSnackBars();
+      await tester.pump(const Duration(seconds: 1));
+
+      await m.llegaPush(tester, tipo: 'reembolso', notificacionId: 22, titulo: tituloReembolso);
+
+      expect(find.text(tituloReembolso), findsOneWidget);
+    });
+
+    testWidgets('el reembolso no marca la venta: la compra confirmada de esa venta sigue avisando', (tester) async {
+      final m = await _montar(tester);
+
+      await m.llegaPush(tester, tipo: 'reembolso', notificacionId: 22, titulo: tituloReembolso);
+      expect(find.text(tituloReembolso), findsOneWidget);
+      expect(m.avisos.contiene('venta:55'), isFalse);
+      expect(m.avisos.contiene('notif:22'), isTrue);
+      ScaffoldMessenger.of(tester.element(find.text('INICIO'))).clearSnackBars();
+      await tester.pump(const Duration(seconds: 1));
+
+      await m.llegaPush(tester);
+
+      expect(find.text(_tituloPush), findsOneWidget);
+    });
+
+    testWidgets('el mismo push de reembolso repetido (misma notificación) sale una sola vez', (tester) async {
+      final m = await _montar(tester);
+
+      await m.llegaPush(tester, tipo: 'reembolso', notificacionId: 22, titulo: tituloReembolso);
+      ScaffoldMessenger.of(tester.element(find.text('INICIO'))).clearSnackBars();
+      await tester.pump(const Duration(seconds: 1));
+      await m.llegaPush(tester, tipo: 'reembolso', notificacionId: 22, titulo: tituloReembolso);
+
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('con la compra abierta no hay SnackBar, pero el dinero devuelto se vuelve a pedir', (tester) async {
+      var consultas = 0;
+      final m = await _montar(
+        tester,
+        rutaInicial: '/compras/55',
+        extra: [
+          reembolsosDeCompraProvider(55).overrideWith((ref) async {
+            consultas++;
+            return const <Reembolso>[];
+          }),
+        ],
+      );
+      m.contenedor.listen(reembolsosDeCompraProvider(55), (_, _) {});
+      await tester.pump();
+      expect(consultas, 1);
+
+      await m.llegaPush(tester, tipo: 'reembolso', notificacionId: 22, titulo: tituloReembolso);
+
+      expect(find.byType(SnackBar), findsNothing);
+      expect(consultas, 2);
+    });
+
+    testWidgets('un reembolso de otra compra no refresca la que se está viendo', (tester) async {
+      var consultas = 0;
+      final m = await _montar(
+        tester,
+        rutaInicial: '/compras/55',
+        extra: [
+          reembolsosDeCompraProvider(55).overrideWith((ref) async {
+            consultas++;
+            return const <Reembolso>[];
+          }),
+        ],
+      );
+      m.contenedor.listen(reembolsosDeCompraProvider(55), (_, _) {});
+      await tester.pump();
+
+      await m.llegaPush(tester, tipo: 'reembolso', ventaId: 99, notificacionId: 23, titulo: tituloReembolso);
+
+      expect(find.text(tituloReembolso), findsOneWidget);
+      expect(consultas, 1);
     });
   });
 

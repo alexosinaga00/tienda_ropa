@@ -56,18 +56,24 @@ def test_cantidad_disponible_es_una_columna_generada(engine_pg, fabrica_pg, clie
     assert tuple(fila) == (10, 4, 6)
 
 
-def test_la_base_tiene_70_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_la_contratacion_el_paypal_guardado_y_el_push(
+def test_la_base_tiene_72_tablas_con_las_de_multitenant_la_bitacora_la_sincronizacion_el_ml_las_copias_la_contratacion_el_paypal_guardado_el_push_los_reembolsos_y_la_caja(
     engine_pg,
 ):
     # 59 anteriores + empresa, plan y suscripcion + bitacora + operacion_sync + modelo_ml + copia_seguridad
-    # + pedido_contratacion + metodo_pago_guardado + pedido_diferido + dispositivo_push (sin contar alembic_version).
+    # + pedido_contratacion + metodo_pago_guardado + pedido_diferido + dispositivo_push + reembolso + caja_turno
+    # (sin contar alembic_version).
     tablas = set(inspect(engine_pg).get_table_names()) - {"alembic_version"}
 
-    assert len(tablas) == 70
+    assert len(tablas) == 72
     assert {
         "empresa", "plan", "suscripcion", "bitacora", "operacion_sync", "modelo_ml", "copia_seguridad",
-        "pedido_contratacion", "metodo_pago_guardado", "pedido_diferido", "dispositivo_push",
+        "pedido_contratacion", "metodo_pago_guardado", "pedido_diferido", "dispositivo_push", "reembolso", "caja_turno",
     } <= tablas  # fmt: skip
+    reembolsos = {i["name"]: i for i in inspect(engine_pg).get_indexes("reembolso")}
+    assert {"ix_reembolso_pago", "ix_reembolso_venta", "ix_reembolso_caja"} <= set(reembolsos)
+    turnos = {i["name"]: i for i in inspect(engine_pg).get_indexes("caja_turno")}
+    assert turnos["ux_caja_turno_abierta"]["unique"]
+    assert "abierta" in turnos["ux_caja_turno_abierta"]["dialect_options"]["postgresql_where"]
     dispositivos = {i["name"]: i for i in inspect(engine_pg).get_indexes("dispositivo_push")}
     assert "ix_dispositivo_push_usuario" in dispositivos
     unicas = {u["name"]: u for u in inspect(engine_pg).get_unique_constraints("dispositivo_push")}

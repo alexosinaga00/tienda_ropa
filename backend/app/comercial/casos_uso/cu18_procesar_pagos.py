@@ -46,11 +46,14 @@ from app.comercial.politicas import (
     cobrar_en_caja,
     empresa_de_transaccion,
     enmascarar_correo,
+    finalizar_reembolsos,
     obtener_comprobante,
     obtener_estado_codigo,
     obtener_venta,
     obtener_venta_bloqueada,
     primera_transaccion,
+    procesar_reembolso,
+    reembolsar_pago_completo,
     resolver_pago,
 )
 from app.comercial.repository import (
@@ -58,6 +61,7 @@ from app.comercial.repository import (
     MetodoPagoGuardadoRepository,
     MetodoPagoRepository,
     PagoRepository,
+    ReembolsoRepository,
     TransaccionPasarelaRepository,
 )
 from app.comercial.schemas import (
@@ -267,11 +271,23 @@ class ConfirmarRechazarTransaccion:
             commit=True,
         )
 
-    def anular(self, db: Session, usuario_id: int, pago_id: int, contexto: ContextoAuditoria | None = None) -> Pago:
+    def anular(
+        self,
+        db: Session,
+        usuario_id: int,
+        pago_id: int,
+        contexto: ContextoAuditoria | None = None,
+        programar_envio=None,
+    ) -> Pago:
         """El permiso ('pagos.gestionar') ya lo gatea el router, como el
         resto de las acciones de staff en este proyecto -- acá no se
         revalida. Sí se valida que la venta sea de la sucursal del empleado
-        (anular reingresa stock en esa sucursal)."""
+        (anular reingresa stock en esa sucursal).
+
+        Anular DEVUELVE EL DINERO de verdad: crea el reembolso de lo que falte por devolver de este pago (lo ya devuelto
+        en devoluciones se descuenta) y el pago pasa a `reembolsado` solo cuando ese dinero salió. En efectivo y en los
+        métodos de la tienda sale en el acto; en una pasarela se pide ya con la anulación confirmada, y si la pasarela
+        no responde el reembolso queda `pendiente` (o `fallido`) para reintentarlo, sin deshacer la anulación."""
         pago = self._pagos.obtener_bloqueado(db, pago_id)  # mismo lock que resolver_pago: evita pisar un webhook concurrente
         venta = obtener_venta(db, pago.venta_id)
         plataforma_politicas.validar_acceso_sucursal(db, usuario_id, venta.sucursal_id)
@@ -280,10 +296,9 @@ class ConfirmarRechazarTransaccion:
             raise ConflictoError(f"Solo se puede anular un pago 'aprobado' (está '{estado_actual.codigo}')")
 
         estado_venta_anterior = obtener_estado_codigo(db, venta.estado_id)
-        estado_reembolsado = self._estados.obtener_por_codigo(db, "reembolsado")
-        pago.estado_id = estado_reembolsado.id
 
         anular_venta(db, pago.venta_id, commit=False)
+        reembolso = reembolsar_pago_completo(db, venta=venta, pago=pago, usuario_id=usuario_id, contexto=contexto)
 
         # Se audita aquí y no en `anular_venta`: esa función también la llaman el
         # vencimiento automático y el rechazo de la pasarela, que no son acciones
@@ -298,6 +313,10 @@ class ConfirmarRechazarTransaccion:
         )
         db.commit()
         db.refresh(pago)
+        if reembolso is not None:
+            # Con la anulación ya confirmada: mueve el dinero de pasarela y manda la constancia al comprador. Nunca lanza.
+            finalizar_reembolsos(db, [reembolso], contexto=contexto, programar_envio=programar_envio)
+            db.refresh(pago)
         return pago
 
     # ---- QR online: pantalla pública de "pago" -----------------------------
@@ -415,6 +434,44 @@ class ConfirmarRechazarTransaccion:
         payload = json.dumps({"id_transaccion": id_transaccion, "estado": "aprobado"}).encode("utf-8")
         firma = QrOnlineGateway().firmar_confirmacion(payload)
         return self.procesar_webhook(db, "qr_online", payload, firma)
+
+
+# ---- Reembolsos: consultar y reintentar ----
+
+class GestionarReembolsos:
+    """El dinero devuelto a quien compró. Los reembolsos NACEN en las devoluciones sin cambio de prenda (CU-17) y al
+    anular un pago (`ConfirmarRechazarTransaccion.anular`); aquí solo se consultan y se reintentan los que la pasarela no
+    pudo hacer. La lógica (montos, tope por pago, pasarela, avisos) vive en `comercial.politicas`."""
+
+    def __init__(self) -> None:
+        self._reembolsos = ReembolsoRepository()
+
+    def listar_de_venta(self, db: Session, usuario_id: int, venta_id: int) -> list:
+        """Los reembolsos de una venta: los ve quien compró o el personal de su sucursal (misma regla que el
+        comprobante: otra persona recibe 404, igual que si la venta no existiera)."""
+        obtener_comprobante(db, venta_id, usuario_id)
+        return self._reembolsos.listar_por_venta(db, venta_id)
+
+    def reintentar(
+        self,
+        db: Session,
+        usuario_id: int,
+        reembolso_id: int,
+        contexto: ContextoAuditoria | None = None,
+        programar_envio=None,
+    ):
+        """Vuelve a pedirle a la pasarela un reembolso `pendiente` (no respondió) o `fallido` (lo rechazó), con la misma
+        clave de idempotencia: si la pasarela sí lo había hecho, no devuelve el dinero dos veces. Solo el personal de la
+        sucursal de la venta (o el administrador). Si sale, el comprador recibe su constancia."""
+        reembolso = self._reembolsos.obtener(db, reembolso_id)
+        plataforma_politicas.validar_acceso_sucursal(db, usuario_id, reembolso.sucursal_id)
+        if reembolso.estado == "reembolsado":
+            raise ConflictoError("Este reembolso ya se hizo")
+        resultado = procesar_reembolso(db, reembolso_id, contexto=contexto)
+        if resultado.estado == "reembolsado":
+            finalizar_reembolsos(db, [resultado], contexto=contexto, programar_envio=programar_envio)
+            db.refresh(resultado)
+        return resultado
 
 
 # ---- PayPal guardado del cliente (Vault v3) ----

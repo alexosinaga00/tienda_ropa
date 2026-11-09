@@ -1,4 +1,5 @@
 import '../../../core/utils/fecha_servidor.dart';
+import 'reembolso.dart';
 
 /// Los estados de una solicitud de cambio que manda el backend.
 const estadoSolicitudPendiente = 'pendiente';
@@ -11,7 +12,8 @@ const etiquetasEstadoSolicitud = {
   'vencida': 'Vencida',
 };
 
-/// Una prenda de la solicitud: la que se devuelve y la talla o el color que se quiere en su lugar.
+/// Una prenda de la solicitud: la que se devuelve y la talla o el color que se quiere en su lugar. Sin prenda nueva es
+/// una devolución: el cliente quiere que le devuelvan su dinero.
 class SolicitudCambioLinea {
   const SolicitudCambioLinea({
     required this.ventaDetalleId,
@@ -42,6 +44,9 @@ class SolicitudCambioLinea {
 
   /// Unidades de la prenda nueva en la sucursal (solo informativo: no se reservan).
   final int? disponibleNueva;
+
+  /// Verdadero cuando no se pidió otra talla o color: el cliente quiere que le devuelvan su dinero.
+  bool get esDevolucion => varianteNuevaId == null;
 }
 
 /// `GET /solicitudes-cambio/mias`: lo que el cliente pidió cambiar de una compra. El personal de la sucursal la aprueba
@@ -62,6 +67,7 @@ class SolicitudCambio {
     this.motivoRechazo,
     this.resueltaEn,
     this.correoProgramado = false,
+    this.reembolsos = const [],
   });
 
   factory SolicitudCambio.fromJson(Map<String, dynamic> json) => SolicitudCambio(
@@ -81,6 +87,11 @@ class SolicitudCambio {
         .map((l) => SolicitudCambioLinea.fromJson(l as Map<String, dynamic>))
         .toList(),
     correoProgramado: json['correo_programado'] as bool? ?? false,
+    // Se llena cuando el personal aprueba una devolución de dinero; un servidor anterior no lo manda.
+    reembolsos: [
+      for (final r in (json['reembolsos'] as List?) ?? const [])
+        if (r is Map<String, dynamic>) Reembolso.fromJson(r),
+    ],
   );
 
   final int id;
@@ -102,23 +113,30 @@ class SolicitudCambio {
   final List<SolicitudCambioLinea> detalle;
   final bool correoProgramado;
 
+  /// El dinero que se devolvió al aprobarla (vacío si no hubo devolución de dinero o aún no se aprueba).
+  final List<Reembolso> reembolsos;
+
+  /// Alguna prenda se pidió para devolver el dinero (no para cambiarla).
+  bool get pideDevolucionDeDinero => detalle.any((l) => l.esDevolucion);
+
   bool get estaPendiente => estado == estadoSolicitudPendiente;
 
   String get etiquetaEstado => etiquetasEstadoSolicitud[estado] ?? estado;
 }
 
-/// Una línea del pedido: cuántas unidades de una prenda de la compra se cambian y por cuál variante.
+/// Una línea del pedido: cuántas unidades de una prenda de la compra se cambian y por cuál variante. Sin
+/// [varianteNuevaId] es "devolver y recibir mi dinero".
 class LineaSolicitudCambio {
-  const LineaSolicitudCambio({required this.ventaDetalleId, required this.cantidad, required this.varianteNuevaId});
+  const LineaSolicitudCambio({required this.ventaDetalleId, required this.cantidad, this.varianteNuevaId});
 
   final int ventaDetalleId;
   final int cantidad;
-  final int varianteNuevaId;
+  final int? varianteNuevaId;
 
   Map<String, dynamic> toJson() => {
     'venta_detalle_id': ventaDetalleId,
     'cantidad': cantidad,
-    'variante_nueva_id': varianteNuevaId,
+    'variante_nueva_id': ?varianteNuevaId,
   };
 }
 

@@ -49,6 +49,7 @@ const PERMISOS_ADMIN = [
   'sincronizacion.supervisar',
   'bitacora.ver',
   'copias.gestionar',
+  'caja.supervisar',
 ];
 
 // El orden del menú de antes. Esta lista NO se reordena: los ítems nuevos van al final de su lista.
@@ -56,7 +57,7 @@ const INICIO_ESPERADO = ['Dashboard', 'Reportes', 'Reportes con IA', 'Analítica
 const GRUPOS_ESPERADOS: Record<string, string[]> = {
   Organización: ['Usuarios', 'Roles', 'Empleados', 'Ciudades', 'Sucursales', 'Auditoría', 'Copias de seguridad'],
   Catálogo: ['Productos', 'Categorías', 'Tallas', 'Colores', 'Temporadas', 'Colecciones'],
-  Ventas: ['Caja', 'Promociones', 'Reservas', 'Catálogo local', 'Pendientes de envío', 'Sincronización'],
+  Ventas: ['Caja', 'Promociones', 'Reservas', 'Catálogo local', 'Pendientes de envío', 'Sincronización', 'Cierres de caja'],
 };
 const FIN_ESPERADO_PREVIO = ['Inventario', 'Proveedores', 'Envíos', 'Zonas de envío', 'Assets del probador'];
 
@@ -357,6 +358,7 @@ describe('LayoutComponent', () => {
           'Catálogo local',
           'Pendientes de envío',
           'Sincronización',
+          'Cierres de caja',
         ],
         Análisis: ['Reportes', 'Reportes con IA', 'Analítica'],
         Organización: [
@@ -383,6 +385,45 @@ describe('LayoutComponent', () => {
         Comercial: ['Catálogo local', 'Pendientes de envío'],
       });
       fixture.destroy();
+    });
+
+    describe('"Cierres de caja" (caja.supervisar)', () => {
+      const comercial = (comp: any): string[] => seccionesVista(comp)['Comercial'] ?? [];
+
+      it('un encargado con caja.supervisar la ve al final de Comercial y de Ventas, nunca en Organización', () => {
+        iniciarSesion(['encargado'], ['caja.supervisar', 'reservas.gestionar_sucursal'], 7);
+        const { fixture, comp } = crear();
+
+        expect(comercial(comp)).toEqual(['Reservas', 'Catálogo local', 'Pendientes de envío', 'Cierres de caja']);
+        expect(seccionesVista(comp)['Organización'] ?? []).not.toContain('Cierres de caja');
+        const ventas = (comp.gruposMenu() as { etiqueta: string; items: { etiqueta: string; ruta: string }[] }[]).find(
+          (g) => g.etiqueta === 'Ventas',
+        );
+        expect(ventas?.items.at(-1)).toMatchObject({ etiqueta: 'Cierres de caja', ruta: '/cierres-caja' });
+        fixture.destroy();
+      });
+
+      it('un cajero (sin caja.supervisar) no la ve', () => {
+        iniciarSesion(['cajero'], ['ventas.presencial'], 7);
+        const { fixture, comp } = crear();
+
+        expect(comercial(comp)).not.toContain('Cierres de caja');
+        fixture.destroy();
+      });
+
+      it('es un enlace normal a /cierres-caja, sin depender del plan', () => {
+        iniciarSesion(['administrador'], PERMISOS_ADMIN, 7);
+        plan.suscripcion.set(suscripcion([]));
+        const { fixture, el } = crear();
+        fixture.detectChanges();
+
+        const enlace = Array.from(el.querySelectorAll('nav a.layout__enlace')).find((a) =>
+          (a.textContent ?? '').includes('Cierres de caja'),
+        ) as HTMLElement;
+        expect(enlace.classList).not.toContain('layout__enlace--deshabilitado');
+        expect(enlace.getAttribute('href')).toBe('/cierres-caja');
+        fixture.destroy();
+      });
     });
 
     describe('"Catálogo local" (necesita alguno de dos permisos)', () => {

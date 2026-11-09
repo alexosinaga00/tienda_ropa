@@ -1,0 +1,126 @@
+<section class="turno" aria-label="Turno de caja" data-estado="barra-turno">
+  @if (turno(); as t) {
+    <p class="turno__texto" data-estado="turno-abierto">
+      <fs-icono nombre="reloj" [tam]="24" />
+      <span>
+        Turno abierto desde {{ hora(t.apertura_en) | date: 'HH:mm' }} por {{ t.abierto_por_nombre }}
+        @if (t.monto_esperado !== null) {
+          <span class="turno__esperado" data-estado="esperado-en-vivo">
+            · Esperado en el cajón: <strong class="fs-num">Bs {{ num(t.monto_esperado) | number: '1.2-2' }}</strong>
+          </span>
+        }
+      </span>
+    </p>
+    <button
+      type="button"
+      class="fs-btn fs-btn--secundario fs-btn--sm"
+      data-estado="cerrar-turno"
+      [disabled]="sinConexion() || preparandoCierre()"
+      (click)="abrirCierre()"
+    >
+      Cerrar turno
+    </button>
+  } @else if (errorCarga()) {
+    <p class="turno__texto turno__texto--tenue" role="status" data-estado="turno-error">
+      <fs-icono nombre="advertencia" [tam]="24" />
+      <span>No pudimos consultar el turno de caja. Puedes seguir cobrando.</span>
+    </p>
+    <button type="button" class="fs-btn fs-btn--secundario fs-btn--sm" data-estado="reintentar-turno" (click)="cargar()">
+      Reintentar
+    </button>
+  } @else if (cargando() && !conocido()) {
+    <p class="turno__texto turno__texto--tenue" role="status" data-estado="turno-cargando">Consultando el turno…</p>
+  } @else if (conocido()) {
+    <p class="turno__texto turno__texto--aviso" role="status" data-estado="sin-turno">
+      <fs-icono nombre="advertencia" [tam]="24" />
+      <span>No tienes un turno abierto: lo que cobres no entra a ninguna caja.</span>
+    </p>
+    <button
+      type="button"
+      class="fs-btn fs-btn--primario fs-btn--sm"
+      data-estado="abrir-turno"
+      [disabled]="sinConexion()"
+      (click)="abrirDialogoApertura()"
+    >
+      Abrir turno
+    </button>
+  }
+  @if (sinConexion()) {
+    <span class="fs-caption turno__sin-red" data-estado="turno-sin-conexion">
+      Para abrir o cerrar el turno necesitas conexión
+    </span>
+  }
+</section>
+
+@if (abriendo()) {
+  <p-dialog
+    header="Abrir turno"
+    [visible]="true"
+    (visibleChange)="$event || cancelarApertura()"
+    [modal]="true"
+    [closable]="!enviandoApertura()"
+    [closeOnEscape]="!enviandoApertura()"
+    [style]="{ width: '440px', maxWidth: '96vw' }"
+  >
+    <p class="turno__ayuda">Cuenta el efectivo con que empieza el cajón y escribe el monto inicial.</p>
+    <label class="turno__campo" for="turno-monto-inicial">
+      Monto inicial (Bs)
+      <input
+        id="turno-monto-inicial"
+        class="fs-input"
+        type="number"
+        inputmode="decimal"
+        min="0"
+        step="0.01"
+        autocomplete="off"
+        data-estado="monto-inicial"
+        [ngModel]="montoInicial()"
+        (ngModelChange)="montoInicial.set($event)"
+        (keydown.enter)="abrirTurno()"
+      />
+    </label>
+    <label class="turno__campo" for="turno-observacion-apertura">
+      Observación (opcional)
+      <textarea
+        id="turno-observacion-apertura"
+        class="fs-input"
+        rows="2"
+        maxlength="300"
+        data-estado="observacion-apertura"
+        [ngModel]="observacionApertura()"
+        (ngModelChange)="observacionApertura.set($event)"
+      ></textarea>
+    </label>
+    @if (errorApertura(); as mensaje) {
+      <p class="fs-aviso fs-aviso--error turno__error" role="alert" data-estado="error-apertura">
+        <fs-icono nombre="alerta" [tam]="24" />
+        {{ mensaje }}
+      </p>
+    }
+    <div class="turno__acciones">
+      <button type="button" class="fs-btn fs-btn--secundario" data-estado="cancelar-apertura" [disabled]="enviandoApertura()" (click)="cancelarApertura()">
+        Cancelar
+      </button>
+      <button
+        type="button"
+        class="fs-btn fs-btn--primario"
+        data-estado="confirmar-apertura"
+        [disabled]="!montoInicialValido() || enviandoApertura()"
+        (click)="abrirTurno()"
+      >
+        {{ enviandoApertura() ? 'Abriendo…' : 'Abrir turno' }}
+      </button>
+    </div>
+  </p-dialog>
+}
+
+@if (cerrando(); as turnoACerrar) {
+  <app-conteo-turno
+    [turno]="turnoACerrar"
+    modo="cerrar"
+    [mostrarEsperado]="turnoACerrar.monto_esperado !== null"
+    [pendientes]="pendientesLocales()"
+    (cerrado)="alCerrar()"
+    (terminado)="finalizarCierre()"
+  />
+}

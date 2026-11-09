@@ -21,6 +21,12 @@ void main() {
       expect(rutaDeTipoNotificacion('compra_confirmada', null), isNull);
     });
 
+    test('un reembolso abre la compra de la que se devolvió el dinero', () {
+      expect(rutaDeNotificacion(notificacion(1, tipo: 'reembolso', referenciaId: 31)), '/compras/31');
+      expect(rutaDeTipoNotificacion('reembolso', 31), '/compras/31');
+      expect(rutaDeTipoNotificacion('reembolso', null), isNull);
+    });
+
     test('un tipo desconocido, o sin referencia, no abre nada', () {
       expect(rutaDeNotificacion(notificacion(1, tipo: 'promocion', referenciaId: 3)), isNull);
       expect(rutaDeNotificacion(notificacion(1, tipo: null, referenciaId: 3)), isNull);

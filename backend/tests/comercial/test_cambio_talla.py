@@ -308,9 +308,14 @@ def test_una_devolucion_simple_manda_constancia_sin_reposicion(client, ctx, vent
     respuesta = _devolver(client, ctx, venta_con_cliente)
 
     assert respuesta.status_code == 201
-    assert len(brevo.enviados) == 1
-    assert "devolución" in brevo.ultimo()["subject"].lower()
-    assert "Recibes en su lugar" not in brevo.ultimo()["textContent"]
+    # Una devolución simple devuelve dinero: salen DOS correos, el comprobante de la devolución y la constancia del
+    # reembolso (un cambio de talla, en cambio, manda solo el comprobante: no mueve dinero).
+    asuntos = sorted(correo["subject"].lower() for correo in brevo.enviados)
+    assert len(asuntos) == 2
+    assert any("comprobante de devolución" in asunto for asunto in asuntos)
+    assert any("te devolvimos tu dinero" in asunto for asunto in asuntos)
+    comprobante = next(c for c in brevo.enviados if "comprobante" in c["subject"].lower())
+    assert "Recibes en su lugar" not in comprobante["textContent"]
 
 
 def test_sin_cliente_no_se_envia_correo_y_la_devolucion_queda(client, db_session, ctx, monkeypatch):

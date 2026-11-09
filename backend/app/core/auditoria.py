@@ -49,6 +49,7 @@ ENTIDAD_PEDIDO_CONTRATACION = "pedido_contratacion"  # compra de un plan con Pay
 ENTIDAD_METODO_PAGO_GUARDADO = "metodo_pago_guardado"  # PayPal guardado del cliente (CU-18)
 ENTIDAD_PEDIDO_DIFERIDO = "pedido_diferido"  # pedido hecho sin conexión y cobrado al reconectar (CU-13)
 ENTIDAD_DISPOSITIVO_PUSH = "dispositivo_push"  # teléfono que recibe notificaciones push (CU-01); sin tokens
+ENTIDAD_REEMBOLSO = "reembolso"  # dinero devuelto a quien compró, de una devolución o de anular un pago (CU-17 / CU-18)
 
 # ---- Acciones (máximo 40 caracteres: columna `accion`) ----
 ACCION_CREAR = "crear"
@@ -91,6 +92,9 @@ ACCION_PAGO_NO_COINCIDE = "pago_no_coincide"  # PayPal informó otro monto u otr
 ACCION_GUARDAR = "guardar"  # el cliente confirma su PayPal guardado
 ACCION_QUITAR = "quitar"  # el cliente quita su PayPal guardado
 ACCION_COBRAR = "cobrar"  # un pedido sin conexión se cobró
+ACCION_REEMBOLSAR = "reembolsar"  # el dinero de un reembolso salió (efectivo, método manual o pasarela)
+ACCION_CIERRE_AUTOMATICO = "cierre_automatico"  # un turno de caja se cerró solo al terminar el día, sin conteo (E21)
+ACCION_COMPLETAR_CONTEO = "completar_conteo"  # el supervisor contó el efectivo de un turno cerrado automáticamente (E21)
 
 # ---- Contexto: quién y desde dónde ----
 

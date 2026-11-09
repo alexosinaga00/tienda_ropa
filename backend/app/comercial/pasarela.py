@@ -63,6 +63,21 @@ class ResultadoWebhook:
     estado: str  # código de estado_pago: 'aprobado' o 'rechazado'
 
 
+@dataclass(frozen=True)
+class ResultadoReembolso:
+    referencia: str  # el id del reembolso en la pasarela
+    completado: bool  # False = la pasarela lo aceptó pero todavía no lo completó (queda `pendiente`)
+
+
+class ReembolsoRechazado(RuntimeError):
+    """La pasarela contestó que NO devuelve ese dinero (la petición es inválida o la rechazó): es un resultado
+    definitivo, distinto de "no respondió". `motivo` es un código corto, nunca el cuerpo de la respuesta."""
+
+    def __init__(self, motivo: str) -> None:
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
 class PasarelaBase(ABC):
     nombre: str
 
@@ -84,6 +99,16 @@ class PasarelaBase(ABC):
         """Valida que el webhook realmente venga de la pasarela antes de
         confiar en su contenido."""
         raise NotImplementedError
+
+    def reembolsar(
+        self, *, id_transaccion: str, monto: Decimal, monto_usd: Decimal | None, request_id: str
+    ) -> ResultadoReembolso:
+        """Devuelve `monto` (en bolivianos; `monto_usd` si la pasarela cobró en dólares) de la transacción
+        `id_transaccion`. `request_id` hace idempotente el reintento. Por defecto es el de las pasarelas SIMULADAS
+        (sandbox, sin ningún banco detrás): no mueve dinero y queda completado. Una pasarela real lo sobreescribe.
+        `ReembolsoRechazado` = la pasarela dijo que no (definitivo); cualquier otro `RuntimeError` = no respondió
+        (se puede reintentar con el mismo `request_id`)."""
+        return ResultadoReembolso(referencia=f"SIM-{secrets.token_hex(6).upper()}", completado=True)
 
     def interpretar_webhook(self, payload: dict) -> ResultadoWebhook:
         """Ya verificada la firma, extrae el id de transacción y el
@@ -181,6 +206,34 @@ class PayPalGateway(PasarelaBase):
             if exc.causa is None:
                 raise
             raise RuntimeError(f"No se pudo consultar el estado en PayPal: {exc.causa}") from exc
+
+    def reembolsar(
+        self, *, id_transaccion: str, monto: Decimal, monto_usd: Decimal | None, request_id: str
+    ) -> ResultadoReembolso:
+        """Reembolso REAL: busca la captura de la orden (`id_transaccion`) y devuelve `monto_usd` a ese PayPal, con
+        `PayPal-Request-Id` para que repetirlo no devuelva el dinero dos veces. PayPal cobra en dólares: sin `monto_usd`
+        (un pago anterior a la conversión) no se puede reembolsar solo."""
+        if monto_usd is None or monto_usd <= 0:
+            raise ReembolsoRechazado("sin_monto_usd")
+        try:
+            orden = paypal.obtener_orden(id_transaccion)
+            if not orden.captura_id:
+                raise ReembolsoRechazado("sin_captura")
+            reembolso = paypal.reembolsar_captura(
+                orden.captura_id, monto=monto_usd, moneda=orden.moneda or "USD", request_id=request_id
+            )
+        except paypal.PayPalError as exc:
+            if exc.causa is None:  # sin credenciales: el mensaje de configuración, como siempre
+                raise
+            # Una respuesta 4xx de PayPal (salvo 401/429) es un "no" definitivo; lo demás (red, 5xx) es "no respondió".
+            if exc.status_code is not None and 400 <= exc.status_code < 500 and exc.status_code not in (401, 429):
+                raise ReembolsoRechazado("rechazado_por_paypal") from exc
+            raise RuntimeError("No se pudo comunicar con PayPal para reembolsar") from exc
+        if reembolso.estado == paypal.ESTADO_REEMBOLSO_COMPLETADO:
+            return ResultadoReembolso(referencia=reembolso.id, completado=True)
+        if reembolso.estado == paypal.ESTADO_REEMBOLSO_PENDIENTE:
+            return ResultadoReembolso(referencia=reembolso.id, completado=False)
+        raise ReembolsoRechazado("rechazado_por_paypal")
 
     def verificar_firma(self, payload_crudo: bytes, firma: str | None) -> bool:
         return _firma_valida(self._webhook_secret, payload_crudo, firma)

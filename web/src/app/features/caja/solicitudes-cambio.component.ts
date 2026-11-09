@@ -6,8 +6,14 @@ import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../environments/environment';
 import { SIN_TOAST_ERROR } from '../../core/http-contexts';
-import type { EstadoSolicitudCambio, SolicitudCambio, SolicitudCambioLinea } from '../../core/models/ventas.models';
+import type {
+  EstadoSolicitudCambio,
+  Reembolso,
+  SolicitudCambio,
+  SolicitudCambioLinea,
+} from '../../core/models/ventas.models';
 import { IconoComponent } from '../../shared/icono/icono.component';
+import { ReembolsosComponent } from '../../shared/reembolsos/reembolsos.component';
 
 type FiltroSolicitudes = 'pendiente' | 'todas';
 
@@ -29,7 +35,7 @@ const ESTADOS: Record<EstadoSolicitudCambio, { texto: string; clase: string }> =
 @Component({
   selector: 'app-solicitudes-cambio',
   standalone: true,
-  imports: [DatePipe, FormsModule, IconoComponent],
+  imports: [DatePipe, FormsModule, IconoComponent, ReembolsosComponent],
   templateUrl: './solicitudes-cambio.component.html',
   styleUrl: './solicitudes-cambio.component.scss',
 })
@@ -52,6 +58,8 @@ export class SolicitudesCambioComponent implements OnInit {
   protected readonly errores = signal<Record<number, string>>({});
   protected readonly rechazandoId = signal<number | null>(null);
   protected readonly motivoRechazo = signal('');
+  /** El dinero devuelto por la última solicitud que se aprobó aquí: se queda a la vista aunque ya no esté en "Pendientes". */
+  protected readonly reembolsoAprobado = signal<{ codigo: string; reembolsos: Reembolso[] } | null>(null);
 
   ngOnInit(): void {
     this.cargar();
@@ -103,6 +111,16 @@ export class SolicitudesCambioComponent implements OnInit {
     return linea.disponible_nueva === null || linea.disponible_nueva >= linea.cantidad;
   }
 
+  /** Una línea sin talla o color nuevo: el cliente pide que le devuelvan su dinero. */
+  protected esDevolucion(linea: SolicitudCambioLinea): boolean {
+    return linea.variante_nueva_id === null || linea.variante_nueva_id === undefined;
+  }
+
+  /** Ninguna línea cambia de prenda: toda la solicitud es "devuelve y reembolsa". */
+  protected soloDevolucion(solicitud: SolicitudCambio): boolean {
+    return solicitud.detalle.length > 0 && solicitud.detalle.every((linea) => this.esDevolucion(linea));
+  }
+
   protected alcanzaElStock(solicitud: SolicitudCambio): boolean {
     return solicitud.detalle.every((linea) => this.hayStock(linea));
   }
@@ -125,13 +143,18 @@ export class SolicitudesCambioComponent implements OnInit {
       .subscribe({
         next: (resuelta) => {
           this.resolviendo.set(null);
+          const reembolsos = resuelta.reembolsos ?? [];
+          const comprobante = resuelta.correo_programado
+            ? 'Se envió el comprobante al correo del cliente.'
+            : 'El cliente no tiene correo: no se envió comprobante.';
           this.messageService.add({
             severity: 'success',
-            summary: 'Cambio aprobado',
-            detail: resuelta.correo_programado
-              ? 'Entrega la prenda nueva. Se envió el comprobante al correo del cliente.'
-              : 'Entrega la prenda nueva. El cliente no tiene correo: no se envió comprobante.',
+            summary: this.soloDevolucion(solicitud) ? 'Devolución aprobada' : 'Cambio aprobado',
+            // Sin cambio de prenda no hay nada que entregar: se devuelve dinero.
+            detail: this.soloDevolucion(solicitud) ? comprobante : `Entrega la prenda nueva. ${comprobante}`,
           });
+          // La aprobada sale de "Pendientes": el reembolso resultante se queda a la vista (con Reintentar si no salió).
+          this.reembolsoAprobado.set(reembolsos.length > 0 ? { codigo: solicitud.codigo, reembolsos } : null);
           this.cargar();
         },
         error: (error: HttpErrorResponse) => {

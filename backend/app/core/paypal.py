@@ -83,6 +83,16 @@ class EstadoOrden:
     monto: Decimal | None
     moneda: str | None
     estado_captura: str | None = None
+    # El id de la primera captura (lo necesita un reembolso); `None` si la orden todavía no se capturó.
+    captura_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ReembolsoCreado:
+    """El reembolso de una captura tal como lo ve PayPal: su id y su estado (`COMPLETED`, `PENDING`, `FAILED`...)."""
+
+    id: str
+    estado: str
 
 
 def url_base() -> str:
@@ -165,6 +175,7 @@ def _a_estado(datos: dict) -> EstadoOrden:
         monto=_decimal(importe.get("value")) if importe.get("value") is not None else None,
         moneda=importe.get("currency_code"),
         estado_captura=captura.get("status") if captura else None,
+        captura_id=str(captura["id"]) if captura and captura.get("id") else None,
     )
 
 
@@ -355,3 +366,24 @@ def capturar_orden(order_id: str, request_id: str | None = None, *, tratar_ya_ca
             return obtener_orden(order_id)
         raise
     return _a_estado(datos)
+
+
+ESTADO_REEMBOLSO_COMPLETADO = "COMPLETED"
+ESTADO_REEMBOLSO_PENDIENTE = "PENDING"
+
+
+def reembolsar_captura(captura_id: str, *, monto: Decimal, moneda: str, request_id: str) -> ReembolsoCreado:
+    """Devuelve `monto` de una captura ya cobrada (`POST /v2/payments/captures/{id}/refund`). `request_id` va en
+    `PayPal-Request-Id`: si la respuesta se pierde y se repite la MISMA petición, PayPal devuelve el reembolso original y
+    no devuelve el dinero dos veces. Un reembolso parcial lleva el importe; PayPal responde `COMPLETED`, `PENDING` o
+    `FAILED`: lo interpreta quien llama. SUPOSICIÓN no probada contra el sandbox real (se simula en las pruebas)."""
+    cuerpo = {"amount": {"currency_code": moneda, "value": str(monto)}}
+    datos = _enviar(
+        "POST",
+        f"{url_base()}/v2/payments/captures/{quote(captura_id, safe='')}/refund",
+        headers=_cabeceras_json(request_id),
+        json=cuerpo,
+    )
+    if not datos.get("id") or not datos.get("status"):
+        raise PayPalError("PayPal no informó el reembolso")
+    return ReembolsoCreado(id=str(datos["id"]), estado=str(datos["status"]))

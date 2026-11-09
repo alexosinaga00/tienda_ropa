@@ -164,6 +164,13 @@
           />
         }
 
+        @if (reembolsos().length > 0) {
+          <section class="reembolsos-compra" data-estado="reembolsos-compra" aria-label="Dinero devuelto">
+            <div class="reembolsos-compra__titulo">Dinero devuelto</div>
+            <app-reembolsos [reembolsos]="reembolsos()" vista="cliente" />
+          </section>
+        }
+
         @for (linea of lineas(); track linea.id) {
           <div class="linea">
             @if (linea.imagenPrincipal) {

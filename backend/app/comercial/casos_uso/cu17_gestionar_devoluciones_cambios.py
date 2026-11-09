@@ -50,7 +50,9 @@ from app.comercial.politicas import (
     describir_plazo_cambio,
     destinatario_de_venta,
     exigir_plazo_cambio,
+    finalizar_reembolsos,
     obtener_comprobante,
+    reembolsar_devolucion,
     validar_cambio_de_variante,
 )
 from app.comercial.repository import DevolucionRepository, EstadoVentaRepository, VentaRepository
@@ -131,6 +133,11 @@ class RegistrarDevolucion:
             )
             for linea, original_id, nueva_id in lineas_correo.reposiciones
         ]
+        # Ya confirmada la devolución: el dinero de pasarela se mueve ahora y el comprador recibe su constancia. Un fallo
+        # aquí NUNCA deshace la devolución (queda el reembolso `pendiente` o `fallido` para reintentarlo).
+        devolucion.reembolsos, _correo_reembolso = finalizar_reembolsos(
+            db, lineas_correo.reembolsos, contexto=contexto, programar_envio=programar_envio
+        )
         devolucion.correo_programado = _programar_comprobante(db, venta, devolucion, lineas_correo, programar_envio)
         return devolucion
 
@@ -156,6 +163,16 @@ class RegistrarDevolucion:
         db.flush()
 
         resultado = _mover_stock(db, self._devoluciones, venta, devolucion, cambios, usuario_id, crear_filas=True)
+        # Las líneas sin cambio de prenda devuelven dinero: el reembolso nace en esta misma transacción (un cambio de
+        # talla o color no mueve dinero). El pago por pasarela lo mueve `finalizar_reembolsos` ya con esto confirmado.
+        resultado.reembolsos = reembolsar_devolucion(
+            db,
+            venta=venta,
+            devolucion=devolucion,
+            lineas_sin_cambio=[(detalle, linea.cantidad) for linea, detalle, _o, nueva in cambios if nueva is None],
+            usuario_id=usuario_id,
+            contexto=contexto,
+        )
 
         # Misma transacción que la devolución y el stock: si algo falló antes,
         # no queda fila. El motivo (texto libre) no se copia a la bitácora.
@@ -251,7 +268,7 @@ class SolicitarCambio:
                     devolucion_id=devolucion.id,
                     venta_detalle_id=detalle.id,
                     cantidad=linea.cantidad,
-                    variante_nueva_id=nueva.id,
+                    variante_nueva_id=nueva.id if nueva is not None else None,
                 )
             )
         plataforma_politicas.registrar_bitacora_de(
@@ -287,7 +304,7 @@ class SolicitarCambio:
                 lineas=[
                     (
                         catalogo_politicas.describir_variante(db, original),
-                        catalogo_politicas.describir_variante(db, nueva),
+                        catalogo_politicas.describir_variante(db, nueva) if nueva is not None else None,
                         linea.cantidad,
                     )
                     for linea, _detalle, original, nueva in cambios
@@ -349,8 +366,12 @@ class ResolverSolicitudCambio:
         except Exception:
             db.rollback()
             raise
+        # Ya confirmada la aprobación: el dinero de pasarela se mueve ahora y el comprador recibe su constancia.
+        reembolsos, _correo_reembolso = finalizar_reembolsos(
+            db, resultado.reembolsos, contexto=contexto, programar_envio=programar_envio
+        )
         correo = _programar_comprobante(db, venta, devolucion, resultado, programar_envio)
-        return construir_respuesta_solicitud(db, devolucion, venta, correo)
+        return construir_respuesta_solicitud(db, devolucion, venta, correo, reembolsos)
 
     def _aprobar(self, db: Session, usuario_id: int, solicitud_id: int, contexto: ContextoAuditoria | None):
         devolucion = self._devoluciones.obtener_bloqueado(db, solicitud_id)
@@ -367,6 +388,14 @@ class ResolverSolicitudCambio:
         # Se valida OTRA VEZ lo que pudo cambiar desde que se pidió (precio, talla dada de baja, otra devolución).
         cambios = _resolver_lineas(db, venta, devolucion.detalle)
         resultado = _mover_stock(db, self._devoluciones, venta, devolucion, cambios, usuario_id, crear_filas=False)
+        resultado.reembolsos = reembolsar_devolucion(
+            db,
+            venta=venta,
+            devolucion=devolucion,
+            lineas_sin_cambio=[(detalle, linea.cantidad) for linea, detalle, _o, nueva in cambios if nueva is None],
+            usuario_id=usuario_id,
+            contexto=contexto,
+        )
 
         devolucion.estado = "aprobada"
         devolucion.resuelta_por_id = usuario_id
@@ -482,6 +511,7 @@ class _ResultadoRegistro:
     def __init__(self) -> None:
         self.reposiciones: list[tuple] = []  # (línea del pedido, id de la variante devuelta, id de la nueva)
         self.lineas: list[tuple] = []  # (variante devuelta, variante nueva o None, cantidad)
+        self.reembolsos: list = []  # el dinero devuelto por las líneas sin cambio (filas de `reembolso`)
 
 
 def _exigir_pendiente(devolucion: Devolucion) -> None:

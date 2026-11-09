@@ -356,6 +356,13 @@ export const routes: Routes = [
         loadComponent: () => import('./features/caja/caja.component').then((m) => m.CajaComponent),
       },
       {
+        // Cierre de caja por turno: lo ve quien supervisa (encargado de su sucursal o administrador).
+        path: 'cierres-caja',
+        canActivate: [permisoGuard('caja.supervisar')],
+        loadComponent: () =>
+          import('./features/cierres-caja/cierres-caja.component').then((m) => m.CierresCajaComponent),
+      },
+      {
         // Modo sin conexión (E14): el catálogo descargado en este equipo. Lo usa quien vende o gestiona reservas.
         path: 'catalogo-local',
         canActivate: [cualquierPermisoGuard('ventas.presencial', 'reservas.gestionar_sucursal')],

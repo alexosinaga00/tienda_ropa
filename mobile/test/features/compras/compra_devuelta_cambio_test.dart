@@ -142,7 +142,7 @@ void main() {
       final pedidos = await _abrir(tester, _venta(devueltas: [3, 1], unidadesDevueltas: 4));
 
       expect(find.text('Devuelta'), findsOneWidget);
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
       expect(find.textContaining('Puedes cambiar tu prenda'), findsNothing);
       expect(find.textContaining('plazo'), findsNothing);
       expect(find.byKey(const Key('enviar-solicitud-cambio')), findsNothing);
@@ -154,7 +154,7 @@ void main() {
     ) async {
       final pedidos = await _abrir(tester, _venta(unidadesDevueltas: 4));
 
-      expect(find.text('Cambiar talla o color'), findsNothing);
+      expect(find.text('Cambiar o devolver'), findsNothing);
       expect(pedidos, 0);
     });
 
@@ -162,7 +162,7 @@ void main() {
       final pedidos = await _abrir(tester, _venta(devueltas: [3, 0], unidadesDevueltas: 3));
 
       expect(pedidos, 1);
-      expect(find.text('Cambiar talla o color'), findsOneWidget);
+      expect(find.text('Cambiar o devolver'), findsOneWidget);
       expect(find.text('Ya devolviste 3 de 4 prendas de esta compra.'), findsOneWidget);
       // La polera se devolvió entera: no se ofrece; el pantalón sí.
       expect(find.byKey(const Key('cambiar-por-1')), findsNothing);

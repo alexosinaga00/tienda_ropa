@@ -215,11 +215,12 @@ También pueden hacer falta, dentro del diseño: diagrama de navegación
 
 ## Esquema de base de datos
 El esquema completo y definitivo está en `docs/fashionstore_esquema.sql`
-(60 tablas en el SQL, que es el del primer parcial). La base real tiene 70:
+(60 tablas en el SQL, que es el del primer parcial). La base real tiene 72:
 las 59 de antes (`sesion_probador` se eliminó con el modo espejo) más
 `empresa`, `plan`, `suscripcion`, `operacion_sync` (E07), `modelo_ml` (E11),
 `copia_seguridad` (E22), `pedido_contratacion` (contratación de planes), `metodo_pago_guardado` y `pedido_diferido`
-(PayPal guardado y pedido sin conexión, CU-13 y CU-18) y `dispositivo_push` (notificaciones push) del segundo parcial,
+(PayPal guardado y pedido sin conexión, CU-13 y CU-18), `dispositivo_push` (notificaciones push) y `reembolso`
+(el dinero devuelto a quien compró, CU-17 y CU-18) y `caja_turno` (el turno del cajón de una sucursal, CU-14 y CU-15) del segundo parcial,
 que no están en el SQL, y `bitacora`
 (E06; el SQL ya trae su bloque actualizado). No inventar tablas ni columnas nuevas sin pedirlo
 explícitamente.
@@ -236,7 +237,7 @@ sincronización (E07) y su descarga de datos, conflictos y plazo de cambio (E08)
 hechos. El backend NO
 se despliega solo: tras la E03 el login de la web y del móvil actuales no
 funciona hasta que se adapten (E15, E16, E18).
-- Clasificación de las 70 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
+- Clasificación de las 72 tablas: 50 propias de empresa (`empresa_id` NOT NULL,
   salvo `usuario`, donde NULL = superadministrador de la plataforma), 8
   globales del sistema (`permiso`, `rol`, `rol_permiso`, `tipo_movimiento`,
   `estado_reserva`, `estado_venta`, `metodo_pago`, `estado_pago`), `plan`
@@ -246,6 +247,8 @@ funciona hasta que se adapten (E15, E16, E18).
   `copia_seguridad` (de la empresa, `EmpresaMixin`; E22),
   `metodo_pago_guardado` y `pedido_diferido` (de la empresa, `EmpresaMixin`; ver "PayPal guardado y pedido sin conexión"),
   `dispositivo_push` (de la empresa, `EmpresaMixin`; ver "Notificaciones push (FCM)"),
+  `reembolso` (de la empresa, `EmpresaMixin`; ver "Reembolsos (CU-17 y CU-18)"),
+  `caja_turno` (de la empresa, `EmpresaMixin`; ver "Caja por turno (CU-14 y CU-15)"),
   `pedido_contratacion` (global: SIN `empresa_id` ni mixin, porque quien compra
   aún no tiene empresa; ver "Planes y suscripciones") y
   `bitacora` (`empresa_id` NULL permitido y SIN el mixin: ver "Bitácora de
@@ -627,7 +630,8 @@ Decisiones de diseño (D15, D17, D19):
   (movimiento `venta`, `referencia_tipo='devolucion'`, observación "Cambio de talla o color") en UNA transacción; sin
   stock de la nueva (o cualquier fallo) se revierte todo, 409 sin dejar devolución. La nueva debe ser del MISMO producto,
   activa y del MISMO precio efectivo (`validar_cambio_de_variante`; otro producto o diferencia de precio dan 400, un id
-  de otra empresa 404): no hay diferencia de dinero porque el reembolso no existe. No hay tabla ni columna nueva: el kardex
+  de otra empresa 404): un cambio NO mueve dinero (no hay diferencia de precio; el reembolso es solo de una línea sin cambio,
+  ver "Reembolsos (CU-17 y CU-18)"). No hay tabla ni columna nueva: el kardex
   guarda la salida y la respuesta del registro trae `reposiciones` y `correo_programado` (solo ahí; no se persisten). Una
   prenda recibida en un cambio no se vuelve a cambiar (la línea de la venta queda agotada). La bitácora suma `cambios`
   solo si hubo alguno. El plazo es el de siempre (D19) y se cuenta desde la venta, no desde la entrega.
@@ -653,8 +657,8 @@ Decisiones de diseño (D15, D17, D19):
     (por defecto `pendiente`; `todas` para el historial), `POST /{id}/aprobar` y `POST /{id}/rechazar` (`{motivo}` de 3 a
     300 caracteres). Quien resuelve es el personal de la sucursal de la venta; el administrador, el de cualquiera.
   - **Reglas.** Se pide solo sobre una venta PROPIA (otra se ve inexistente, 404) pagada o entregada y DENTRO del plazo
-    (estricto). Cada línea lleva `variante_nueva_id` (mismo producto, activo y mismo precio; otro producto o diferencia de
-    precio dan 400). Una sola solicitud pendiente por línea (409); la cantidad no pasa de lo vendido menos lo ya devuelto
+    (estricto). Cada línea puede llevar `variante_nueva_id` (mismo producto, activo y mismo precio; otro producto o diferencia
+    de precio dan 400); SIN ella la línea es "devolver y recibir mi dinero" y al aprobarla se crea el reembolso. Una sola solicitud pendiente por línea (409); la cantidad no pasa de lo vendido menos lo ya devuelto
     (solo cuentan las devoluciones APROBADAS). No se reserva stock al pedir: `disponible_nueva` es informativo y todo se
     revalida al aprobar (precio, talla activa, cantidades, plazo, stock). Aprobar sin stock (409) o con un cambio ya inválido
     (400) NO cambia nada: la solicitud sigue pendiente para rechazarla con un motivo. El plazo al aprobar admite
@@ -841,13 +845,13 @@ No es un CU nuevo: es la quinta clase de control de CU-04 (`GestionarCopiasSegur
 - **Nunca `pg_dump`** (copiaría a todas las empresas). El motor `core/copias.py` lee las tablas POR NOMBRE iterando
   `Base.metadata` (DEC-2: infraestructura genérica del `core`, no importa ningún paquete de negocio), con el filtro por
   `empresa_id` EXPLÍCITO en cada consulta y la empresa saliendo SOLO del token del administrador.
-- **Clasificación explícita** de las 70 tablas en `TABLAS_INCLUIDAS` (54: las de la empresa, más `empresa` por id y
-  `usuario_rol` por su usuario), `TABLAS_REFERENCIA` (7 catálogos globales que los datos referencian: `estado_*`,
+- **Clasificación explícita** de las 72 tablas en `TABLAS_INCLUIDAS` (56: las de la empresa, más `empresa` por id y
+  `usuario_rol` por su usuario; `reembolso` y `caja_turno` van incluidas), `TABLAS_REFERENCIA` (7 catálogos globales que los datos referencian: `estado_*`,
   `metodo_pago`, `tipo_movimiento`, y solo el `plan` y los `rol` que la empresa usa; van en `referencias/`) y
   `TABLAS_EXCLUIDAS` (9, con su razón: `transaccion_pasarela`, `probador_generacion`, `modelo_ml`, `copia_seguridad`,
   `pedido_contratacion`, `metodo_pago_guardado` (guarda el token de pago de PayPal de cada cliente), `dispositivo_push`
   (el token de Firebase de cada teléfono), `permiso`, `rol_permiso`; `pedido_diferido` SÍ va incluida: solo guarda el resultado de cada pedido). La prueba G1 (`tests/core/test_copias_clasificacion.py`) falla si aparece una tabla sin
-  clasificar: quien agregue una tabla DEBE decidir si se respalda (la E21 tendrá que clasificar `caja_turno`).
+  clasificar: quien agregue una tabla DEBE decidir si se respalda.
 - **Sin secretos:** no salen `usuario.password_hash`, `bitacora.ip`, las columnas generadas (`stock.cantidad_disponible`)
   ni cualquier columna cuyo nombre parezca un secreto (`PATRON_COLUMNA_SENSIBLE`). El manifiesto NOMBRA las columnas omitidas
   (transparencia); los datos no las traen.
@@ -1056,6 +1060,82 @@ sincronización offline y pedido sin conexión), así que el aviso vive ahí y n
   `{frontend_public_url}/caja?venta={codigo}` (`construir_enlace_verificacion`, sin barra final duplicada). Es lo que dibujan el QR
   de la web y de la app. No se repite `costo_unitario` en nada nuevo.
 - Pruebas (Brevo y FCM simulados): `tests/comercial/test_compra_confirmada.py` y `tests/sincronizacion/test_compra_confirmada_sync.py`.
+
+### Caja por turno (CU-14 y CU-15, `backend/app/comercial/`; aporte propio D24, la etapa E21)
+Apertura y cierre del cajón. No es un CU nuevo: `AbrirTurnoCaja`, `CerrarTurnoCaja` y `CompletarConteoTurno` van en
+`cu14_...py`; `ConsultarTurnosCaja` (`actual`, `estado_de_cajas`, `listar`, `detalle`) en `cu15_...py`; el cálculo y las reglas
+en `comercial/politicas.py` (bloque "Caja") y las sumas en `CajaTurnoRepository`.
+- **La caja es de la SUCURSAL**: a lo sumo UN turno `abierta` por sucursal (índice único parcial `ux_caja_turno_abierta`; la segunda
+  apertura, o dos simultáneas, responden 409 `turno_ya_abierto`). `abierto_por_id` y `cerrado_por_id` dicen quién. Tabla
+  `caja_turno` (`EmpresaMixin`, incluida en las copias): estados `abierta`, `cerrada` y `cerrada_auto`; guarda la "foto" al
+  cerrar (`ventas_efectivo`, `reembolsos_efectivo`, `monto_esperado`, `diferencia`, `cantidad_ventas`, `ventas_otros_metodos`)
+  para que un cierre pasado no cambie. Vender o cobrar SIN turno abierto sigue permitido (no entra a ninguna caja).
+- **Esperado** = monto inicial + efectivo cobrado en la sucursal durante el turno - reembolsos en efectivo completados durante
+  el turno. El efectivo cobrado se filtra por el MÉTODO de pago `efectivo` (no por el canal: `cobrar_en_caja` no lo comprueba),
+  sin importar qué cajero registró la venta; cuentan los pagos `aprobado` y también los `reembolsado` (el dinero entró al cajón;
+  la devolución resta en el turno donde ocurre, vía `reembolso.completado_en`). QR, tarjeta y transferencia en la tienda
+  (`ventas_otros_metodos`) y las compras online (`ventas_online`) son solo informativas. Una venta sin conexión cae en el turno
+  que cubría su hora REAL de cobro (`pago.fecha`); el cierre ya hecho no cambia y el detalle muestra `ajuste_posterior`.
+- **Cierre ciego.** `monto_esperado` y `resumen` solo salen para quien tiene `caja.supervisar` o ya cerró el turno; el cajero con
+  el turno abierto no los ve. Cerrar = contar: `diferencia = contado - esperado`; si no es cero la `observacion` es obligatoria
+  (400 `observacion_requerida`, sin revelar el esperado). Lo cierra quien lo abrió (`ventas.presencial`) o un supervisor
+  (`caja.supervisar`, encargado y administrador) de la sucursal; otro cajero recibe 403 `turno_de_otro_cajero`.
+- **Un turno no pasa del día (hora de Bolivia).** Al terminar el día se cierra solo, SIN conteo (`cerrada_auto`, `cierre_en` = las
+  24:00 de ese día, esperado congelado, `cerrado_por_id` NULL). Lo hace `cerrar_turnos_vencidos`: la tarea periódica de
+  `app/main.py` (`vencer_turnos_de_todas_las_empresas`) Y, de forma perezosa, al abrir, cerrar o consultar un turno de esa sucursal,
+  así uno olvidado nunca bloquea al siguiente. Un supervisor completa el conteo UNA vez (`POST .../completar-conteo`,
+  observación obligatoria) hasta `HORAS_PARA_COMPLETAR_CONTEO` (72) después del cierre: 409 `conteo_no_aplica`,
+  `conteo_ya_registrado` o `conteo_fuera_de_plazo`.
+- **Rutas** `/api/v1/caja` (plan `gestion_ventas`): `POST /turnos` (abrir, `ventas.presencial`; el administrador manda
+  `sucursal_id`), `GET /turnos/actual` (turno de la sucursal + `monto_inicial_sugerido` = lo contado al cerrar el anterior),
+  `POST /turnos/{id}/cerrar` (sin permiso en la ruta: lo revisa el caso de uso), y para el supervisor `GET /turnos/estado`
+  ("Cajas de hoy", una por sucursal), `GET /turnos` (filtros sucursal, estado, `desde`/`hasta` en días de Bolivia),
+  `GET /turnos/{id}` (detalle con `ajuste_posterior` y reembolsos) y `POST /turnos/{id}/completar-conteo`. Las rutas fijas van
+  antes que `/{turno_id}`. El encargado solo ve su sucursal; el administrador, todas.
+- **Permiso `caja.supervisar`** (encargado de sucursal y administrador): lo crea la migración (la producción no corre seeds),
+  `core/permisos.py` y `scripts/seed_seguridad.py`. **Bitácora:** `cierre_caja/abrir`, `cerrar`, `cierre_automatico`,
+  `completar_conteo` (ids y montos, nunca el texto libre).
+- **Web:** la barra de turno vive dentro de la pantalla Caja y la pantalla "Cierres de caja" está en la sección Comercial del menú.
+  El móvil NO tiene turno: sus ventas sin conexión entran a la caja del turno abierto en la web cuando se sincronizan.
+- Pruebas: `tests/comercial/test_caja_turnos.py`.
+
+### Reembolsos (CU-17 y CU-18, `backend/app/comercial/`)
+El dinero que se le devuelve a quien compró. Antes, anular un pago lo marcaba `reembolsado` SIN llamar a ninguna pasarela y
+una devolución solo movía stock; ahora ambas crean un `reembolso` y "reembolsado" significa que el dinero salió de verdad.
+No son CU nuevos: viven en `politicas.py` (bloque "Reembolsos"), `ReembolsoRepository` y las clases `GestionarReembolsos`
+(CU-18, `cu18_...py`), `RegistrarDevolucion`/`ResolverSolicitudCambio` (CU-17) y `ConfirmarRechazarTransaccion.anular`.
+- **Cuándo nace.** (1) Una devolución (registrada en la Caja o aprobada desde una solicitud) con líneas SIN
+  `variante_nueva_id`: reembolsa `Σ venta_detalle.subtotal / cantidad x unidades devueltas` (ya neto de descuento; el costo
+  de envío no se devuelve). Un cambio de talla o color no mueve dinero. (2) `POST /pagos/{id}/anular`: devuelve lo que falte
+  del pago (lo ya devuelto en devoluciones se descuenta) y el pago pasa a `reembolsado` SOLO cuando ese dinero salió.
+  Sin pago aprobado en la venta se deja `devolucion_sin_pago_aprobado` en el log y no se inventa un reembolso.
+- **Tabla `reembolso`** (`EmpresaMixin`, incluida en las copias; migración `c7a2e9f4d610`): `devolucion_id` (NULL si viene de
+  anular), `pago_id`, `venta_id`, `sucursal_id`, `metodo` (código del método del pago original), `monto` (>0), `monto_usd`,
+  `estado` (`pendiente`, `reembolsado`, `fallido`), `referencia_externa`, `motivo_fallo` (código corto), `usuario_id`,
+  `creado_en`, `completado_en`. La suma de los reembolsos `pendiente` y `reembolsado` de un pago nunca pasa de `pago.monto`
+  (409 `reembolso_supera_lo_pagado`; el pago se bloquea, así que dos reembolsos simultáneos se ponen en fila).
+- **Según el método.** Efectivo, qr, tarjeta y transferencia (los de la tienda): el dinero sale en el acto de la mano del
+  personal, el reembolso nace `reembolsado` y `completado_en` es el instante que el cierre de caja resta del efectivo del turno.
+  Pasarela (PayPal, qr_online...): nace `pendiente` en la transacción de la devolución y `procesar_reembolso`, ya con esa
+  transacción confirmada, le pide a la pasarela que devuelva (`PasarelaBase.reembolsar`; PayPal es REAL: busca la captura de la
+  orden y llama a `core/paypal.reembolsar_captura`; las pasarelas simuladas completan al instante) con la clave
+  `PayPal-Request-Id = reembolso-<empresa>-<id>`, así que repetirlo no devuelve el dinero dos veces. La fila queda bloqueada
+  durante la llamada. Resultados: la pasarela lo hizo -> `reembolsado`; lo aceptó sin completar (`PENDING`) -> sigue `pendiente`
+  con su referencia; dijo que no (4xx salvo 401/429) -> `fallido` con `motivo_fallo`; no respondió -> sigue `pendiente`
+  (`sin_respuesta`). Un fallo de la pasarela NUNCA deshace la devolución ni la anulación. Dólares: proporcionales al
+  `monto_usd` que guardó el cobro (al tipo de cambio de ESE día); el último reembolso de un pago se lleva el resto.
+- **Rutas** (plan `gestion_ventas`): `GET /ventas/{venta_id}/reembolsos` (quien compró o el personal de su sucursal; otra
+  persona, 404) y `POST /reembolsos/{id}/reintentar` (`pagos.gestionar`, personal de la sucursal; 409 si ya se hizo). La
+  respuesta de `POST /devoluciones` y de aprobar una solicitud trae `reembolsos`. La solicitud del cliente acepta líneas sin
+  `variante_nueva_id` ("devolver y recibir mi dinero").
+- **Avisos (constancia).** Al pasar a `reembolsado`, UNA vez: notificación `reembolso` (`referencia_id` = la venta; su push sale al
+  confirmar) en la misma transacción y correo "Te devolvimos tu dinero" por Brevo en segundo plano
+  (`construir_correo_reembolso`). No avisan un `fallido` ni un `pendiente`, ni una venta sin cuenta. Una devolución simple manda
+  DOS correos: el comprobante de la devolución y esta constancia. Un fallo del aviso nunca cambia el reembolso.
+- **Bitácora:** `reembolso/reembolsar` y `reembolso/fallar` (ids, método y monto; nunca el cuerpo de la pasarela).
+- **Límite conocido:** el reembolso real con PayPal NO se probó contra el sandbox (endpoint, estado `PENDING`, monto en USD):
+  todo se probó con `tests/paypal_simulado.py`. No hay webhook de PayPal: un reembolso `pendiente` se completa reintentando.
+  Pruebas: `tests/comercial/test_reembolsos.py`.
 
 ### Resumen de inicio del personal (`GET /api/v1/inicio/resumen`, CU-22)
 La pantalla de inicio del back office pide UNA sola cosa: lo de HOY, ya sumado en la base. Antes bajaba el historial completo de

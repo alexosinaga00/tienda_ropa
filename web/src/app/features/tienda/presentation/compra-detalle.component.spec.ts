@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { environment } from '../../../../environments/environment';
+import { SIN_TOAST_ERROR } from '../../../core/http-contexts';
 import { CheckoutService } from '../state/checkout.service';
 import { TiendaActualService } from '../state/tienda-actual.service';
 import { CompraDetalleComponent } from './compra-detalle.component';
@@ -333,6 +334,125 @@ describe('CompraDetalleComponent: una compra que quedó sin pagar', () => {
     fixture.detectChanges();
 
     expect(el(fixture as never).querySelector('[data-estado="compra-pendiente"]')).toBeNull();
+  });
+});
+
+describe('CompraDetalleComponent: reembolsos de la compra', () => {
+  let http: HttpTestingController;
+
+  const reembolso = (extra: object = {}) => ({
+    id: 31,
+    devolucion_id: 5,
+    pago_id: 12,
+    venta_id: 42,
+    sucursal_id: 1,
+    metodo: 'paypal',
+    monto: '100.00',
+    monto_usd: '14.37',
+    estado: 'reembolsado',
+    referencia_externa: 'REF-1',
+    motivo_fallo: null,
+    creado_en: '2026-11-08T15:00:00Z',
+    completado_en: '2026-11-08T15:00:03Z',
+    ...extra,
+  });
+
+  /** Monta la compra y responde sus consultas; `reembolsos` es lo que contesta `GET /ventas/42/reembolsos`. */
+  function montar(estado: string, reembolsos: (() => object) | null) {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => '42' } } } },
+      ],
+    });
+    TestBed.inject(TiendaActualService).fijar('acme', 'lista', {
+      codigo: 'acme',
+      nombre: 'Acme',
+      logo_url: null,
+      color_acento: null,
+    });
+    http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(CompraDetalleComponent);
+    fixture.detectChanges();
+    http.expectOne(`${API}/ventas/42/comprobante`).flush(venta(estado));
+    http.expectOne((r) => r.url === `${API}/catalogo/variantes/detalle`).flush(LOOKUP);
+    if (reembolsos === null) {
+      http.expectNone(`${API}/ventas/42/reembolsos`);
+    } else {
+      const peticion = http.expectOne(`${API}/ventas/42/reembolsos`);
+      expect(peticion.request.context.get(SIN_TOAST_ERROR)).toBe(true);
+      const respuesta = reembolsos();
+      if (respuesta instanceof Error) {
+        peticion.error(new ProgressEvent('error'));
+      } else {
+        peticion.flush(respuesta);
+      }
+    }
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const bloque = (fixture: ReturnType<typeof montar>) =>
+    (fixture.nativeElement as HTMLElement).querySelector('[data-estado="reembolsos-compra"]');
+  const texto = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  afterEach(() => http.match(() => true));
+
+  it('muestra el dinero devuelto: monto, cómo, fecha y estado', () => {
+    const fixture = montar('pagada', () => [reembolso()]);
+
+    const t = texto(bloque(fixture));
+    expect(t).toContain('Dinero devuelto');
+    expect(t).toContain('Bs 100.00');
+    expect(t).toContain('Devolución a tu PayPal');
+    expect(t).toContain('Reembolsado el');
+    expect(t).toContain('Reembolsado');
+  });
+
+  it('a quien compró un reembolso fallido se le muestra "En proceso" y sin botón de reintento', () => {
+    const fixture = montar('pagada', () => [
+      reembolso({ estado: 'fallido', motivo_fallo: 'pasarela_rechazo', completado_en: null }),
+    ]);
+
+    const t = texto(bloque(fixture));
+    expect(t).toContain('En proceso');
+    expect(t).not.toContain('No se pudo reembolsar');
+    expect(t).not.toContain('pasarela_rechazo');
+    expect(bloque(fixture)!.querySelector('button')).toBeNull();
+  });
+
+  it('un reembolso en efectivo dice que fue en la tienda', () => {
+    const fixture = montar('entregada', () => [reembolso({ metodo: 'efectivo' })]);
+
+    expect(texto(bloque(fixture))).toContain('Devolución en efectivo, en la tienda');
+  });
+
+  it('una anulada también puede tener su reembolso', () => {
+    const fixture = montar('anulada', () => [reembolso({ devolucion_id: null, metodo: 'qr_online' })]);
+
+    expect(texto(bloque(fixture))).toContain('Devolución por QR');
+  });
+
+  it('sin reembolsos no muestra nada', () => {
+    const fixture = montar('pagada', () => []);
+
+    expect(bloque(fixture)).toBeNull();
+  });
+
+  it('si la consulta falla (por ejemplo sin conexión) la compra se ve igual, sin bloque ni aviso', () => {
+    const fixture = montar('pagada', () => new Error('sin red'));
+
+    expect(bloque(fixture)).toBeNull();
+    expect(texto(fixture.nativeElement as HTMLElement)).toContain('V-0042');
+    expect(texto(fixture.nativeElement as HTMLElement)).not.toContain('No se pudo cargar esta compra');
+  });
+
+  it('una compra pendiente de pago no consulta reembolsos', () => {
+    const fixture = montar('pendiente_pago', null);
+
+    expect(bloque(fixture)).toBeNull();
   });
 });
 

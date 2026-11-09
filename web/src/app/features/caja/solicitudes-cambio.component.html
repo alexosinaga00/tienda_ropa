@@ -32,6 +32,13 @@
   prenda devuelta, sale la nueva y le llega el comprobante. Si no corresponde, rechaza la solicitud con un motivo.
 </p>
 
+@if (reembolsoAprobado(); as aprobado) {
+  <div class="reembolso-aprobado" data-estado="reembolso-aprobado">
+    <p class="ayuda">Dinero devuelto al cliente al aprobar {{ aprobado.codigo }}:</p>
+    <app-reembolsos [reembolsos]="aprobado.reembolsos" vista="personal" />
+  </div>
+}
+
 @if (errorCarga()) {
   <div class="fs-aviso fs-aviso--error" role="alert" data-estado="error-solicitudes">
     No se pudieron cargar las solicitudes. Revisa tu conexión e inténtalo de nuevo.
@@ -65,11 +72,15 @@
                 <span class="etiqueta">Devuelve</span>
                 {{ linea.prenda_devuelta }} <span class="fs-num">(x{{ linea.cantidad }})</span>
               </span>
-              <fs-icono nombre="deshacer" [tam]="20" class="linea__flecha" aria-hidden="true" />
-              <span class="linea__quiere">
-                <span class="etiqueta">Quiere</span>
-                {{ linea.prenda_nueva }}
-              </span>
+              @if (esDevolucion(linea)) {
+                <span class="fs-chip fs-chip--advertencia" data-estado="devuelve-reembolsa">Devuelve y reembolsa</span>
+              } @else {
+                <fs-icono nombre="deshacer" [tam]="20" class="linea__flecha" aria-hidden="true" />
+                <span class="linea__quiere">
+                  <span class="etiqueta">Quiere</span>
+                  {{ linea.prenda_nueva }}
+                </span>
+              }
               @if (solicitud.estado === 'pendiente' && linea.disponible_nueva !== null) {
                 <span
                   class="fs-chip"
@@ -100,6 +111,12 @@
             <fs-icono nombre="check" [tam]="20" />
             {{ estado(solicitud).texto }} el {{ solicitud.resuelta_en | date: 'dd/MM HH:mm' }}
           </p>
+        }
+
+        @if (solicitud.estado === 'aprobada' && (solicitud.reembolsos ?? []).length > 0) {
+          <div class="reembolso-solicitud" data-estado="reembolso-solicitud">
+            <app-reembolsos [reembolsos]="solicitud.reembolsos!" vista="personal" />
+          </div>
         }
 
         @if (errores()[solicitud.id]; as mensaje) {
@@ -153,7 +170,7 @@
                 [attr.title]="alcanzaElStock(solicitud) ? null : 'No hay stock de la prenda nueva: rechaza la solicitud o repón la prenda y actualiza'"
                 (click)="aprobar(solicitud)"
               >
-                {{ resolviendo() === solicitud.id ? 'Aprobando…' : 'Aprobar cambio' }}
+                {{ resolviendo() === solicitud.id ? 'Aprobando…' : soloDevolucion(solicitud) ? 'Aprobar devolución' : 'Aprobar cambio' }}
               </button>
             </div>
           }

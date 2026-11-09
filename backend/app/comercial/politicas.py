@@ -22,18 +22,21 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from collections.abc import Iterable
-from decimal import ROUND_HALF_UP, Decimal
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from sqlalchemy import event, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.catalogo import politicas as catalogo_politicas
 from app.catalogo.casos_uso.cu09_gestionar_inventario import ConsultarDisponibilidadSucursal
 from app.comercial import repository as comercial_repo
 from app.comercial.models import (
+    CajaTurno,
     Carrito,
     CarritoDetalle,
     Devolucion,
@@ -41,6 +44,7 @@ from app.comercial.models import (
     MetodoPago,
     Pago,
     Promocion,
+    Reembolso,
     Reserva,
     ReservaDetalle,
     ReservaHistorial,
@@ -48,8 +52,9 @@ from app.comercial.models import (
     Venta,
     VentaDetalle,
 )
-from app.comercial.pasarela import obtener_pasarela
+from app.comercial.pasarela import ReembolsoRechazado, obtener_pasarela
 from app.comercial.repository import (
+    CajaTurnoRepository,
     CarritoRepository,
     DevolucionRepository,
     EstadoPagoRepository,
@@ -58,19 +63,43 @@ from app.comercial.repository import (
     MetodoPagoRepository,
     PagoRepository,
     PromocionRepository,
+    ReembolsoRepository,
     ReservaRepository,
     TransaccionPasarelaRepository,
     VentaRepository,
 )
 from app.comercial.schemas import (
     PagoRespuesta,
+    ReembolsoRespuesta,
     ReservaCrear,
+    ResumenTurnoRespuesta,
     SolicitudCambioLineaRespuesta,
     SolicitudCambioRespuesta,
+    TurnoAbrir,
+    TurnoCerrar,
+    TurnoCompletarConteo,
+    TurnoDetalleRespuesta,
+    TurnoRespuesta,
+)
+from app.core.auditoria import (
+    ACCION_ABRIR,
+    ACCION_CERRAR,
+    ACCION_CIERRE_AUTOMATICO,
+    ACCION_COMPLETAR_CONTEO,
+    ACCION_FALLAR,
+    ACCION_REEMBOLSAR,
+    ENTIDAD_CIERRE_CAJA,
+    ENTIDAD_REEMBOLSO,
+    ContextoAuditoria,
 )
 from app.core.config import get_settings
 from app.core.codigos import generar_codigo
-from app.core.permisos import PERMISO_STAFF_RESERVAS, PERMISO_STAFF_VENTAS
+from app.core.permisos import (
+    PERMISO_CAJA_SUPERVISAR,
+    PERMISO_STAFF_RESERVAS,
+    PERMISO_STAFF_VENTAS,
+    PERMISO_VENTAS_PRESENCIAL,
+)
 from app.core.deps import ParametrosPeriodo
 from app.core.correo import MensajeCorreo, enviar_correo_sin_romper
 from app.core.correo import envio_configurado as correo_configurado
@@ -78,6 +107,7 @@ from app.core.tiempo import ZONA_BOLIVIA, ahora_utc_naive, dia_bolivia, hoy_utc
 from app.core.exceptions import (
     ConflictoError,
     DomainError,
+    ErrorFuncional,
     NoEncontradoError,
     PermisoDenegadoError,
     PlazoCambioVencidoError,
@@ -1059,10 +1089,15 @@ def _disponible_en_sucursal(db: Session, variante_id: int, sucursal_id: int) -> 
 
 
 def construir_respuesta_solicitud(
-    db: Session, devolucion: Devolucion, venta: Venta, correo_programado: bool = False
+    db: Session,
+    devolucion: Devolucion,
+    venta: Venta,
+    correo_programado: bool = False,
+    reembolsos: list[Reembolso] | None = None,
 ) -> SolicitudCambioRespuesta:
     """La solicitud con lo que las pantallas necesitan: las prendas con su nombre y, mientras esté pendiente, cuánto
-    hay hoy de la prenda nueva en la sucursal (informativo; no se reserva)."""
+    hay hoy de la prenda nueva en la sucursal (informativo; no se reserva). `reembolsos`: el dinero devuelto al aprobarla
+    (si se omite, se leen los de esta devolución, que es lo que necesita una solicitud ya resuelta)."""
     lineas_venta = {linea.id: linea for linea in venta.detalle}
     pendiente = devolucion.estado == "pendiente"
     detalle = []
@@ -1102,8 +1137,19 @@ def construir_respuesta_solicitud(
         resuelta_en=devolucion.resuelta_en,
         atender_hasta=atender_solicitud_hasta(db, venta),
         detalle=detalle,
+        reembolsos=[
+            ReembolsoRespuesta.model_validate(fila)
+            for fila in (reembolsos if reembolsos is not None else _reembolsos_de_devolucion(db, devolucion))
+        ],
         correo_programado=correo_programado,
     )
+
+
+def _reembolsos_de_devolucion(db: Session, devolucion: Devolucion) -> list[Reembolso]:
+    """Los reembolsos que dejó esa devolución (solo una aprobada los tiene)."""
+    if devolucion.estado != "aprobada":
+        return []
+    return [fila for fila in reembolso_repo.listar_por_venta(db, devolucion.venta_id) if fila.devolucion_id == devolucion.id]
 
 
 def _correo_de_solicitud(
@@ -1142,26 +1188,49 @@ def construir_correo_solicitud_recibida(
     codigo_venta: str,
     sucursal: str,
     atender_hasta: dt.datetime,
-    lineas: list[tuple[str, str, int]],
+    lineas: list[tuple[str, str | None, int]],
 ) -> MensajeCorreo:
     """Aviso de que la solicitud quedó registrada y adónde llevar la prenda. `lineas`: (prenda que devuelve, prenda
-    que quiere, cantidad)."""
+    que quiere o `None` si pide que le devuelvan su dinero, cantidad). Si NINGUNA línea pide cambio es una solicitud de
+    devolución con reembolso y el texto lo dice."""
+    solo_devolucion = all(nueva is None for _devuelta, nueva, _cantidad in lineas)
+    if solo_devolucion:
+        asunto = f"Recibimos tu solicitud de devolución {codigo_solicitud} · {nombre_empresa}"
+        titulo = "Recibimos tu solicitud de devolución"
+        intro = (
+            f"registramos tu solicitud {codigo_solicitud} sobre tu compra {codigo_venta}. "
+            f"Lleva la prenda a la sucursal {sucursal} hasta el {_fecha_legible(atender_hasta)}: allí la revisan y, "
+            "si todo está en orden, te devolvemos tu dinero."
+        )
+        cierre = (
+            "El reembolso se hace cuando la tienda revisa la prenda que llevas, y te avisaremos cuando salga. "
+            "Si ya no quieres devolverla, cancela la solicitud desde tu compra."
+        )
+    else:
+        asunto = f"Recibimos tu solicitud de cambio {codigo_solicitud} · {nombre_empresa}"
+        titulo = "Recibimos tu solicitud de cambio"
+        intro = (
+            f"registramos tu solicitud {codigo_solicitud} sobre tu compra {codigo_venta}. "
+            f"Lleva la prenda a la sucursal {sucursal} hasta el {_fecha_legible(atender_hasta)}: allí la revisan y, "
+            "si hay stock de lo que pides, te la cambian."
+        )
+        cierre = (
+            "Todavía no reservamos la prenda nueva: se confirma cuando la tienda revisa la prenda que llevas. "
+            "Si ya no quieres el cambio, cancélalo desde tu compra."
+        )
     return _correo_de_solicitud(
         para_email=para_email,
         nombre=nombre,
         nombre_empresa=nombre_empresa,
-        asunto=f"Recibimos tu solicitud de cambio {codigo_solicitud} · {nombre_empresa}",
-        titulo="Recibimos tu solicitud de cambio",
-        intro=(
-            f"registramos tu solicitud {codigo_solicitud} sobre tu compra {codigo_venta}. "
-            f"Lleva la prenda a la sucursal {sucursal} hasta el {_fecha_legible(atender_hasta)}: allí la revisan y, "
-            "si hay stock de lo que pides, te la cambian."
-        ),
-        lineas=[f"Devuelves: {devuelta} (x{cantidad}) · Quieres: {nueva}" for devuelta, nueva, cantidad in lineas],
-        cierre=(
-            "Todavía no reservamos la prenda nueva: se confirma cuando la tienda revisa la prenda que llevas. "
-            "Si ya no quieres el cambio, cancélalo desde tu compra."
-        ),
+        asunto=asunto,
+        titulo=titulo,
+        intro=intro,
+        lineas=[
+            f"Devuelves: {devuelta} (x{cantidad}) · "
+            + (f"Quieres: {nueva}" if nueva is not None else "Quieres: que te devolvamos tu dinero")
+            for devuelta, nueva, cantidad in lineas
+        ],
+        cierre=cierre,
     )
 
 
@@ -2188,3 +2257,778 @@ def construir_correo_compra_confirmada(
         "</div></body></html>"
     )
     return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
+
+
+# ---- Reembolsos (CU-17 y CU-18) -------------------------------------------------------------------------------------
+#
+# Un reembolso es el dinero que se le devuelve a quien compró: de una devolución SIN cambio de prenda (un cambio de talla
+# o color no mueve dinero) o de anular un pago. Cada uno es una fila de `reembolso` con el método del pago original:
+#   - efectivo y los métodos de la tienda (qr, tarjeta, transferencia): el dinero sale en el acto, de la mano del
+#     personal, así que la fila nace `reembolsado` (el cierre de caja resta el de efectivo en el turno de ese momento);
+#   - pasarela (PayPal, qr_online...): la fila nace `pendiente` en la transacción de la devolución y el dinero lo mueve
+#     DESPUÉS `procesar_reembolso`, ya con esa transacción confirmada y con la clave de idempotencia de la pasarela.
+# Cuando un reembolso se completa se avisa al comprador UNA vez: notificación (con su push) en la misma transacción y
+# correo en segundo plano. Un reembolso `fallido` no avisa al cliente: lo ve el personal, que puede reintentarlo.
+
+reembolso_repo = ReembolsoRepository()
+
+TIPO_NOTIFICACION_REEMBOLSO = "reembolso"
+_MONTO_USD_MINIMO = Decimal("0.01")
+_COMO_SE_DEVOLVIO: dict[str, str] = {
+    "efectivo": "en efectivo, en la tienda",
+    "paypal": "a tu PayPal",
+    "qr": "por QR",
+    "qr_online": "por QR",
+    "tarjeta": "a tu tarjeta",
+    "transferencia": "por transferencia",
+}
+
+
+def descripcion_metodo_reembolso(metodo: str) -> str:
+    """Cómo se le devolvió el dinero, en palabras para el aviso (según el método del pago original)."""
+    return _COMO_SE_DEVOLVIO.get(metodo, "por el mismo medio con que pagaste")
+
+
+def pago_aprobado_de_venta(db: Session, venta: Venta) -> Pago | None:
+    """El pago aprobado de la venta (a lo sumo uno; la tienda no cobra una venta en partes) o `None` si no hay ninguno.
+    Dos o más pagos aprobados no existen hoy: se rechaza para no devolver dinero a ciegas."""
+    codigos = estado_pago_repo.mapa_codigos_por_id(db)
+    aprobados = [pago for pago in pago_repo.listar_por_venta(db, venta.id) if codigos.get(pago.estado_id) == "aprobado"]
+    if len(aprobados) > 1:
+        raise ConflictoError("La venta tiene más de un pago aprobado: el reembolso no se puede hacer automáticamente")
+    return aprobados[0] if aprobados else None
+
+
+def monto_de_lineas_devueltas(lineas: Iterable[tuple[VentaDetalle, int]]) -> Decimal:
+    """Lo que costaron las unidades devueltas, ya con el descuento de cada línea (`venta_detalle.subtotal` es neto):
+    por cada línea, `subtotal x unidades devueltas / unidades vendidas`. El costo de envío no se devuelve."""
+    total = Decimal("0")
+    for detalle, cantidad in lineas:
+        total += redondear(Decimal(detalle.subtotal) * cantidad / detalle.cantidad)
+    return redondear(total)
+
+
+def _usd_del_reembolso(
+    db: Session, pago: Pago, monto: Decimal, restante: Decimal, usd_ya_devuelto: Decimal
+) -> Decimal | None:
+    """Los dólares de un reembolso de pasarela: proporcionales a lo que se cobró en dólares (el `monto_usd` que la
+    transacción guardó al cobrar, al tipo de cambio de ESE día). El que termina de devolver el pago se lleva el resto,
+    para que la suma de los reembolsos sea exacta. `None` si la pasarela no cobró en dólares (o el dato no existe)."""
+    transaccion = primera_transaccion(db, pago.id)
+    bruto = (transaccion.payload_envio or {}).get("monto_usd") if transaccion is not None else None
+    if bruto is None:
+        return None
+    try:
+        total_usd = Decimal(str(bruto))
+    except InvalidOperation:
+        return None
+    if total_usd <= 0:
+        return None
+    if monto >= restante:
+        return max(total_usd - usd_ya_devuelto, _MONTO_USD_MINIMO)
+    return max(redondear(total_usd * monto / Decimal(pago.monto)), _MONTO_USD_MINIMO)
+
+
+def crear_reembolso(
+    db: Session,
+    *,
+    venta: Venta,
+    pago: Pago,
+    monto: Decimal,
+    usuario_id: int,
+    devolucion_id: int | None = None,
+    contexto: ContextoAuditoria | None = None,
+) -> Reembolso:
+    """Registra el reembolso DENTRO de la transacción de quien llama (no confirma). Bloquea el pago, así que dos
+    reembolsos simultáneos del mismo pago se ponen en fila y la suma nunca pasa de lo pagado (409). Los métodos de la
+    tienda nacen `reembolsado`; los de pasarela, `pendiente` (ver `procesar_reembolso`)."""
+    monto = redondear(Decimal(monto))
+    if monto <= 0:
+        raise DomainError("El monto a reembolsar debe ser mayor a cero")
+    pago = pago_repo.obtener_bloqueado(db, pago.id)
+    bs_ya, usd_ya = reembolso_repo.total_activo(db, pago.id)
+    restante = Decimal(pago.monto) - bs_ya
+    if monto > restante:
+        raise ErrorFuncional(
+            "reembolso_supera_lo_pagado",
+            f"No se puede reembolsar más de lo pagado (quedan Bs {restante:.2f} por devolver de este pago)",
+            409,
+            restante=str(restante),
+        )
+    metodo = db.get(MetodoPago, pago.metodo_pago_id)
+    por_pasarela = metodo is not None and metodo.requiere_pasarela
+    fila = Reembolso(
+        devolucion_id=devolucion_id,
+        pago_id=pago.id,
+        venta_id=venta.id,
+        sucursal_id=venta.sucursal_id,
+        metodo=metodo.codigo if metodo is not None else "",
+        monto=monto,
+        monto_usd=_usd_del_reembolso(db, pago, monto, restante, usd_ya) if por_pasarela else None,
+        estado="pendiente",
+        usuario_id=usuario_id,
+    )
+    reembolso_repo.crear(db, fila)
+    if not por_pasarela:
+        completar_reembolso(db, fila, venta=venta, referencia=None, contexto=contexto)
+    return fila
+
+
+def completar_reembolso(
+    db: Session, reembolso: Reembolso, *, venta: Venta, referencia: str | None, contexto: ContextoAuditoria | None = None
+) -> None:
+    """El dinero salió: marca el reembolso, deja la bitácora, avisa al comprador (notificación; el correo lo programa
+    quien llama después del commit) y, si ya se devolvió TODO el pago, el pago pasa a `reembolsado`. Todo en la
+    transacción de quien llama (no confirma). Se llama una sola vez por reembolso: quien lo llama tiene la fila bloqueada
+    o la acaba de crear."""
+    reembolso.estado = "reembolsado"
+    reembolso.referencia_externa = referencia or reembolso.referencia_externa
+    reembolso.motivo_fallo = None
+    reembolso.completado_en = ahora_utc_naive()
+    db.flush()
+    pago = pago_repo.obtener(db, reembolso.pago_id)
+    if reembolso_repo.total_reembolsado(db, pago.id) >= Decimal(pago.monto):
+        pago.estado_id = estado_pago_repo.obtener_por_codigo(db, "reembolsado").id
+    datos: dict = {"venta_id": venta.id, "pago_id": pago.id, "metodo": reembolso.metodo, "monto": str(reembolso.monto)}
+    if reembolso.devolucion_id is not None:
+        datos["devolucion_id"] = reembolso.devolucion_id
+    plataforma_politicas.registrar_bitacora_de(
+        db, contexto, ENTIDAD_REEMBOLSO, reembolso.id, ACCION_REEMBOLSAR, datos
+    )
+    _notificar_reembolso(db, reembolso, venta)
+
+
+def _notificar_reembolso(db: Session, reembolso: Reembolso, venta: Venta) -> None:
+    """Notificación dentro del sistema (su push sale al confirmar la transacción). Sin cliente, usuario inactivo o sin
+    correo no se avisa. No usa `existe_notificacion`: dos reembolsos parciales de la misma venta avisan cada uno. Nunca
+    lanza: un aviso no puede deshacer un reembolso."""
+    try:
+        comprador = comprador_de_venta(db, venta)
+        if comprador is None:
+            return
+        mensaje = (
+            f"Reembolsamos Bs {Decimal(reembolso.monto):.2f} de tu compra {venta.codigo} "
+            f"{descripcion_metodo_reembolso(reembolso.metodo)}."
+        )
+        with db.begin_nested():
+            plataforma_politicas.crear_notificacion(
+                db, comprador[0], "Te devolvimos tu dinero", mensaje, TIPO_NOTIFICACION_REEMBOLSO, venta.id, commit=False
+            )
+    except Exception:  # noqa: BLE001 - el aviso es un extra
+        logger.exception("aviso_reembolso_no_armado reembolso_id=%s", getattr(reembolso, "id", None))
+
+
+def reembolsar_devolucion(
+    db: Session,
+    *,
+    venta: Venta,
+    devolucion: Devolucion,
+    lineas_sin_cambio: list[tuple[VentaDetalle, int]],
+    usuario_id: int,
+    contexto: ContextoAuditoria | None = None,
+) -> list[Reembolso]:
+    """Crea el reembolso de las líneas de una devolución que NO piden cambio de prenda (en la transacción de quien
+    llama). Sin líneas así (un cambio de talla o color) no hay dinero que devolver. Si la venta no tiene un pago aprobado
+    (no debería ocurrir en una venta pagada) se deja constancia en el log y no se inventa un reembolso."""
+    if not lineas_sin_cambio:
+        return []
+    pago = pago_aprobado_de_venta(db, venta)
+    if pago is None:
+        logger.warning("devolucion_sin_pago_aprobado venta_id=%s devolucion_id=%s", venta.id, devolucion.id)
+        return []
+    monto = monto_de_lineas_devueltas(lineas_sin_cambio)
+    return [
+        crear_reembolso(
+            db,
+            venta=venta,
+            pago=pago,
+            monto=monto,
+            usuario_id=usuario_id,
+            devolucion_id=devolucion.id,
+            contexto=contexto,
+        )
+    ]
+
+
+def reembolsar_pago_completo(
+    db: Session, *, venta: Venta, pago: Pago, usuario_id: int, contexto: ContextoAuditoria | None = None
+) -> Reembolso | None:
+    """Anular un pago devuelve TODO lo que falte por devolver de él (lo ya devuelto en devoluciones se descuenta). Si ya
+    no falta nada, el pago solo pasa a `reembolsado`. Devuelve el reembolso nuevo, o `None` si no hizo falta crear uno."""
+    pago = pago_repo.obtener_bloqueado(db, pago.id)
+    bs_ya, _usd = reembolso_repo.total_activo(db, pago.id)
+    restante = Decimal(pago.monto) - bs_ya
+    if restante <= 0:
+        if reembolso_repo.total_reembolsado(db, pago.id) >= Decimal(pago.monto):
+            pago.estado_id = estado_pago_repo.obtener_por_codigo(db, "reembolsado").id
+        return None
+    return crear_reembolso(db, venta=venta, pago=pago, monto=restante, usuario_id=usuario_id, contexto=contexto)
+
+
+def procesar_reembolso(db: Session, reembolso_id: int, *, contexto: ContextoAuditoria | None = None) -> Reembolso:
+    """Paso 2 de un reembolso de pasarela, con su transacción de origen YA confirmada: le pide a la pasarela que devuelva
+    el dinero (con la clave de idempotencia del propio reembolso: repetirlo no devuelve dos veces) y confirma el
+    resultado. La fila queda bloqueada durante la llamada, así que dos reintentos a la vez se ponen en fila.
+    - La pasarela lo hizo: `reembolsado` (aviso al comprador).
+    - La pasarela lo aceptó pero aún no lo completó: sigue `pendiente`, con su referencia.
+    - La pasarela dijo que no: `fallido` (definitivo; el personal puede reintentar).
+    - La pasarela no respondió: sigue `pendiente` (se reintenta con la misma clave).
+    Funciona también para reintentar un `fallido`. Un reembolso ya `reembolsado` no se vuelve a pedir."""
+    reembolso = reembolso_repo.obtener_bloqueado(db, reembolso_id)
+    if reembolso.estado == "reembolsado":
+        return reembolso
+    venta = venta_repo.obtener(db, reembolso.venta_id)
+    transaccion = primera_transaccion(db, reembolso.pago_id)
+    try:
+        if transaccion is None or not transaccion.id_transaccion:
+            raise ReembolsoRechazado("sin_transaccion")
+        try:
+            pasarela = obtener_pasarela(transaccion.pasarela)
+        except ValueError as exc:
+            raise ReembolsoRechazado("pasarela_desconocida") from exc
+        resultado = pasarela.reembolsar(
+            id_transaccion=transaccion.id_transaccion,
+            monto=Decimal(reembolso.monto),
+            monto_usd=reembolso.monto_usd,
+            request_id=f"reembolso-{reembolso.empresa_id}-{reembolso.id}",
+        )
+    except ReembolsoRechazado as rechazo:
+        reembolso.estado = "fallido"
+        reembolso.motivo_fallo = rechazo.motivo[:60]
+        plataforma_politicas.registrar_bitacora_de(
+            db,
+            contexto,
+            ENTIDAD_REEMBOLSO,
+            reembolso.id,
+            ACCION_FALLAR,
+            {"venta_id": venta.id, "metodo": reembolso.metodo, "motivo": rechazo.motivo},
+        )
+        db.commit()
+        db.refresh(reembolso)
+        return reembolso
+    except RuntimeError as exc:  # la pasarela no respondió: no se sabe si devolvió; se reintenta con la misma clave
+        logger.warning("reembolso_sin_respuesta reembolso_id=%s tipo=%s", reembolso.id, type(exc).__name__)
+        reembolso.motivo_fallo = "sin_respuesta"
+        db.commit()
+        db.refresh(reembolso)
+        return reembolso
+
+    if resultado.completado:
+        completar_reembolso(db, reembolso, venta=venta, referencia=resultado.referencia, contexto=contexto)
+    else:
+        reembolso.referencia_externa = resultado.referencia
+        reembolso.motivo_fallo = None
+    db.commit()
+    db.refresh(reembolso)
+    return reembolso
+
+
+def finalizar_reembolsos(
+    db: Session,
+    reembolsos: list[Reembolso],
+    *,
+    contexto: ContextoAuditoria | None = None,
+    programar_envio=None,
+) -> tuple[list[Reembolso], bool]:
+    """Después de CONFIRMAR la transacción que los creó: mueve el dinero de los reembolsos de pasarela y manda el correo
+    de los que ya salieron. Devuelve los reembolsos tal como quedaron y si algún correo quedó programado. NUNCA lanza: la
+    devolución o la anulación ya están confirmadas y un fallo de la pasarela o del correo no las deshace."""
+    resultado: list[Reembolso] = []
+    for reembolso in reembolsos:
+        try:
+            if reembolso.estado == "pendiente":
+                reembolso = procesar_reembolso(db, reembolso.id, contexto=contexto)
+            else:
+                db.refresh(reembolso)
+        except Exception:  # noqa: BLE001 - lo ya confirmado no se deshace por un fallo de la pasarela
+            db.rollback()
+            logger.exception("reembolso_no_procesado reembolso_id=%s", reembolso.id)
+            reembolso = reembolso_repo.obtener(db, reembolso.id)
+        resultado.append(reembolso)
+    return resultado, avisar_reembolsos_por_correo(db, resultado, programar_envio)
+
+
+def avisar_reembolsos_por_correo(db: Session, reembolsos: Iterable[Reembolso], programar_envio=None) -> bool:
+    """El correo de constancia de cada reembolso que ya salió (Brevo, en segundo plano si el router pasa
+    `BackgroundTasks.add_task`). Sin cliente, sin correo o sin Brevo no se manda; nunca lanza. Devuelve si programó alguno."""
+    programado = False
+    for reembolso in reembolsos:
+        if reembolso.estado != "reembolsado":
+            continue
+        try:
+            if not correo_configurado():
+                return False
+            venta = venta_repo.obtener(db, reembolso.venta_id)
+            destinatario = destinatario_de_venta(db, venta)
+            if destinatario is None:
+                continue
+            empresa = plataforma_politicas.obtener_empresa_de_la_sesion(db)
+            try:
+                sucursal = plataforma_politicas.obtener_sucursal(db, venta.sucursal_id).nombre
+            except NoEncontradoError:
+                sucursal = ""
+            devolucion = devolucion_repo.obtener(db, reembolso.devolucion_id) if reembolso.devolucion_id else None
+            mensaje = construir_correo_reembolso(
+                para_email=destinatario[0],
+                nombre=destinatario[1],
+                nombre_empresa=empresa.nombre,
+                codigo_empresa=empresa.codigo,
+                venta_id=venta.id,
+                codigo_venta=venta.codigo,
+                codigo_devolucion=devolucion.codigo if devolucion is not None else None,
+                sucursal=sucursal,
+                monto=reembolso.monto,
+                metodo=reembolso.metodo,
+                fecha=reembolso.completado_en or ahora_utc_naive(),
+                referencia=reembolso.referencia_externa,
+            )
+            despachar_correo(mensaje, programar_envio)
+            programado = True
+        except Exception:  # noqa: BLE001 - el correo es un extra: jamás deshace el reembolso
+            logger.exception("aviso_reembolso_correo_no_armado reembolso_id=%s", reembolso.id)
+    return programado
+
+
+def construir_correo_reembolso(
+    *,
+    para_email: str,
+    nombre: str,
+    nombre_empresa: str,
+    codigo_empresa: str,
+    venta_id: int,
+    codigo_venta: str,
+    codigo_devolucion: str | None,
+    sucursal: str,
+    monto: Decimal,
+    metodo: str,
+    fecha: dt.datetime,
+    referencia: str | None,
+) -> MensajeCorreo:
+    """'Te devolvimos tu dinero': constancia del reembolso con la compra, la devolución (si la hubo), el monto, cómo se
+    devolvió, la fecha en hora de Bolivia, la sucursal y la referencia de la pasarela. Todo dato variable se escapa."""
+    asunto = f"Te devolvimos tu dinero · compra {codigo_venta} · {nombre_empresa}"
+    enlace = enlace_comprobante_en_tienda(codigo_empresa, venta_id)
+    datos = [("Compra", codigo_venta)]
+    if codigo_devolucion:
+        datos.append(("Devolución", codigo_devolucion))
+    datos += [
+        ("Monto devuelto", f"Bs {Decimal(monto):.2f}"),
+        ("Cómo", descripcion_metodo_reembolso(metodo)),
+        ("Fecha", _fecha_legible(fecha)),
+    ]
+    if sucursal:
+        datos.append(("Sucursal", sucursal))
+    if referencia:
+        datos.append(("Referencia", referencia))
+
+    texto = (
+        f"Hola {nombre},\n\nTe devolvimos tu dinero de {nombre_empresa}.\n"
+        + "\n".join(f"{etiqueta}: {valor}" for etiqueta, valor in datos)
+        + f"\n\nVer mi compra: {enlace}\n\nGuarda este mensaje como constancia de tu reembolso.\n"
+    )
+    filas = "".join(
+        f'<li style="margin:0 0 6px">{escape(etiqueta)}: <strong>{escape(valor)}</strong></li>' for etiqueta, valor in datos
+    )
+    html = (
+        '<!doctype html><html lang="es"><body style="margin:0;background:#F7F5F1;font-family:Arial,Helvetica,sans-serif;'
+        'color:#161412"><div style="max-width:480px;margin:0 auto;padding:24px">'
+        '<p style="font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#6B645C;margin:0 0 16px">'
+        f"{escape(nombre_empresa)}</p>"
+        '<h1 style="font-size:22px;margin:0 0 12px">Te devolvimos tu dinero</h1>'
+        f'<p style="font-size:15px;line-height:1.5">Hola {escape(nombre)}, este es el detalle de tu reembolso.</p>'
+        f'<ul style="font-size:15px;line-height:1.5;padding-left:18px;margin:0 0 16px">{filas}</ul>'
+        f'<p style="margin:0 0 16px"><a href="{escape(enlace, quote=True)}" style="display:inline-block;background:#151515;'
+        'color:#F7F5F1;padding:12px 20px;text-decoration:none;border-radius:4px;font-size:15px">Ver mi compra</a></p>'
+        '<p style="font-size:13px;line-height:1.5;color:#6B645C">Guarda este mensaje como constancia de tu reembolso.</p>'
+        "</div></body></html>"
+    )
+    return MensajeCorreo(para_email=para_email, para_nombre=nombre, asunto=asunto, html=html, texto=texto)
+
+
+# ---- Caja: turnos y cierres (E21) ------------------------------------------------------------------------------------
+#
+# La caja es de la SUCURSAL: a lo sumo un turno abierto por sucursal a la vez. El efectivo que se espera en el cajón es
+#   monto inicial + efectivo cobrado en la sucursal durante el turno - efectivo reembolsado durante el turno.
+# El efectivo cobrado se filtra por el MÉTODO de pago (no por el canal de la venta), sin importar qué cajero registró cada
+# venta. Lo cobrado con QR, tarjeta o transferencia en la tienda y las compras online son solo informativos. Una venta
+# hecha sin conexión cuenta en el turno que cubría su hora REAL de cobro, aunque se sincronice horas después: el cierre
+# ya hecho no cambia y el detalle muestra la diferencia como `ajuste_posterior`.
+# Un turno no pasa del día (en hora de Bolivia): al terminar el día se cierra solo, SIN conteo (`cerrada_auto`); un
+# supervisor puede completar ese conteo una vez, dentro de `HORAS_PARA_COMPLETAR_CONTEO`.
+
+caja_turno_repo = CajaTurnoRepository()
+
+HORAS_PARA_COMPLETAR_CONTEO = 72
+
+
+@dataclass(frozen=True)
+class ResumenTurno:
+    """El dinero de un turno en una ventana de tiempo (ver el comentario de arriba)."""
+
+    ventas_efectivo: Decimal
+    cantidad_ventas: int
+    reembolsos_efectivo: Decimal
+    ventas_otros_metodos: Decimal
+    ventas_online: Decimal
+    cantidad_ventas_online: int
+    monto_esperado: Decimal
+
+
+def resumen_de_turno(db: Session, turno: CajaTurno, hasta: dt.datetime | None = None) -> ResumenTurno:
+    """Calcula el dinero del turno entre su apertura y `hasta` (por defecto, su cierre o, si sigue abierto, ahora)."""
+    limite = hasta if hasta is not None else (turno.cierre_en or ahora_utc_naive())
+    empresa, sucursal, desde = turno.empresa_id, turno.sucursal_id, turno.apertura_en
+    cobrado, cantidad = caja_turno_repo.efectivo_cobrado(db, empresa, sucursal, desde, limite)
+    devuelto = caja_turno_repo.reembolsos_en_efectivo(db, empresa, sucursal, desde, limite)
+    otros = caja_turno_repo.cobrado_en_otros_metodos(db, empresa, sucursal, desde, limite)
+    online, cantidad_online = caja_turno_repo.ventas_online(db, empresa, sucursal, desde, limite)
+    return ResumenTurno(
+        ventas_efectivo=redondear(cobrado),
+        cantidad_ventas=cantidad,
+        reembolsos_efectivo=redondear(devuelto),
+        ventas_otros_metodos=redondear(otros),
+        ventas_online=redondear(online),
+        cantidad_ventas_online=cantidad_online,
+        monto_esperado=redondear(Decimal(turno.monto_inicial) + cobrado - devuelto),
+    )
+
+
+def fin_de_dia_bolivia(instante: dt.datetime) -> dt.datetime:
+    """El instante (UTC naive) en que termina el día de Bolivia en que cae `instante` (UTC naive)."""
+    return dia_bolivia(instante.replace(tzinfo=dt.timezone.utc))[2]
+
+
+def limites_de_dias_bolivia(
+    desde: dt.date | None, hasta: dt.date | None
+) -> tuple[dt.datetime | None, dt.datetime | None]:
+    """De un rango de días de Bolivia (ambos incluidos) a instantes UTC naive: `[inicio de desde, inicio del día después
+    de hasta)`. Un extremo `None` queda abierto."""
+
+    def a_dia(fecha: dt.date) -> tuple[dt.date, dt.datetime, dt.datetime]:
+        return dia_bolivia(dt.datetime.combine(fecha, dt.time(12), tzinfo=ZONA_BOLIVIA))
+
+    return (a_dia(desde)[1] if desde is not None else None), (a_dia(hasta)[2] if hasta is not None else None)
+
+
+def es_supervisor_de_caja(db: Session, usuario_id: int) -> bool:
+    return PERMISO_CAJA_SUPERVISAR in permisos_de_usuario(db, usuario_id)
+
+
+def _error_turno_ya_abierto() -> ErrorFuncional:
+    return ErrorFuncional("turno_ya_abierto", "Ya hay un turno abierto en esta sucursal", 409)
+
+
+def _error_turno_cerrado() -> ErrorFuncional:
+    return ErrorFuncional("turno_cerrado", "Este turno ya está cerrado", 409)
+
+
+def _aplicar_foto_del_cierre(turno: CajaTurno, resumen: ResumenTurno) -> None:
+    """Guarda lo que el sistema sabía al cerrar: un cierre pasado no cambia aunque después llegue una venta tarde."""
+    turno.ventas_efectivo = resumen.ventas_efectivo
+    turno.reembolsos_efectivo = resumen.reembolsos_efectivo
+    turno.monto_esperado = resumen.monto_esperado
+    turno.cantidad_ventas = resumen.cantidad_ventas
+    turno.ventas_otros_metodos = resumen.ventas_otros_metodos
+
+
+def sucursal_de_caja(db: Session, usuario_id: int, sucursal_id: int | None) -> int:
+    """La sucursal sobre la que opera la caja esta persona: la suya si está limitada a una (403 si pide otra); quien opera
+    todas las sucursales (el administrador) tiene que indicarla. Debe existir en la empresa, estar activa y no ser un
+    depósito (allí no se cobra)."""
+    propia = plataforma_politicas.sucursal_asignada(db, usuario_id)
+    if propia is not None:
+        if sucursal_id is not None and sucursal_id != propia:
+            raise PermisoDenegadoError("No tienes acceso a esa sucursal")
+        sucursal_id = propia
+    elif sucursal_id is None:
+        raise DomainError("Indica la sucursal de la caja")
+    sucursal = plataforma_politicas.obtener_sucursal(db, sucursal_id)  # 404 si no existe o es de otra empresa
+    if not sucursal.activo or sucursal.es_deposito:
+        raise DomainError("En esa sucursal no se cobra: elige otra")
+    return sucursal_id
+
+
+def cerrar_turnos_vencidos(db: Session, sucursal_id: int | None = None) -> int:
+    """Cierra solos, SIN conteo, los turnos que ya pasaron del día en que se abrieron (hora de Bolivia): el cierre queda a
+    las 24:00 de ese día y el esperado se congela. Cada uno se bloquea y se vuelve a mirar antes de tocarlo. Corre como
+    tarea periódica y también al abrir o consultar un turno, así un turno olvidado de ayer nunca bloquea a la sucursal
+    aunque la tarea no haya corrido. Devuelve cuántos cerró."""
+    ahora = ahora_utc_naive()
+    cerrados = 0
+    for turno in caja_turno_repo.listar_abiertos(db, None if sucursal_id is None else [sucursal_id]):
+        fin = fin_de_dia_bolivia(turno.apertura_en)
+        if ahora < fin:
+            continue
+        bloqueado = caja_turno_repo.obtener_bloqueado(db, turno.id)
+        if bloqueado.estado != "abierta":
+            db.rollback()
+            continue
+        resumen = resumen_de_turno(db, bloqueado, fin)
+        _aplicar_foto_del_cierre(bloqueado, resumen)
+        bloqueado.estado = "cerrada_auto"
+        bloqueado.cierre_en = fin
+        bloqueado.cerrado_por_id = None
+        plataforma_politicas.registrar_bitacora(
+            db,
+            None,
+            ENTIDAD_CIERRE_CAJA,
+            bloqueado.id,
+            ACCION_CIERRE_AUTOMATICO,
+            {"sucursal_id": bloqueado.sucursal_id, "monto_esperado": str(resumen.monto_esperado)},
+        )
+        db.commit()
+        cerrados += 1
+    return cerrados
+
+
+def vencer_turnos_de_todas_las_empresas(db: Session) -> int:
+    """`cerrar_turnos_vencidos` una vez por cada empresa activa (tarea periódica, sin actor humano). Una empresa que
+    falla no frena a las demás."""
+    resultados = por_cada_empresa(db, plataforma_politicas.listar_empresas_activas(db), cerrar_turnos_vencidos)
+    return sum(r or 0 for r in resultados)
+
+
+def abrir_turno(
+    db: Session, usuario_id: int, datos: TurnoAbrir, contexto: ContextoAuditoria | None = None
+) -> CajaTurno:
+    sucursal_id = sucursal_de_caja(db, usuario_id, datos.sucursal_id)
+    cerrar_turnos_vencidos(db, sucursal_id)
+    if caja_turno_repo.obtener_abierto_de_sucursal(db, sucursal_id) is not None:
+        raise _error_turno_ya_abierto()
+    turno = CajaTurno(
+        sucursal_id=sucursal_id,
+        abierto_por_id=usuario_id,
+        estado="abierta",
+        apertura_en=ahora_utc_naive(),
+        monto_inicial=redondear(Decimal(datos.monto_inicial)),
+        observacion_apertura=(datos.observacion or "").strip() or None,
+        pendientes_declarados=0,
+    )
+    try:
+        # En un SAVEPOINT: dos aperturas simultáneas chocan en el índice único parcial y la segunda recibe el 409.
+        with db.begin_nested():
+            caja_turno_repo.crear(db, turno)
+    except IntegrityError as exc:
+        db.rollback()
+        raise _error_turno_ya_abierto() from exc
+    plataforma_politicas.registrar_bitacora_de(
+        db,
+        contexto,
+        ENTIDAD_CIERRE_CAJA,
+        turno.id,
+        ACCION_ABRIR,
+        {"sucursal_id": sucursal_id, "monto_inicial": str(turno.monto_inicial)},
+    )
+    db.commit()
+    db.refresh(turno)
+    return turno
+
+
+def cerrar_turno(
+    db: Session, usuario_id: int, turno_id: int, datos: TurnoCerrar, contexto: ContextoAuditoria | None = None
+) -> CajaTurno:
+    """Cierra el turno contando el efectivo. Lo cierra quien lo abrió o un supervisor de la sucursal. La diferencia es
+    `contado - esperado`; si no es cero la observación es obligatoria."""
+    existente = caja_turno_repo.obtener(db, turno_id)  # 404 si no existe o es de otra empresa
+    cerrar_turnos_vencidos(db, existente.sucursal_id)
+    turno = caja_turno_repo.obtener_bloqueado(db, turno_id)
+    plataforma_politicas.validar_acceso_sucursal(db, usuario_id, turno.sucursal_id)
+    if turno.estado != "abierta":
+        raise _error_turno_cerrado()
+    permisos = permisos_de_usuario(db, usuario_id)
+    es_supervisor = PERMISO_CAJA_SUPERVISAR in permisos
+    if not es_supervisor:
+        if turno.abierto_por_id != usuario_id:
+            raise ErrorFuncional(
+                "turno_de_otro_cajero", "Este turno lo abrió otra persona: pide a un supervisor que lo cierre", 403
+            )
+        if PERMISO_VENTAS_PRESENCIAL not in permisos:
+            raise PermisoDenegadoError(f"Falta el permiso '{PERMISO_VENTAS_PRESENCIAL}'")
+
+    hasta = ahora_utc_naive()
+    resumen = resumen_de_turno(db, turno, hasta)
+    contado = redondear(Decimal(datos.efectivo_contado))
+    diferencia = redondear(contado - resumen.monto_esperado)
+    observacion = (datos.observacion or "").strip()
+    if diferencia != 0 and not observacion:
+        raise ErrorFuncional(
+            "observacion_requerida", "El conteo no coincide con lo esperado: explica la diferencia en la observación", 400
+        )
+    _aplicar_foto_del_cierre(turno, resumen)
+    turno.estado = "cerrada"
+    turno.cierre_en = hasta
+    turno.cerrado_por_id = usuario_id
+    turno.efectivo_contado = contado
+    turno.diferencia = diferencia
+    turno.pendientes_declarados = datos.pendientes_sin_sincronizar
+    turno.observacion_cierre = observacion or None
+    plataforma_politicas.registrar_bitacora_de(
+        db,
+        contexto,
+        ENTIDAD_CIERRE_CAJA,
+        turno.id,
+        ACCION_CERRAR,
+        {
+            "sucursal_id": turno.sucursal_id,
+            "monto_esperado": str(resumen.monto_esperado),
+            "efectivo_contado": str(contado),
+            "diferencia": str(diferencia),
+            "cantidad_ventas": resumen.cantidad_ventas,
+            "por_supervisor": turno.abierto_por_id != usuario_id,
+        },
+    )
+    db.commit()
+    db.refresh(turno)
+    return turno
+
+
+def completar_conteo_de_turno(
+    db: Session, usuario_id: int, turno_id: int, datos: TurnoCompletarConteo, contexto: ContextoAuditoria | None = None
+) -> CajaTurno:
+    """Un supervisor cuenta el cajón de un turno que se cerró solo: una sola vez y dentro de `HORAS_PARA_COMPLETAR_CONTEO`
+    después del cierre. La diferencia se calcula contra el esperado que se congeló al cerrar."""
+    turno = caja_turno_repo.obtener_bloqueado(db, turno_id)
+    plataforma_politicas.validar_acceso_sucursal(db, usuario_id, turno.sucursal_id)
+    if turno.estado != "cerrada_auto":
+        raise ErrorFuncional(
+            "conteo_no_aplica", "Solo se completa el conteo de un turno que se cerró automáticamente", 409
+        )
+    if turno.efectivo_contado is not None:
+        raise ErrorFuncional("conteo_ya_registrado", "El conteo de este turno ya se registró", 409)
+    ahora = ahora_utc_naive()
+    if ahora > turno.cierre_en + dt.timedelta(hours=HORAS_PARA_COMPLETAR_CONTEO):
+        raise ErrorFuncional(
+            "conteo_fuera_de_plazo",
+            f"Pasaron más de {HORAS_PARA_COMPLETAR_CONTEO} horas: ya no se puede completar el conteo",
+            409,
+        )
+    contado = redondear(Decimal(datos.efectivo_contado))
+    turno.efectivo_contado = contado
+    turno.diferencia = redondear(contado - Decimal(turno.monto_esperado))
+    turno.conteo_en = ahora
+    turno.conteo_por_id = usuario_id
+    turno.observacion_conteo = datos.observacion.strip()
+    plataforma_politicas.registrar_bitacora_de(
+        db,
+        contexto,
+        ENTIDAD_CIERRE_CAJA,
+        turno.id,
+        ACCION_COMPLETAR_CONTEO,
+        {"sucursal_id": turno.sucursal_id, "efectivo_contado": str(contado), "diferencia": str(turno.diferencia)},
+    )
+    db.commit()
+    db.refresh(turno)
+    return turno
+
+
+def ajuste_posterior_de_turno(db: Session, turno: CajaTurno) -> Decimal | None:
+    """Solo en un turno ya cerrado: el esperado recalculado HOY con la misma ventana menos el que se guardó al cerrar.
+    Positivo = llegaron ventas sincronizadas tarde; negativo = algo se devolvió o anuló después."""
+    if turno.estado == "abierta" or turno.cierre_en is None or turno.monto_esperado is None:
+        return None
+    return redondear(resumen_de_turno(db, turno, turno.cierre_en).monto_esperado - Decimal(turno.monto_esperado))
+
+
+def monto_inicial_sugerido(db: Session, sucursal_id: int) -> Decimal | None:
+    """Para abrir el siguiente turno: lo que se contó al cerrar el anterior (si ese se cerró solo y nadie lo contó, el
+    esperado), o `None` si la sucursal nunca tuvo un turno."""
+    ultimo = caja_turno_repo.ultimo_cerrado_de_sucursal(db, sucursal_id)
+    if ultimo is None:
+        return None
+    return Decimal(ultimo.efectivo_contado if ultimo.efectivo_contado is not None else ultimo.monto_esperado)
+
+
+def _nombre_completo(usuario) -> str | None:
+    if usuario is None:
+        return None
+    return f"{usuario.nombre} {usuario.apellido or ''}".strip()
+
+
+def construir_turno_respuesta(
+    db: Session,
+    turno: CajaTurno,
+    *,
+    ver_esperado: bool,
+    detalle: bool = False,
+    usuarios: dict | None = None,
+    sucursales: dict[int, str] | None = None,
+) -> TurnoRespuesta | TurnoDetalleRespuesta:
+    """Arma la respuesta. CIERRE CIEGO: `monto_esperado` y `resumen` solo van con `ver_esperado` (el supervisor, o quien
+    ya cerró el turno). `usuarios` y `sucursales` permiten resolver los nombres de un listado en lote."""
+    if usuarios is None:
+        ids = {turno.abierto_por_id, turno.cerrado_por_id, turno.conteo_por_id} - {None}
+        usuarios = plataforma_politicas.obtener_usuarios_por_ids(db, list(ids))
+    if sucursales is not None and turno.sucursal_id in sucursales:
+        sucursal_nombre = sucursales[turno.sucursal_id]
+    else:
+        sucursal_nombre = plataforma_politicas.obtener_sucursal(db, turno.sucursal_id).nombre
+
+    resumen = None
+    monto_esperado = None
+    if ver_esperado:
+        if turno.estado == "abierta":
+            vivo = resumen_de_turno(db, turno)
+            resumen = ResumenTurnoRespuesta(**vivo.__dict__)
+        else:
+            # Un turno cerrado muestra la foto que se guardó; lo informativo de la ventana se recalcula.
+            actual = resumen_de_turno(db, turno, turno.cierre_en)
+            resumen = ResumenTurnoRespuesta(
+                ventas_efectivo=turno.ventas_efectivo,
+                cantidad_ventas=turno.cantidad_ventas or 0,
+                reembolsos_efectivo=turno.reembolsos_efectivo,
+                ventas_otros_metodos=turno.ventas_otros_metodos,
+                ventas_online=actual.ventas_online,
+                cantidad_ventas_online=actual.cantidad_ventas_online,
+                monto_esperado=turno.monto_esperado,
+            )
+        monto_esperado = resumen.monto_esperado
+
+    conteo_hasta = None
+    if turno.estado == "cerrada_auto" and turno.efectivo_contado is None and turno.cierre_en is not None:
+        conteo_hasta = turno.cierre_en + dt.timedelta(hours=HORAS_PARA_COMPLETAR_CONTEO)
+
+    datos = dict(
+        id=turno.id,
+        sucursal_id=turno.sucursal_id,
+        sucursal_nombre=sucursal_nombre,
+        estado=turno.estado,
+        apertura_en=turno.apertura_en,
+        abierto_por_id=turno.abierto_por_id,
+        abierto_por_nombre=_nombre_completo(usuarios.get(turno.abierto_por_id)),
+        monto_inicial=turno.monto_inicial,
+        observacion_apertura=turno.observacion_apertura,
+        cierre_en=turno.cierre_en,
+        cerrado_por_id=turno.cerrado_por_id,
+        cerrado_por_nombre=_nombre_completo(usuarios.get(turno.cerrado_por_id)),
+        cierre_automatico=turno.estado == "cerrada_auto",
+        efectivo_contado=turno.efectivo_contado if (ver_esperado or turno.estado == "abierta") else None,
+        diferencia=turno.diferencia if ver_esperado else None,
+        pendientes_declarados=turno.pendientes_declarados,
+        observacion_cierre=turno.observacion_cierre,
+        conteo_en=turno.conteo_en,
+        conteo_por_nombre=_nombre_completo(usuarios.get(turno.conteo_por_id)),
+        observacion_conteo=turno.observacion_conteo,
+        conteo_hasta=conteo_hasta,
+        monto_esperado=monto_esperado,
+        resumen=resumen,
+    )
+    if not detalle:
+        return TurnoRespuesta(**datos)
+    reembolsos = [
+        ReembolsoRespuesta.model_validate(fila)
+        for fila in db.scalars(
+            select(Reembolso)
+            .where(
+                Reembolso.empresa_id == turno.empresa_id,
+                Reembolso.sucursal_id == turno.sucursal_id,
+                Reembolso.estado == "reembolsado",
+                Reembolso.completado_en >= turno.apertura_en,
+                Reembolso.completado_en <= (turno.cierre_en or ahora_utc_naive()),
+            )
+            .order_by(Reembolso.completado_en, Reembolso.id)
+            .limit(200)
+        )
+    ]
+    return TurnoDetalleRespuesta(
+        **datos, ajuste_posterior=ajuste_posterior_de_turno(db, turno), reembolsos=reembolsos
+    )

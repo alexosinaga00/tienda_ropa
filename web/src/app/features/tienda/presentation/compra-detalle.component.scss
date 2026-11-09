@@ -141,6 +141,18 @@
   color: var(--fs-texto-tenue);
 }
 
+// Dinero devuelto de la compra (solo si lo hay).
+.reembolsos-compra {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reembolsos-compra__titulo {
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .seguimiento__estado {
   font-size: 16px;
   font-weight: 600;

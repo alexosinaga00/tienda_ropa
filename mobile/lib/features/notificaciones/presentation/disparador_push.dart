@@ -11,7 +11,8 @@ import '../../../core/router/app_router.dart';
 import '../../../core/sync/disparador_sincronizacion.dart' show mensajeroGlobal;
 import '../../auth/state/auth_controller.dart';
 import '../../auth/state/auth_state.dart';
-import '../../compras/state/compras_providers.dart' show compraDetalleProvider;
+import '../../compras/state/compras_providers.dart'
+    show compraDetalleProvider, misSolicitudesCambioProvider, reembolsosDeCompraProvider;
 import '../models/ruta_notificacion.dart';
 import '../state/notificaciones_controller.dart';
 
@@ -103,6 +104,7 @@ class _DisparadorPushState extends ConsumerState<DisparadorPush> {
     if (_estadoSesion != EstadoSesion.autenticado) return;
     // La campana y la lista se actualizan siempre; lo que se decide aparte es si además sale el SnackBar.
     unawaited(_refrescarLista());
+    _refrescarCompraSiEsReembolso(aviso);
     if (!_hayQueMostrar(aviso)) return;
     final mensajero = mensajeroGlobal.currentState;
     final titulo = aviso.titulo;
@@ -124,6 +126,17 @@ class _DisparadorPushState extends ConsumerState<DisparadorPush> {
           action: SnackBarAction(label: 'Ver', onPressed: () => _abrir(aviso)),
         ),
       );
+  }
+
+  /// Un reembolso cambia lo que muestra el detalle de esa compra (el dinero devuelto, las devoluciones y la solicitud de
+  /// cambio aprobada): si la pantalla está abierta, o queda en memoria debajo de otra, se vuelve a pedir en vez de
+  /// quedarse con lo viejo. No es parte de la deduplicación de la compra confirmada: es otro hecho.
+  void _refrescarCompraSiEsReembolso(AvisoPush aviso) {
+    final venta = aviso.referenciaId;
+    if (aviso.tipo != 'reembolso' || venta == null) return;
+    ref.invalidate(reembolsosDeCompraProvider(venta));
+    ref.invalidate(compraDetalleProvider(venta));
+    ref.invalidate(misSolicitudesCambioProvider(venta));
   }
 
   /// Si el aviso en primer plano debe salir como SnackBar. No sale cuando el mismo hecho ya se avisó (el pago
@@ -164,6 +177,7 @@ class _DisparadorPushState extends ConsumerState<DisparadorPush> {
 
   /// Lleva a la pantalla del aviso (o a la lista de notificaciones si su tipo no tiene pantalla propia).
   void _abrir(AvisoPush aviso) {
+    _refrescarCompraSiEsReembolso(aviso);
     unawaited(_refrescarYMarcar(aviso.notificacionId));
     _irA(rutaDeTipoNotificacion(aviso.tipo, aviso.referenciaId) ?? '/notificaciones');
   }

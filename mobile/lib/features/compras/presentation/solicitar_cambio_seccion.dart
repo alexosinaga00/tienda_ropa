@@ -8,6 +8,7 @@ import '../../../core/widgets/boton_cargando.dart';
 import '../models/solicitud_cambio.dart';
 import '../models/venta.dart';
 import '../state/compras_providers.dart';
+import 'reembolso_fila.dart';
 
 const _colorEstadoSolicitud = {
   'pendiente': AppColors.advertencia,
@@ -15,9 +16,14 @@ const _colorEstadoSolicitud = {
   'rechazada': AppColors.error,
 };
 
-/// El cliente pide cambiar la talla o el color de una prenda de su compra (CU-17, Etapa 2) y ve cómo van sus
-/// solicitudes. El pedido no mueve stock ni reserva la prenda nueva: el personal de la sucursal lo aprueba o lo
-/// rechaza cuando el cliente lleva la prenda. Se pueden pedir varias prendas en una sola solicitud.
+/// En el selector de cada prenda: "devolver y recibir mi dinero" en vez de elegir otra talla o color. Las variantes
+/// reales tienen id positivo, así que 0 no se confunde con ninguna.
+const _devolverPorDinero = 0;
+
+/// El cliente pide cambiar la talla o el color de una prenda de su compra, o devolverla y recibir su dinero (CU-17), y
+/// ve cómo van sus solicitudes. El pedido no mueve stock ni dinero: el personal de la sucursal lo aprueba o lo rechaza
+/// cuando el cliente lleva la prenda, y el dinero se devuelve cuando la tienda la revisa. Se pueden pedir varias
+/// prendas en una sola solicitud, mezclando cambios y devoluciones.
 ///
 /// El formulario solo aparece con el plazo de cambio vigente; la lista de solicitudes se ve siempre que haya alguna.
 class SolicitarCambioSeccion extends ConsumerStatefulWidget {
@@ -55,8 +61,13 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
       final nombre = linea.productoNombre ?? 'la prenda';
       final nueva = _elegidas[linea.id];
       if (nueva == null) {
-        setState(() => _error = 'Elige la talla o el color nuevo de $nombre.');
+        setState(() => _error = 'Elige qué quieres hacer con $nombre: cambiar la talla o el color, o devolverla.');
         return;
+      }
+      if (nueva == _devolverPorDinero) {
+        // Sin variante nueva: el servidor lo entiende como devolver y reembolsar.
+        lineas.add(LineaSolicitudCambio(ventaDetalleId: linea.id, cantidad: cantidad));
+        continue;
       }
       final opcion = (porLinea[linea.id] ?? const <OpcionCambio>[]).where((o) => o.varianteId == nueva).firstOrNull;
       if (opcion != null && cantidad > opcion.disponible) {
@@ -66,7 +77,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
       lineas.add(LineaSolicitudCambio(ventaDetalleId: linea.id, cantidad: cantidad, varianteNuevaId: nueva));
     }
     if (lineas.isEmpty) {
-      setState(() => _error = 'Indica cuántas unidades quieres cambiar y por cuál talla o color.');
+      setState(() => _error = 'Indica cuántas unidades quieres cambiar o devolver y qué quieres hacer con ellas.');
       return;
     }
 
@@ -182,11 +193,12 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Cambiar talla o color', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            const Text('Cambiar o devolver', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: AppSpacing.xs),
             const Text(
-              'Elige la prenda y la talla o el color que quieres en su lugar. Después llévala a la tienda para que '
-              'aprueben el pedido.',
+              'Elige la prenda y la talla o el color que quieres en su lugar, o devuélvela y recibe tu dinero. '
+              'Después llévala a la tienda para que aprueben el pedido. Si la devuelves, el dinero vuelve a ti '
+              'cuando la tienda revise la prenda.',
               style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
             ),
             if (_venta.avisoDevolucionParcial != null) ...[
@@ -226,13 +238,11 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
   }
 
   Widget _lineas(Map<int, List<OpcionCambio>> porLinea, Set<int> bloqueadas, bool enLinea) {
-    final lineas = [
-      for (final l in _venta.lineasCambiables)
-        if ((porLinea[l.id] ?? const <OpcionCambio>[]).isNotEmpty) l,
-    ];
+    // Toda prenda que aún se puede devolver se ofrece: aunque no haya otra talla con stock, se puede pedir el dinero.
+    final lineas = _venta.lineasCambiables;
     if (lineas.isEmpty) {
       return const Text(
-        'No hay otra talla o color con stock para esta compra.',
+        'No hay prendas de esta compra para cambiar o devolver.',
         style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
       );
     }
@@ -240,7 +250,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final l in lineas) _fila(l, porLinea[l.id]!, bloqueadas.contains(l.id)),
+        for (final l in lineas) _fila(l, porLinea[l.id] ?? const <OpcionCambio>[], bloqueadas.contains(l.id)),
         TextField(
           key: const Key('motivo-cambio'),
           controller: _motivo,
@@ -255,7 +265,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
         ElevatedButton(
           key: const Key('enviar-solicitud-cambio'),
           onPressed: puedeEnviar ? () => _enviar(porLinea) : null,
-          child: _enviando ? const BotonCargando() : const Text('Solicitar cambio'),
+          child: _enviando ? const BotonCargando() : const Text('Enviar solicitud'),
         ),
         if (!enLinea)
           const Padding(
@@ -296,7 +306,7 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
           else ...[
             Row(
               children: [
-                const Text('Unidades a cambiar'),
+                const Text('Unidades'),
                 const Spacer(),
                 IconButton(
                   key: Key('menos-${linea.id}'),
@@ -322,10 +332,11 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
               key: Key('cambiar-por-${linea.id}'),
               initialValue: _elegidas[linea.id],
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Cambiar por'),
+              decoration: const InputDecoration(labelText: 'Cambiar por o devolver'),
               items: [
                 for (final o in opciones)
                   DropdownMenuItem(value: o.varianteId, child: Text('${o.etiqueta} · quedan ${o.disponible}')),
+                const DropdownMenuItem(value: _devolverPorDinero, child: Text('Devolver y recibir mi dinero')),
               ],
               onChanged: (valor) => setState(() {
                 if (valor == null) return;
@@ -334,6 +345,15 @@ class _SolicitarCambioSeccionState extends ConsumerState<SolicitarCambioSeccion>
                 if ((_cantidades[linea.id] ?? 0) == 0) _cantidades[linea.id] = 1;
               }),
             ),
+            if (_elegidas[linea.id] == _devolverPorDinero)
+              Padding(
+                key: Key('aviso-devolver-${linea.id}'),
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: const Text(
+                  'Te devolvemos tu dinero cuando la tienda revise la prenda.',
+                  style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                ),
+              ),
           ],
         ],
       ),
@@ -425,10 +445,25 @@ class _TarjetaSolicitud extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.xs),
                 child: Text(
-                  '${l.prendaDevuelta} → ${l.prendaNueva ?? 'otra talla'} (x${l.cantidad})',
+                  l.esDevolucion
+                      ? 'Devuelves: ${l.prendaDevuelta} (x${l.cantidad}) · Quieres: que te devolvamos tu dinero'
+                      : '${l.prendaDevuelta} → ${l.prendaNueva ?? 'otra talla'} (x${l.cantidad})',
                   style: const TextStyle(fontSize: 13),
                 ),
               ),
+            if (solicitud.estaPendiente && solicitud.pideDevolucionDeDinero)
+              const Padding(
+                padding: EdgeInsets.only(top: AppSpacing.xs),
+                child: Text(
+                  'Te devolvemos tu dinero cuando la tienda revise la prenda.',
+                  style: TextStyle(color: AppColors.textoTenue, fontSize: 13),
+                ),
+              ),
+            if (solicitud.estado == 'aprobada' && solicitud.reembolsos.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.xs),
+              const Text('Dinero devuelto', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              for (final r in solicitud.reembolsos) FilaReembolso(reembolso: r),
+            ],
             if (solicitud.motivo != null && solicitud.motivo!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.xs),

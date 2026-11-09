@@ -3,7 +3,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../environments/environment';
-import type { SolicitudCambio } from '../../core/models/ventas.models';
+import { AuthService } from '../../core/auth.service';
+import type { Reembolso, SolicitudCambio } from '../../core/models/ventas.models';
 import { SolicitudesCambioComponent } from './solicitudes-cambio.component';
 
 const API = environment.apiUrl;
@@ -48,7 +49,13 @@ describe('SolicitudesCambioComponent', () => {
   function abrir(lista: SolicitudCambio[]): void {
     TestBed.configureTestingModule({
       imports: [SolicitudesCambioComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+        // Quien atiende la bandeja puede reintentar un reembolso (permiso pagos.gestionar).
+        { provide: AuthService, useValue: { tienePermiso: () => true } },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
     avisos = TestBed.inject(MessageService);
@@ -204,6 +211,104 @@ describe('SolicitudesCambioComponent', () => {
     expect(texto).toContain('Vencida');
     expect(el.querySelector('[data-estado="aprobar"]')).toBeNull(); // solo las pendientes se resuelven
     expect(pendientes.at(-1)).toBe(0);
+  });
+
+  describe('solicitud sin cambio: "Devuelve y reembolsa"', () => {
+    const sinCambio = (extra: Partial<SolicitudCambio> = {}) =>
+      solicitud({
+        detalle: [{ ...solicitud().detalle[0], variante_nueva_id: null, prenda_nueva: null, disponible_nueva: null }],
+        ...extra,
+      });
+    const reembolso = (extra: Partial<Reembolso> = {}): Reembolso => ({
+      id: 31,
+      devolucion_id: 5,
+      pago_id: 12,
+      venta_id: 70,
+      sucursal_id: 4,
+      metodo: 'efectivo',
+      monto: '90.00',
+      monto_usd: null,
+      estado: 'reembolsado',
+      referencia_externa: null,
+      motivo_fallo: null,
+      creado_en: '2026-11-08T15:00:00Z',
+      completado_en: '2026-11-08T15:00:00Z',
+      ...extra,
+    });
+
+    it('la rotula "Devuelve y reembolsa", sin prenda que quiera, y se aprueba como devolución', () => {
+      abrir([sinCambio()]);
+
+      expect(el.querySelector('[data-estado="devuelve-reembolsa"]')?.textContent).toContain('Devuelve y reembolsa');
+      expect(el.textContent).not.toContain('Quiere');
+      expect(boton('aprobar')!.textContent).toContain('Aprobar devolución');
+      expect(boton('aprobar')!.disabled).toBe(false); // no depende del stock de ninguna prenda nueva
+    });
+
+    it('una solicitud de cambio sigue rotulada como siempre', () => {
+      abrir([solicitud()]);
+
+      expect(el.querySelector('[data-estado="devuelve-reembolsa"]')).toBeNull();
+      expect(boton('aprobar')!.textContent).toContain('Aprobar cambio');
+    });
+
+    it('al aprobarla muestra el reembolso resultante aunque ya salga de "Pendientes"', () => {
+      abrir([sinCambio()]);
+      const toast = vi.spyOn(avisos, 'add');
+
+      boton('aprobar')!.click();
+      http
+        .expectOne(`${API}/solicitudes-cambio/11/aprobar`)
+        .flush(sinCambio({ estado: 'aprobada', correo_programado: true, reembolsos: [reembolso()] }));
+      http.expectOne((r) => r.url === URL_LISTA).flush([]);
+      fixture.detectChanges();
+
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ summary: 'Devolución aprobada' }));
+      const bloque = el.querySelector('[data-estado="reembolso-aprobado"]');
+      expect(bloque?.textContent).toContain('SOL-0011');
+      expect(bloque?.textContent).toContain('Bs 90.00');
+      expect(bloque?.textContent).toContain('en efectivo, en la tienda');
+      expect(bloque?.textContent).toContain('Reembolsado');
+    });
+
+    it('si el reembolso quedó en proceso ofrece Reintentar y lo actualiza', () => {
+      abrir([sinCambio()]);
+      boton('aprobar')!.click();
+      http
+        .expectOne(`${API}/solicitudes-cambio/11/aprobar`)
+        .flush(sinCambio({ estado: 'aprobada', reembolsos: [reembolso({ estado: 'pendiente', completado_en: null, metodo: 'paypal' })] }));
+      http.expectOne((r) => r.url === URL_LISTA).flush([]);
+      fixture.detectChanges();
+      expect(el.querySelector('[data-estado="reembolso-aprobado"]')?.textContent).toContain('En proceso');
+
+      boton('reintentar-reembolso')!.click();
+      http.expectOne(`${API}/reembolsos/31/reintentar`).flush(reembolso({ metodo: 'paypal' }));
+      fixture.detectChanges();
+
+      expect(el.querySelector('[data-estado="reembolso-aprobado"]')?.textContent).toContain('Reembolsado');
+      expect(boton('reintentar-reembolso')).toBeNull();
+    });
+
+    it('en "Todas" una aprobada trae su reembolso', () => {
+      abrir([]);
+      boton('filtro-todas')!.click();
+      http
+        .expectOne((r) => r.url === URL_LISTA)
+        .flush([sinCambio({ estado: 'aprobada', resuelta_en: '2026-11-08T16:00:00Z', reembolsos: [reembolso()] })]);
+      fixture.detectChanges();
+
+      expect(el.querySelector('[data-estado="reembolso-solicitud"]')?.textContent).toContain('Bs 90.00');
+    });
+
+    it('un cambio aprobado sin reembolsos no muestra el bloque', () => {
+      abrir([solicitud()]);
+      boton('aprobar')!.click();
+      http.expectOne(`${API}/solicitudes-cambio/11/aprobar`).flush(solicitud({ estado: 'aprobada', reembolsos: [] }));
+      http.expectOne((r) => r.url === URL_LISTA).flush([]);
+      fixture.detectChanges();
+
+      expect(el.querySelector('[data-estado="reembolso-aprobado"]')).toBeNull();
+    });
   });
 
   it('si no se pudo cargar avisa y deja reintentar', () => {

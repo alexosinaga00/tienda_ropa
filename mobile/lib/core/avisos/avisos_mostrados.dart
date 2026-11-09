@@ -33,6 +33,8 @@ final avisosMostradosProvider = Provider<AvisosMostrados>((ref) {
 });
 
 /// Los tipos de notificación que dicen "tu compra está pagada": para el mismo `referencia_id` son el mismo hecho.
+/// `reembolso` NO entra aquí: aunque su `referencia_id` también es la venta, es otro hecho (te devolvieron dinero) y no
+/// debe callarse porque la compra ya se avisó, ni callar a la compra.
 const tiposDeCompraConfirmada = {'compra_confirmada', 'pedido_diferido'};
 
 /// La ruta que muestra la app ahora (la de arriba de la pila), o null si no se puede saber.

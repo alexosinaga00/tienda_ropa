@@ -49,6 +49,11 @@ METODO_PAGO_GUARDADO = "metodo_pago_guardado"
 PEDIDO_DIFERIDO = "pedido_diferido"
 # Notificaciones push (FCM): `dispositivo_push` también es de empresa (EmpresaMixin, NOT NULL) y se cuenta aparte.
 DISPOSITIVO_PUSH = "dispositivo_push"
+# Reembolsos (CU-17 y CU-18): `reembolso` (el dinero devuelto a quien compró) es de empresa (EmpresaMixin, NOT NULL) y se
+# cuenta aparte.
+REEMBOLSO = "reembolso"
+# Cierre de caja (E21): `caja_turno` (el turno del cajón de una sucursal) también es de empresa (EmpresaMixin, NOT NULL).
+CAJA_TURNO = "caja_turno"
 # Contratación de planes: `pedido_contratacion` es global y SIN `empresa_id` (quien compra aún no tiene empresa; la
 # empresa que se crea se enlaza en `empresa_creada_id`). Se trata como `plan`: sin pertenencia a una empresa.
 PEDIDO_CONTRATACION = "pedido_contratacion"
@@ -107,19 +112,20 @@ def test_los_conjuntos_coinciden_con_la_seccion_4_1():
     nombres = {t.name for t in Base.metadata.sorted_tables}
     # 59 tablas del primer parcial + empresa, plan, suscripcion + bitacora (E06) + operacion_sync (E07)
     # + modelo_ml (E11) + copia_seguridad (E22) + pedido_contratacion (contratación de planes, sin empresa_id)
-    # + metodo_pago_guardado y pedido_diferido (PayPal guardado y pedido sin conexión) + dispositivo_push (push).
+    # + metodo_pago_guardado y pedido_diferido (PayPal guardado y pedido sin conexión) + dispositivo_push (push)
+    # + reembolso (el dinero devuelto a quien compró) + caja_turno (el turno del cajón de una sucursal).
     assert nombres == EMPRESA_4_1 | GLOBALES_4_1 | HEREDA | SIN_EMPRESA | {
         "empresa", "plan", "suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD,
-        METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO, DISPOSITIVO_PUSH,
+        METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO, DISPOSITIVO_PUSH, REEMBOLSO, CAJA_TURNO,
     }  # fmt: skip
-    assert len(nombres) == 70
+    assert len(nombres) == 72
     # Las que llevan empresa_id: las 50 EMPRESA más suscripcion, bitacora, operacion_sync, modelo_ml, copia_seguridad,
-    # metodo_pago_guardado, pedido_diferido y dispositivo_push.
+    # metodo_pago_guardado, pedido_diferido, dispositivo_push, reembolso y caja_turno.
     assert _con_empresa_id() == EMPRESA_4_1 | {
         "suscripcion", BITACORA, OPERACION_SYNC, MODELO_ML, COPIA_SEGURIDAD, METODO_PAGO_GUARDADO, PEDIDO_DIFERIDO,
-        DISPOSITIVO_PUSH,
+        DISPOSITIVO_PUSH, REEMBOLSO, CAJA_TURNO,
     }  # fmt: skip
-    assert len(_con_empresa_id()) == 58
+    assert len(_con_empresa_id()) == 60
 
 
 def test_empresa_id_es_not_null_salvo_en_usuario_y_apunta_a_empresa():

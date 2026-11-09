@@ -28,6 +28,7 @@ from sqlalchemy import select
 
 from app.catalogo.models import ActivoProbador, ProbadorGeneracion, ProductoImagen
 from app.comercial.models import (
+    CajaTurno,
     Devolucion,
     DevolucionDetalle,
     Envio,
@@ -276,6 +277,22 @@ class Universo:
             h,
         )["id"]
         ids["venta_con_devolucion"] = ultima[0]["id"]
+        # La devolución de arriba es sin cambio de prenda y la venta se pagó en efectivo: dejó su reembolso (ya hecho).
+        ids["reembolso"] = leer(c, f"/ventas/{ultima[0]['id']}/reembolsos", h)[0]["id"]
+        # Un turno de caja YA CERRADO (la observación del cierre lleva la marca): así las pruebas "espejo" de cerrar y de
+        # completar el conteo reciben un 409 sin cambiar nada, y la sucursal queda libre para abrir otro turno.
+        with self.orm() as db:
+            turno = CajaTurno(
+                sucursal_id=ids["sucursal"], abierto_por_id=self.empresa.admin_id, estado="cerrada",
+                apertura_en=dt.datetime(2026, 10, 1, 8, 0, 0), monto_inicial=Decimal("10.00"),
+                cierre_en=dt.datetime(2026, 10, 1, 12, 0, 0), cerrado_por_id=self.empresa.admin_id,
+                efectivo_contado=Decimal("10.00"), ventas_efectivo=Decimal("0.00"), reembolsos_efectivo=Decimal("0.00"),
+                monto_esperado=Decimal("10.00"), diferencia=Decimal("0.00"), cantidad_ventas=0,
+                ventas_otros_metodos=Decimal("0.00"), pendientes_declarados=0, observacion_cierre=m("cierre-caja"),
+            )
+            db.add(turno)
+            db.flush()
+            ids["caja_turno"] = turno.id
         ids["solicitud_cambio"] = self._solicitud_pendiente()
         self._pendiente_con_pasarela()
         self._envio(ventas[1][0]["id"] if len(ventas) > 1 else venta["id"])

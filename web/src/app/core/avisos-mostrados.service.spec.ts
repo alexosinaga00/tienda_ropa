@@ -26,6 +26,8 @@ describe('AvisosMostradosService', () => {
     expect(claveDeAviso('envio', 42, 11)).toBe('notif:11');
     expect(claveDeAviso('envio', 42, 12)).toBe('notif:12');
     expect(claveDeAviso('reserva', 5, 3)).toBe('notif:3');
+    // El reembolso NO se junta con la compra de la misma venta: es otro hecho.
+    expect(claveDeAviso('reembolso', 42, 13)).toBe('notif:13');
   });
 
   it('sin forma de reconocerlo (sin ids) siempre se muestra', () => {

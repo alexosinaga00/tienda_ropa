@@ -12,16 +12,31 @@ cobrar en caja (CU-18).
 
 Envoltorio fino sobre comercial.politicas.registrar_venta: no reimplementa
 la lógica común con CU-13. Si la venta parte de una reserva, usa las
-líneas que el cliente ya marcó `seleccionada=True` al probarse."""
+líneas que el cliente ya marcó `seleccionada=True` al probarse.
+
+Incluye el turno de caja (aporte propio, D24): `AbrirTurnoCaja` y `CerrarTurnoCaja` (el cajero abre el turno de su
+sucursal con un monto inicial, vende y cobra, y lo cierra contando el efectivo; un supervisor puede cerrar el de otra
+persona) y `CompletarConteoTurno` (un supervisor cuenta el cajón de un turno que se cerró solo al terminar el día). La
+caja es de la SUCURSAL: a lo sumo un turno abierto a la vez. Vender sin turno abierto sigue permitido (no entra a
+ninguna caja). El cálculo del esperado vive en `comercial.politicas` (bloque "Caja")."""
 
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from app.comercial.models import Venta
-from app.comercial.politicas import obtener_reserva_para_venta, registrar_venta
+from app.comercial.politicas import (
+    abrir_turno,
+    cerrar_turno,
+    completar_conteo_de_turno,
+    construir_turno_respuesta,
+    es_supervisor_de_caja,
+    obtener_reserva_para_venta,
+    registrar_venta,
+)
 from app.comercial.repository import VentaRepository
-from app.comercial.schemas import VentaPresencialCrear
+from app.comercial.schemas import TurnoAbrir, TurnoCerrar, TurnoCompletarConteo, TurnoRespuesta, VentaPresencialCrear
+from app.core.auditoria import ContextoAuditoria
 from app.core.exceptions import ConflictoError, DomainError, PermisoDenegadoError
 from app.plataforma import politicas as plataforma_politicas
 from app.plataforma.politicas import obtener_cliente
@@ -69,3 +84,48 @@ class RegistrarVentaPresencial:
             costo_envio=Decimal("0"),
             usuario_id=usuario_id,
         )
+
+
+# ---- Turno de caja (aporte propio, D24) ----
+
+
+class AbrirTurnoCaja:
+    """Abre el turno del cajón de la sucursal con el monto inicial. 409 `turno_ya_abierto` si ya hay uno. Un turno que
+    se olvidó abierto de un día anterior se cierra solo antes de abrir el nuevo."""
+
+    def ejecutar(
+        self, db: Session, usuario_id: int, datos: TurnoAbrir, contexto: ContextoAuditoria | None = None
+    ) -> TurnoRespuesta:
+        turno = abrir_turno(db, usuario_id, datos, contexto)
+        return construir_turno_respuesta(db, turno, ver_esperado=es_supervisor_de_caja(db, usuario_id))
+
+
+class CerrarTurnoCaja:
+    """Cierra el turno contando el efectivo (cierre ciego: el cajero cuenta primero y recién entonces ve la diferencia).
+    Lo cierra quien lo abrió o un supervisor de la sucursal."""
+
+    def ejecutar(
+        self,
+        db: Session,
+        usuario_id: int,
+        turno_id: int,
+        datos: TurnoCerrar,
+        contexto: ContextoAuditoria | None = None,
+    ) -> TurnoRespuesta:
+        turno = cerrar_turno(db, usuario_id, turno_id, datos, contexto)
+        return construir_turno_respuesta(db, turno, ver_esperado=True)  # quien cerró ya contó: ve el esperado
+
+
+class CompletarConteoTurno:
+    """Un supervisor cuenta el cajón de un turno cerrado automáticamente (una vez, dentro del plazo)."""
+
+    def ejecutar(
+        self,
+        db: Session,
+        usuario_id: int,
+        turno_id: int,
+        datos: TurnoCompletarConteo,
+        contexto: ContextoAuditoria | None = None,
+    ) -> TurnoRespuesta:
+        turno = completar_conteo_de_turno(db, usuario_id, turno_id, datos, contexto)
+        return construir_turno_respuesta(db, turno, ver_esperado=True)
