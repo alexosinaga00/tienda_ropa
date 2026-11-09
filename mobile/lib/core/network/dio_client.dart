@@ -4,11 +4,14 @@ import 'token_storage.dart';
 
 const _rutasPublicas = ['/auth/login', '/auth/registro', '/auth/refresh', '/auth/recuperar', '/catalogo'];
 
-// Excepción dentro de '/catalogo': obtener_detalle_para_dashboard (usado acá
-// por el carrito, para resolver nombre/foto de cada línea) exige un usuario
-// logueado del lado del backend -- sin esto, quedaría marcado como público
-// y nunca se le mandaría el token.
-const _rutasCatalogoConToken = ['/catalogo/variantes/detalle'];
+// Excepciones: rutas que CONTIENEN '/catalogo' pero exigen un usuario logueado del lado del backend. Sin esto
+// quedarían marcadas como públicas y nunca se les mandaría el token (ni se intentaría el refresh):
+//  - '/catalogo/variantes/detalle' (obtener_detalle_para_dashboard, usado por el carrito para resolver nombre/foto
+//    de cada línea).
+//  - '/sincronizacion/' completo: la descarga del personal (`/sincronizacion/paquete/catalogo`, y sus hermanas) es solo
+//    del personal. Sin token el servidor responde 401 "No autenticado" y la app lo mostraba como "Tu sesión venció",
+//    de modo que el cajero nunca podía descargar el catálogo ni vender sin conexión.
+const _rutasCatalogoConToken = ['/catalogo/variantes/detalle', '/sincronizacion/'];
 
 bool _esRutaPublica(String path) {
   if (_rutasCatalogoConToken.any((ruta) => path.contains(ruta))) return false;

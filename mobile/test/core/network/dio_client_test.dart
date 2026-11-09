@@ -296,4 +296,78 @@ void main() {
       expect(llamadasRefresh, 1);
     });
   });
+
+  group('buildDio - qué peticiones llevan el JWT', () {
+    Dio dioConToken(TokenStorageFalso storage, void Function(RequestOptions) alVer) {
+      final dio = buildDio(tokenStorage: storage, onSesionExpirada: () async {});
+      dio.httpClientAdapter = AdaptadorFalso((options) async {
+        alVer(options);
+        return _json('{"ok":true}', 200);
+      });
+      return dio;
+    }
+
+    test('la descarga del personal (/sincronizacion/paquete/catalogo) lleva el token aunque contenga "/catalogo"', () async {
+      final storage = TokenStorageFalso()..accessToken = 'ACCESS';
+      String? auth;
+      final dio = dioConToken(storage, (o) => auth = o.headers['Authorization'] as String?);
+
+      await dio.get<Map<String, dynamic>>('/sincronizacion/paquete/catalogo');
+
+      expect(auth, 'Bearer ACCESS');
+    });
+
+    test('las demás rutas de /sincronizacion también llevan el token', () async {
+      final storage = TokenStorageFalso()..accessToken = 'ACCESS';
+      final vistas = <String?>[];
+      final dio = dioConToken(storage, (o) => vistas.add(o.headers['Authorization'] as String?));
+
+      for (final ruta in ['/sincronizacion/paquete', '/sincronizacion/paquete/stock', '/sincronizacion/paquete/clientes', '/sincronizacion/lote']) {
+        await dio.get<Map<String, dynamic>>(ruta);
+      }
+
+      expect(vistas, everyElement('Bearer ACCESS'));
+    });
+
+    test('el detalle de variantes del carrito sigue llevando el token', () async {
+      final storage = TokenStorageFalso()..accessToken = 'ACCESS';
+      String? auth;
+      final dio = dioConToken(storage, (o) => auth = o.headers['Authorization'] as String?);
+
+      await dio.get<Map<String, dynamic>>('/catalogo/variantes/detalle');
+
+      expect(auth, 'Bearer ACCESS');
+    });
+
+    test('el catálogo público de la tienda NO lleva el token', () async {
+      final storage = TokenStorageFalso()..accessToken = 'ACCESS';
+      String? auth = 'sin-valor';
+      final dio = dioConToken(storage, (o) => auth = o.headers['Authorization'] as String?);
+
+      await dio.get<Map<String, dynamic>>('/catalogo');
+
+      expect(auth, isNull);
+    });
+
+    test('un 401 en la descarga del catálogo del personal dispara el refresh (no es una ruta pública)', () async {
+      final storage = TokenStorageFalso()
+        ..accessToken = 'ACCESS_VIEJO'
+        ..refreshToken = 'REFRESH_VALIDO';
+      var llamadasRefresh = 0;
+      final dio = buildDio(tokenStorage: storage, onSesionExpirada: () async {});
+      dio.httpClientAdapter = AdaptadorFalso((options) async {
+        if (options.path.contains('/auth/refresh')) {
+          llamadasRefresh++;
+          return _json('{"access_token":"ACCESS_NUEVO","refresh_token":"REFRESH_NUEVO"}', 200);
+        }
+        if (options.headers['Authorization'] == 'Bearer ACCESS_NUEVO') return _json('{"ok":true}', 200);
+        return _json('{"detail":"Token inválido o expirado"}', 401);
+      });
+
+      final respuesta = await dio.get<Map<String, dynamic>>('/sincronizacion/paquete/catalogo');
+
+      expect(respuesta.statusCode, 200);
+      expect(llamadasRefresh, 1);
+    });
+  });
 }
